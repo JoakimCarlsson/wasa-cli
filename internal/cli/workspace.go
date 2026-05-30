@@ -2,9 +2,9 @@ package cli
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"text/tabwriter"
 
 	"github.com/joakimcarlsson/wasa/internal/launch"
@@ -27,7 +27,7 @@ func init() {
 	)
 }
 
-const workspaceUsage = "usage: wasa workspace <list|current|profiles>"
+const workspaceUsage = "usage: wasa workspace <list|current|profiles|add>"
 
 func runWorkspace(args []string) error {
 	if len(args) == 0 {
@@ -42,6 +42,8 @@ func runWorkspace(args []string) error {
 		return workspaceCurrent(rest)
 	case "profiles":
 		return workspaceProfiles(rest)
+	case "add":
+		return workspaceAdd(rest)
 	default:
 		return fmt.Errorf(
 			"unknown workspace subcommand %q\n%s",
@@ -49,6 +51,82 @@ func runWorkspace(args []string) error {
 			workspaceUsage,
 		)
 	}
+}
+
+const workspaceAddHelp = `usage: wasa workspace add <path>
+
+Register an existing git repository as a workspace so it shows up in the cockpit
+without first cd-ing into it. <path> is canonicalized (symlinks resolved, made
+absolute), its primary remote is read, and it is registered with one default
+profile under the same content-addressed id that in-repo auto-registration uses.
+Adding an already-registered repository is idempotent: it is not duplicated.
+
+<path> must already be a git repository. Bootstrapping a new repository from a
+non-existent path (mkdir + git init) is out of scope for this release and is
+never performed; a missing or non-git path is reported as an error.
+`
+
+func workspaceAdd(args []string) error {
+	fs := newFlagSet("wasa workspace add")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Fprint(os.Stdout, workspaceAddHelp)
+			return nil
+		}
+		return err
+	}
+
+	rest := fs.Args()
+	if len(rest) != 1 {
+		return errors.New("usage: wasa workspace add <path>")
+	}
+
+	reg, err := registry.Open(wasaHome())
+	if err != nil {
+		return err
+	}
+
+	ws, _, err := addWorkspace(reg, rest[0])
+	if err != nil {
+		return err
+	}
+	if err := reg.Save(); err != nil {
+		return err
+	}
+
+	fmt.Fprintln(os.Stdout, ws.ID)
+	return nil
+}
+
+// addWorkspace registers the git repository at path in reg, reusing the same
+// resolve-and-register path as in-repo auto-registration so the workspace id and
+// default profile are identical. It returns the workspace and whether it was
+// newly created; an existing repository is returned unchanged rather than
+// duplicated. It errors when path does not exist or is not a git repository, and
+// never creates the path: path-bootstrap is out of scope for this release.
+func addWorkspace(
+	reg *registry.Registry,
+	path string,
+) (*registry.Workspace, bool, error) {
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, fmt.Errorf(
+				"%s does not exist; workspace add registers an existing git "+
+					"repository and never creates one "+
+					"(path-bootstrap is out of scope)",
+				path,
+			)
+		}
+		return nil, false, err
+	}
+
+	repoPath, remoteURL, err := resolveRepo(path)
+	if err != nil {
+		return nil, false, err
+	}
+
+	ws, created := registerRepo(reg, repoPath, remoteURL)
+	return ws, created, nil
 }
 
 func workspaceList(args []string) error {
@@ -227,11 +305,7 @@ func openRegistry() (*registry.Registry, *registry.Workspace, error) {
 
 	var current *registry.Workspace
 	if repoPath, remoteURL, rerr := currentRepo(); rerr == nil {
-		ws, created := reg.EnsureWorkspace(
-			repoPath,
-			remoteURL,
-			filepath.Base(repoPath),
-		)
+		ws, created := registerRepo(reg, repoPath, remoteURL)
 		current = ws
 		changed = changed || created
 	}

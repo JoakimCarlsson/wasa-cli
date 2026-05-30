@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/joakimcarlsson/wasa/internal/registry"
 )
 
 // currentRepo resolves the git repository containing the working directory and
@@ -17,12 +19,33 @@ func currentRepo() (repoPath, remoteURL string, err error) {
 	if err != nil {
 		return "", "", err
 	}
+	return resolveRepo(cwd)
+}
 
-	top, err := repoToplevel(cwd)
+// resolveRepo resolves the git repository containing dir and returns its
+// canonical absolute path and primary remote URL. It is the seam shared by the
+// in-repo launch (which passes the working directory) and workspace add (which
+// passes an explicit path), so both derive identical workspace identities. It
+// errors when dir is not inside a git repository.
+func resolveRepo(dir string) (repoPath, remoteURL string, err error) {
+	top, err := repoToplevel(dir)
 	if err != nil {
 		return "", "", err
 	}
 	return canonical(top), repoRemoteURL(top), nil
+}
+
+// registerRepo registers the repository identified by repoPath and remoteURL in
+// reg, returning its workspace and whether it was newly created. It is the
+// single registration code path: both in-repo auto-registration and workspace
+// add route through it, so a repository always resolves to the same
+// content-addressed id with the same default profile regardless of how it was
+// registered.
+func registerRepo(
+	reg *registry.Registry,
+	repoPath, remoteURL string,
+) (*registry.Workspace, bool) {
+	return reg.EnsureWorkspace(repoPath, remoteURL, filepath.Base(repoPath))
 }
 
 func repoToplevel(dir string) (string, error) {

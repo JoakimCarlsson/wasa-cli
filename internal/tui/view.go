@@ -202,7 +202,8 @@ func pad(s string, w int) string {
 func noWorkspaceBanner() string {
 	return bannerStyle.Render("No workspaces yet.") + "\n\n" +
 		dimStyle.Render(
-			"Run wasa inside a git repo to\nregister one, then press n.",
+			"Add one with\nwasa workspace add <path>\n"+
+				"or run wasa inside a git repo.",
 		)
 }
 
