@@ -115,6 +115,47 @@ func TestValidateName(t *testing.T) {
 	}
 }
 
+func TestAttachCmd(t *testing.T) {
+	c := &Client{Bin: "my-tmux"}
+
+	cmd, err := c.AttachCmd("wasa_demo")
+	if err != nil {
+		t.Fatalf("AttachCmd: %v", err)
+	}
+	if cmd.Path != "my-tmux" && !strings.HasSuffix(cmd.Path, "my-tmux") {
+		t.Fatalf("AttachCmd path = %q, want my-tmux", cmd.Path)
+	}
+	want := []string{"my-tmux", "attach-session", "-t", "wasa_demo"}
+	if !slices.Equal(cmd.Args, want) {
+		t.Fatalf("AttachCmd args = %v, want %v", cmd.Args, want)
+	}
+	if cmd.Stdin != nil || cmd.Stdout != nil || cmd.Stderr != nil {
+		t.Fatal(
+			"AttachCmd wired standard streams; tea.ExecProcess must own them",
+		)
+	}
+	for _, e := range cmd.Env {
+		if strings.HasPrefix(e, "TMUX=") {
+			t.Fatal("AttachCmd left $TMUX set; nested attach would be refused")
+		}
+	}
+}
+
+func TestEnvWithout(t *testing.T) {
+	in := []string{"PATH=/bin", "TMUX=/tmp/sock,1,0", "HOME=/root"}
+	got := envWithout(in, "TMUX")
+	want := []string{"PATH=/bin", "HOME=/root"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("envWithout = %v, want %v", got, want)
+	}
+}
+
+func TestAttachCmdRejectsBadName(t *testing.T) {
+	if _, err := New().AttachCmd("a:b"); err == nil {
+		t.Fatal("AttachCmd accepted an unaddressable name")
+	}
+}
+
 func TestParseSessions(t *testing.T) {
 	cases := []struct {
 		name   string

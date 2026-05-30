@@ -163,6 +163,41 @@ func TestReconcileMarksExited(t *testing.T) {
 	}
 }
 
+func TestMarkExited(t *testing.T) {
+	reg, _ := newTestRegistry(t)
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	reg.AddSession(&Session{ID: "s", WorkspaceID: ws.ID, TmuxName: "wasa_s"})
+
+	if !reg.MarkExited("s") {
+		t.Fatal("MarkExited did not find session")
+	}
+	if got := reg.ListSessions()[0].Status; got != StatusExited {
+		t.Fatalf("status after MarkExited = %q, want %q", got, StatusExited)
+	}
+	if reg.MarkExited("missing") {
+		t.Fatal("MarkExited reported finding an unknown session")
+	}
+}
+
+func TestMarkExitedDoesNotTouchLastUsedAt(t *testing.T) {
+	reg, clock := newTestRegistry(t)
+
+	*clock = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	reg.AddSession(&Session{ID: "s", WorkspaceID: ws.ID})
+	before := ws.LastUsedAt
+
+	*clock = time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	reg.MarkExited("s")
+	if !ws.LastUsedAt.Equal(before) {
+		t.Fatalf(
+			"MarkExited advanced LastUsedAt: %v != %v",
+			ws.LastUsedAt,
+			before,
+		)
+	}
+}
+
 func TestReconcileIgnoresProbeError(t *testing.T) {
 	reg, _ := newTestRegistry(t)
 	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")

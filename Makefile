@@ -1,4 +1,4 @@
-.PHONY: install fmt lint
+.PHONY: install fmt lint build run
 
 GOPATH_FWD := $(subst \,/,$(shell go env GOPATH))
 
@@ -20,3 +20,11 @@ fmt:
 lint:
 	go vet ./...
 	$(GOLANGCI)
+
+build:
+	go build -buildvcs=false -o /tmp/wasa ./cmd/wasa
+
+run: build
+	@WASA_HOME=$${WASA_HOME:-$$(mktemp -d)}; \
+	echo "Launching wasa (WASA_HOME=$$WASA_HOME) in $$(pwd)"; \
+	WASA_HOME=$$WASA_HOME exec /tmp/wasa

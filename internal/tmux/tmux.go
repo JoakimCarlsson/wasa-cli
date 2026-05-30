@@ -52,17 +52,50 @@ func (c *Client) SpawnEnv(
 	return err
 }
 
+// AttachCmd returns the unstarted command that attaches to the session named
+// name, with no standard streams wired. It is the seam the TUI hands to
+// tea.ExecProcess, which must own the terminal for the duration of the attach:
+// Bubble Tea suspends its renderer, runs this command with the real terminal
+// stdin/stdout/stderr, and resumes on detach (C-b d). Running an attach command
+// whose streams the caller wired by hand from inside a live Bubble Tea program
+// corrupts the TUI, which is why the TUI never calls Attach directly.
+//
+// The command's environment has $TMUX cleared so the attach succeeds even when
+// wasa itself was launched from inside a tmux session, where tmux's nested-
+// session guard would otherwise refuse to attach.
+func (c *Client) AttachCmd(name string) (*exec.Cmd, error) {
+	if err := validateName(name); err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(c.bin(), attachArgs(name)...)
+	cmd.Env = envWithout(os.Environ(), "TMUX")
+	return cmd, nil
+}
+
+// envWithout returns environ with every KEY=VALUE entry whose key is key
+// removed. tmux exports both TMUX and TMUX_PANE; clearing TMUX alone is enough
+// to lift the nested-session guard.
+func envWithout(environ []string, key string) []string {
+	prefix := key + "="
+	out := environ[:0:0]
+	for _, e := range environ {
+		if strings.HasPrefix(e, prefix) {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
 // Attach hands the current terminal to tmux, attaching to the session named
 // name. It wires the process's standard streams to tmux and blocks until tmux
-// exits, for example when the user detaches with C-b d. The TUI later attaches
-// through tea.ExecProcess; this is the CLI path.
+// exits, for example when the user detaches with C-b d. This is the CLI path;
+// the TUI attaches through AttachCmd and tea.ExecProcess.
 func (c *Client) Attach(name string) error {
-	if err := validateName(name); err != nil {
+	cmd, err := c.AttachCmd(name)
+	if err != nil {
 		return err
 	}
-
-	args := attachArgs(name)
-	cmd := exec.Command(c.bin(), args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -71,7 +104,11 @@ func (c *Client) Attach(name string) error {
 		if errors.Is(err, exec.ErrNotFound) {
 			return notInstalled(err)
 		}
-		return fmt.Errorf("tmux %s: %w", strings.Join(args, " "), err)
+		return fmt.Errorf(
+			"tmux %s: %w",
+			strings.Join(attachArgs(name), " "),
+			err,
+		)
 	}
 	return nil
 }
@@ -117,6 +154,29 @@ func (c *Client) List() ([]string, error) {
 	return parseSessions(stdout), nil
 }
 
+// Capture returns the visible contents of the active pane of the session named
+// name as plain text, for rendering a read-only preview. A session that does
+// not exist yields an empty string rather than an error, so a just-exited
+// session degrades to a blank preview instead of a hard failure.
+func (c *Client) Capture(name string) (string, error) {
+	if err := validateName(name); err != nil {
+		return "", err
+	}
+
+	stdout, _, err := c.output(captureArgs(name)...)
+	switch {
+	case err == nil:
+		return stdout, nil
+	case errors.Is(err, exec.ErrNotFound):
+		return "", notInstalled(err)
+	default:
+		if _, ok := errors.AsType[*exec.ExitError](err); ok {
+			return "", nil
+		}
+		return "", fmt.Errorf("tmux capture-pane: %w", err)
+	}
+}
+
 // Kill kills the session named name.
 func (c *Client) Kill(name string) error {
 	if err := validateName(name); err != nil {
@@ -150,6 +210,10 @@ func hasArgs(name string) []string {
 
 func killArgs(name string) []string {
 	return []string{"kill-session", "-t", name}
+}
+
+func captureArgs(name string) []string {
+	return []string{"capture-pane", "-p", "-t", name}
 }
 
 func listArgs() []string {
