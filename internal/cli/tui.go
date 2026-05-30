@@ -10,8 +10,10 @@ import (
 )
 
 // runCockpit opens the registry, reconciles it and launches the Bubble Tea
-// cockpit focused on the current repository's workspace. It is the bare-wasa
-// entry point: running wasa with no subcommand inside a known repo.
+// cockpit. It is the bare-wasa entry point: run inside a known repo it focuses
+// that repository's workspace; run outside any git repo it opens the
+// all-workspaces view, seeded with every registered workspace as a tab (and the
+// empty-state banner when none exist) rather than erroring.
 func runCockpit() error {
 	reg, current, err := openRegistry()
 	if err != nil {

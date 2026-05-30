@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -168,6 +169,27 @@ func TestListCursorNavigation(t *testing.T) {
 	m = next.(Model)
 	if m.cursor != 0 {
 		t.Fatalf("cursor after up = %d, want 0", m.cursor)
+	}
+}
+
+func TestEmptyRegistryShowsBanner(t *testing.T) {
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	m := New(t.TempDir(), reg, "")
+	if m.activeID != "" {
+		t.Fatalf("activeID = %q, want empty with no workspaces", m.activeID)
+	}
+
+	m.width, m.height = 80, 24
+	view := m.View()
+	if !strings.Contains(view, "No workspaces yet.") {
+		t.Fatalf("view missing empty-state banner:\n%s", view)
+	}
+	if !strings.Contains(view, "workspace add") {
+		t.Fatalf("banner does not point at workspace add:\n%s", view)
 	}
 }
 
