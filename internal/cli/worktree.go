@@ -4,11 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
 	"text/tabwriter"
 
+	"github.com/joakimcarlsson/wasa/internal/registry"
 	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
@@ -104,36 +102,11 @@ func worktreeRemove(args []string) error {
 }
 
 func newManager() (*worktree.Manager, error) {
-	cwd, err := os.Getwd()
+	repoPath, remoteURL, err := currentRepo()
 	if err != nil {
 		return nil, err
 	}
 
-	repo, err := repoToplevel(cwd)
-	if err != nil {
-		return nil, err
-	}
-
-	workspace := filepath.Base(repo)
-	return worktree.New(repo, wasaHome(), workspace), nil
-}
-
-func repoToplevel(dir string) (string, error) {
-	cmd := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel")
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("not a git repository: %s", dir)
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
-func wasaHome() string {
-	if h := os.Getenv("WASA_HOME"); h != "" {
-		return h
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ".wasa"
-	}
-	return filepath.Join(home, ".wasa")
+	id := registry.WorkspaceID(repoPath, remoteURL)
+	return worktree.New(repoPath, wasaHome(), id), nil
 }
