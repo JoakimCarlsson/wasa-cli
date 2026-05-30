@@ -56,11 +56,15 @@ func (r *Registry) Save() error {
 		return err
 	}
 
-	data, err := json.MarshalIndent(
-		document{Workspaces: r.ws, Sessions: r.sess},
-		"",
-		"  ",
-	)
+	doc := document{Workspaces: r.ws, Sessions: r.sess}
+	if doc.Workspaces == nil {
+		doc.Workspaces = []*Workspace{}
+	}
+	if doc.Sessions == nil {
+		doc.Sessions = []*Session{}
+	}
+
+	data, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return err
 	}
