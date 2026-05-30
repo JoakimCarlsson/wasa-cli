@@ -34,10 +34,21 @@ func New() *Client {
 // Spawn creates a detached session named name that runs program (or an
 // interactive shell when program is empty) with working directory dir.
 func (c *Client) Spawn(name, dir string, program ...string) error {
+	return c.SpawnEnv(name, dir, nil, program...)
+}
+
+// SpawnEnv is Spawn with environment injection: each entry of env, in KEY=VALUE
+// form, is passed as a tmux new-session -e argument so the variable lives on the
+// session and survives on the shared tmux server.
+func (c *Client) SpawnEnv(
+	name, dir string,
+	env []string,
+	program ...string,
+) error {
 	if err := validateName(name); err != nil {
 		return err
 	}
-	_, err := c.run(spawnArgs(name, dir, program)...)
+	_, err := c.run(spawnArgs(name, dir, env, program)...)
 	return err
 }
 
@@ -115,8 +126,11 @@ func (c *Client) Kill(name string) error {
 	return err
 }
 
-func spawnArgs(name, dir string, program []string) []string {
+func spawnArgs(name, dir string, env, program []string) []string {
 	args := []string{"new-session", "-d", "-s", name}
+	for _, e := range env {
+		args = append(args, "-e", e)
+	}
 	if dir != "" {
 		args = append(args, "-c", dir)
 	}
