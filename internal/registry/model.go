@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -31,13 +32,23 @@ const (
 	shortLen = 8
 )
 
-// Profile is a named configuration scope within a workspace. Only Name is
-// meaningful today; env, envFiles, agentConfigDir and postWorktreeHook arrive in
-// a later issue. EnvFiles, when populated, holds paths to env files and never
-// their inlined contents.
+// Profile is a named configuration scope within a workspace: the environment
+// and per-program account a session launched under it should use. A workspace
+// holds one or more profiles and its first is the default.
+//
+// Env holds environment variables injected into the session verbatim. EnvFiles
+// holds paths to .env files loaded at session launch; only the paths are
+// persisted here, never the secret values they contain. AgentConfigDir, when
+// set, overrides the launched program's config/home directory by way of that
+// program's config-dir environment variable, enabling a per-repository account.
+// PostWorktreeHook is a command run after a worktree is created for the session;
+// the field is defined here but its execution lives in a later issue.
 type Profile struct {
-	Name     string   `json:"name"`
-	EnvFiles []string `json:"envFiles,omitempty"`
+	Name             string            `json:"name"`
+	Env              map[string]string `json:"env,omitempty"`
+	EnvFiles         []string          `json:"envFiles,omitempty"`
+	AgentConfigDir   string            `json:"agentConfigDir,omitempty"`
+	PostWorktreeHook string            `json:"postWorktreeHook,omitempty"`
 }
 
 // Workspace is a per-repository scope. Its ID is content-addressed from the
@@ -67,6 +78,35 @@ type Session struct {
 	TmuxName     string    `json:"tmuxName"`
 	Status       string    `json:"status"`
 	CreatedAt    time.Time `json:"createdAt"`
+}
+
+// DefaultProfile returns the workspace's default profile, which is its first.
+// It reports false when the workspace holds no profiles, which a well-formed
+// workspace never does.
+func (w *Workspace) DefaultProfile() (Profile, bool) {
+	if len(w.Profiles) == 0 {
+		return Profile{}, false
+	}
+	return w.Profiles[0], true
+}
+
+// SelectProfile returns the profile named name, or the default profile when
+// name is empty. An unknown name is reported as an error so a typo never
+// silently falls back to the default.
+func (w *Workspace) SelectProfile(name string) (Profile, error) {
+	if name == "" {
+		p, ok := w.DefaultProfile()
+		if !ok {
+			return Profile{}, errors.New("workspace has no profiles")
+		}
+		return p, nil
+	}
+	for _, p := range w.Profiles {
+		if p.Name == name {
+			return p, nil
+		}
+	}
+	return Profile{}, fmt.Errorf("unknown profile %q", name)
 }
 
 // WorkspaceID returns the content-addressed identifier for a repository

@@ -7,9 +7,15 @@ import (
 	"path/filepath"
 	"text/tabwriter"
 
+	"github.com/joakimcarlsson/wasa/internal/profile"
 	"github.com/joakimcarlsson/wasa/internal/registry"
 	"github.com/joakimcarlsson/wasa/internal/tmux"
 )
+
+// defaultSessionProgram is the program a session runs when none is given on the
+// command line. wasa is a cockpit for AI coding agents, so the default is the
+// claude agent rather than a bare shell.
+const defaultSessionProgram = "claude"
 
 func init() {
 	commands = append(commands,
@@ -26,7 +32,7 @@ func init() {
 	)
 }
 
-const workspaceUsage = "usage: wasa workspace <list|current>"
+const workspaceUsage = "usage: wasa workspace <list|current|profiles>"
 
 func runWorkspace(args []string) error {
 	if len(args) == 0 {
@@ -39,6 +45,8 @@ func runWorkspace(args []string) error {
 		return workspaceList(rest)
 	case "current":
 		return workspaceCurrent(rest)
+	case "profiles":
+		return workspaceProfiles(rest)
 	default:
 		return fmt.Errorf(
 			"unknown workspace subcommand %q\n%s",
@@ -81,7 +89,31 @@ func workspaceCurrent(args []string) error {
 	return nil
 }
 
-const sessionUsage = "usage: wasa session <list>"
+func workspaceProfiles(args []string) error {
+	if len(args) != 0 {
+		return errors.New("usage: wasa workspace profiles")
+	}
+
+	_, current, err := openRegistry()
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		return errors.New("not a git repository")
+	}
+
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	for i, p := range current.Profiles {
+		marker := ""
+		if i == 0 {
+			marker = "(default)"
+		}
+		fmt.Fprintf(tw, "%s\t%s\n", p.Name, marker)
+	}
+	return tw.Flush()
+}
+
+const sessionUsage = "usage: wasa session <list|new>"
 
 func runSession(args []string) error {
 	if len(args) == 0 {
@@ -92,6 +124,8 @@ func runSession(args []string) error {
 	switch sub {
 	case "list":
 		return sessionList(rest)
+	case "new":
+		return sessionNew(rest)
 	default:
 		return fmt.Errorf(
 			"unknown session subcommand %q\n%s",
@@ -99,6 +133,89 @@ func runSession(args []string) error {
 			sessionUsage,
 		)
 	}
+}
+
+const sessionNewUsage = "usage: wasa session new --branch <branch> " +
+	"[--profile <name>] [--program <program>] [--title <title>]"
+
+func sessionNew(args []string) error {
+	fs := newFlagSet("wasa session new")
+	var profileName, program, branch, title string
+	fs.StringVar(
+		&profileName,
+		"profile",
+		"",
+		"profile name (default profile if unset)",
+	)
+	fs.StringVar(
+		&program,
+		"program",
+		defaultSessionProgram,
+		"program to run in the session",
+	)
+	fs.StringVar(
+		&branch,
+		"branch",
+		"",
+		"branch to create the worktree on (required)",
+	)
+	fs.StringVar(&title, "title", "", "human-readable session title")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if branch == "" {
+		return errors.New(sessionNewUsage)
+	}
+
+	reg, current, err := openRegistry()
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		return errors.New("not a git repository")
+	}
+
+	prof, err := current.SelectProfile(profileName)
+	if err != nil {
+		return err
+	}
+
+	env, err := profile.Resolve(prof, program)
+	if err != nil {
+		return err
+	}
+
+	m, err := newManager()
+	if err != nil {
+		return err
+	}
+	worktreePath, err := m.Add(branch)
+	if err != nil {
+		return err
+	}
+
+	sessionID := registry.NewSessionID()
+	tmuxName := registry.TmuxName(current.ID, sessionID)
+	if err := tmux.New().SpawnEnv(tmuxName, worktreePath, env, program); err != nil {
+		return err
+	}
+
+	reg.AddSession(&registry.Session{
+		ID:           sessionID,
+		WorkspaceID:  current.ID,
+		ProfileName:  prof.Name,
+		Title:        title,
+		Program:      program,
+		Branch:       branch,
+		WorktreePath: worktreePath,
+		TmuxName:     tmuxName,
+	})
+	if err := reg.Save(); err != nil {
+		return err
+	}
+
+	fmt.Fprintln(os.Stdout, tmuxName)
+	return nil
 }
 
 func sessionList(args []string) error {

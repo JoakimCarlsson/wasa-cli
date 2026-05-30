@@ -31,3 +31,26 @@ func TestTmuxSpawnRequiresName(t *testing.T) {
 		t.Fatalf("tmuxSpawn without --name err = %v, want name usage", err)
 	}
 }
+
+func TestSessionAndWorkspaceCommandsRegistered(t *testing.T) {
+	for _, name := range []string{"session", "workspace"} {
+		if _, ok := lookup(name); !ok {
+			t.Fatalf("%s command not registered", name)
+		}
+	}
+}
+
+func TestRunSessionUnknownSubcommand(t *testing.T) {
+	err := runSession([]string{"bogus"})
+	if err == nil ||
+		!strings.Contains(err.Error(), "unknown session subcommand") {
+		t.Fatalf("runSession err = %v, want unknown-subcommand error", err)
+	}
+}
+
+func TestSessionNewRequiresBranch(t *testing.T) {
+	err := sessionNew([]string{"--profile", "work"})
+	if err == nil || !strings.Contains(err.Error(), "--branch") {
+		t.Fatalf("sessionNew without --branch err = %v, want branch usage", err)
+	}
+}

@@ -1,7 +1,10 @@
 package registry
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -217,6 +220,94 @@ func TestEnumerationDoesNotTouchLastUsedAt(t *testing.T) {
 			"LastUsedAt changed by enumeration: %v != %v",
 			ws.LastUsedAt,
 			before,
+		)
+	}
+}
+
+func TestSelectProfile(t *testing.T) {
+	w := &Workspace{Profiles: []Profile{
+		{Name: "work"},
+		{Name: "personal"},
+	}}
+
+	if p, err := w.SelectProfile(""); err != nil || p.Name != "work" {
+		t.Fatalf(
+			"SelectProfile(\"\") = (%+v, %v), want default \"work\"",
+			p,
+			err,
+		)
+	}
+	if p, err := w.SelectProfile("personal"); err != nil ||
+		p.Name != "personal" {
+		t.Fatalf(
+			"SelectProfile(personal) = (%+v, %v), want \"personal\"",
+			p,
+			err,
+		)
+	}
+	if _, err := w.SelectProfile("nope"); err == nil {
+		t.Fatal("SelectProfile of an unknown name returned nil error")
+	}
+
+	empty := &Workspace{}
+	if _, ok := empty.DefaultProfile(); ok {
+		t.Fatal("DefaultProfile reported ok for a profile-less workspace")
+	}
+	if _, err := empty.SelectProfile(""); err == nil {
+		t.Fatal("SelectProfile on a profile-less workspace returned nil error")
+	}
+}
+
+func TestEnvFileSecretsNeverPersisted(t *testing.T) {
+	dir := t.TempDir()
+
+	secretFile := filepath.Join(dir, "secret.env")
+	if err := os.WriteFile(
+		secretFile, []byte("TOKEN=secret-value\n"), 0o600,
+	); err != nil {
+		t.Fatalf("write env file: %v", err)
+	}
+
+	reg, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	clock := time.Date(2026, 5, 30, 8, 0, 0, 0, time.UTC)
+	reg.now = func() time.Time { return clock }
+
+	ws, _ := reg.EnsureWorkspace("/repo", "remote", "repo")
+	ws.Profiles = []Profile{{
+		Name:     "work",
+		Env:      map[string]string{"PUBLIC": "ok"},
+		EnvFiles: []string{secretFile},
+	}}
+	if err := reg.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, fileName))
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	state := string(data)
+
+	if strings.Contains(state, "secret-value") {
+		t.Fatal("state JSON inlined an env-file secret")
+	}
+	if !strings.Contains(state, filepath.Base(secretFile)) {
+		t.Fatal("state JSON does not store the env-file path")
+	}
+
+	reloaded, err := Open(dir)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	got, _ := reloaded.Workspace(ws.ID)
+	if len(got.Profiles) != 1 ||
+		!slices.Equal(got.Profiles[0].EnvFiles, []string{secretFile}) {
+		t.Fatalf(
+			"reloaded profile = %+v, want only the env-file path",
+			got.Profiles,
 		)
 	}
 }

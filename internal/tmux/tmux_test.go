@@ -11,6 +11,7 @@ func TestSpawnArgs(t *testing.T) {
 		name    string
 		session string
 		dir     string
+		env     []string
 		program []string
 		want    []string
 	}{
@@ -41,11 +42,23 @@ func TestSpawnArgs(t *testing.T) {
 			program: []string{"bash"},
 			want:    []string{"new-session", "-d", "-s", "s", "bash"},
 		},
+		{
+			name:    "env injected as -e before -c and program",
+			session: "wasa_demo",
+			dir:     "/work/repo",
+			env:     []string{"FOO=bar", "CLAUDE_CONFIG_DIR=/cfg"},
+			program: []string{"claude"},
+			want: []string{
+				"new-session", "-d", "-s", "wasa_demo",
+				"-e", "FOO=bar", "-e", "CLAUDE_CONFIG_DIR=/cfg",
+				"-c", "/work/repo", "claude",
+			},
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := spawnArgs(tc.session, tc.dir, tc.program)
+			got := spawnArgs(tc.session, tc.dir, tc.env, tc.program)
 			if !slices.Equal(got, tc.want) {
 				t.Fatalf("spawnArgs = %v, want %v", got, tc.want)
 			}
