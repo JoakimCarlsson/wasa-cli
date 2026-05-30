@@ -117,6 +117,31 @@ func (r *Registry) Workspace(id string) (*Workspace, bool) {
 	return nil, false
 }
 
+// Session returns the session with the given id, if present.
+func (r *Registry) Session(id string) (*Session, bool) {
+	for _, s := range r.sess {
+		if s.ID == id {
+			return s, true
+		}
+	}
+	return nil, false
+}
+
+// RemoveSession deletes the session with the given id from the registry,
+// reporting whether it was found. It is the terminal step of the finish
+// lifecycle: once removed, the session no longer appears as active. This is
+// distinct from MarkExited, which keeps the session but records that its tmux
+// died.
+func (r *Registry) RemoveSession(id string) bool {
+	for i, s := range r.sess {
+		if s.ID == id {
+			r.sess = slices.Delete(r.sess, i, i+1)
+			return true
+		}
+	}
+	return false
+}
+
 // EnsureWorkspace returns the workspace for the repository identified by its
 // canonical path and remote, registering it with a single default profile when
 // it is not yet known. The boolean reports whether a new workspace was created.
