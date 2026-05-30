@@ -347,6 +347,59 @@ func TestEnvFileSecretsNeverPersisted(t *testing.T) {
 	}
 }
 
+func TestSessionLookupAndRemove(t *testing.T) {
+	reg, _ := newTestRegistry(t)
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	reg.AddSession(&Session{ID: "keep", WorkspaceID: ws.ID})
+	reg.AddSession(&Session{ID: "drop", WorkspaceID: ws.ID})
+
+	if _, ok := reg.Session("drop"); !ok {
+		t.Fatal("Session did not find a present session")
+	}
+	if _, ok := reg.Session("absent"); ok {
+		t.Fatal("Session found an absent session")
+	}
+
+	if !reg.RemoveSession("drop") {
+		t.Fatal("RemoveSession did not find the session")
+	}
+	if _, ok := reg.Session("drop"); ok {
+		t.Fatal("removed session is still resolvable")
+	}
+	if reg.RemoveSession("drop") {
+		t.Fatal("RemoveSession reported finding an already-removed session")
+	}
+
+	got := reg.ListSessions()
+	if len(got) != 1 || got[0].ID != "keep" {
+		t.Fatalf("sessions after remove = %+v, want only keep", got)
+	}
+}
+
+func TestRemoveSessionPersists(t *testing.T) {
+	dir := t.TempDir()
+	reg, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	reg.AddSession(&Session{ID: "gone", WorkspaceID: ws.ID})
+	if !reg.RemoveSession("gone") {
+		t.Fatal("RemoveSession did not find the session")
+	}
+	if err := reg.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	reloaded, err := Open(dir)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if got := reloaded.ListSessions(); len(got) != 0 {
+		t.Fatalf("reloaded sessions = %+v, want none", got)
+	}
+}
+
 func names(ws []*Workspace) []string {
 	out := make([]string, len(ws))
 	for i, w := range ws {

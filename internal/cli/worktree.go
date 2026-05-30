@@ -98,7 +98,7 @@ func worktreeRemove(args []string) error {
 	if err != nil {
 		return err
 	}
-	return m.Remove(args[0])
+	return m.Remove(args[0], false)
 }
 
 func newManager() (*worktree.Manager, error) {

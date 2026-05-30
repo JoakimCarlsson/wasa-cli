@@ -102,8 +102,10 @@ func (m *Manager) List() ([]Worktree, error) {
 
 // Remove removes the worktree identified by target. target may be an existing
 // worktree path or a branch name, in which case its path is computed via the
-// manager's layout.
-func (m *Manager) Remove(target string) error {
+// manager's layout. When force is false a worktree with uncommitted or
+// untracked changes blocks the removal and git's error is surfaced; force passes
+// --force so the dirty worktree is removed and its changes discarded.
+func (m *Manager) Remove(target string, force bool) error {
 	if target == "" {
 		return errors.New("target must not be empty")
 	}
@@ -113,7 +115,29 @@ func (m *Manager) Remove(target string) error {
 		path = m.Path(target)
 	}
 
-	_, err := m.git("worktree", "remove", path)
+	args := []string{"worktree", "remove"}
+	if force {
+		args = append(args, "--force")
+	}
+	_, err := m.git(append(args, path)...)
+	return err
+}
+
+// DeleteBranch deletes the local branch. When force is false git refuses to
+// delete a branch whose commits are not merged into its upstream or HEAD (git
+// branch -d); force deletes it regardless (git branch -D), discarding any
+// unmerged work. The finish lifecycle force-deletes because wasa never merges,
+// so a session's branch is routinely unmerged at teardown.
+func (m *Manager) DeleteBranch(branch string, force bool) error {
+	if branch == "" {
+		return errors.New("branch must not be empty")
+	}
+
+	flag := "-d"
+	if force {
+		flag = "-D"
+	}
+	_, err := m.git("branch", flag, branch)
 	return err
 }
 

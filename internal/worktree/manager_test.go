@@ -39,12 +39,47 @@ func TestManagerAddListRemove(t *testing.T) {
 		t.Fatalf("List missing feature/demo: %+v", list)
 	}
 
-	if err := m.Remove("feature/demo"); err != nil {
+	if err := m.Remove("feature/demo", false); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("worktree dir still present after remove: %v", err)
 	}
+}
+
+func TestDeleteBranch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available on PATH")
+	}
+
+	home := t.TempDir()
+	repo := t.TempDir()
+	initRepo(t, repo)
+
+	m := New(repo, home, "demo")
+	if _, err := m.Add("feature/gone"); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := m.Remove("feature/gone", false); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+
+	if err := m.DeleteBranch("feature/gone", true); err != nil {
+		t.Fatalf("DeleteBranch: %v", err)
+	}
+	if branchPresent(t, repo, "feature/gone") {
+		t.Fatal("branch still present after force DeleteBranch")
+	}
+}
+
+func branchPresent(t *testing.T, repo, branch string) bool {
+	t.Helper()
+	cmd := exec.Command("git", "-C", repo, "branch", "--list", branch)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git branch --list: %v", err)
+	}
+	return len(out) > 0
 }
 
 func containsBranch(list []Worktree, branch string) bool {
