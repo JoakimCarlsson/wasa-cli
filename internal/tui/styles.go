@@ -2,32 +2,76 @@ package tui
 
 import "github.com/charmbracelet/lipgloss"
 
+// Palette, adapted from the claude-squad / agent-deck aesthetic: a purple
+// accent on borders and the active tab, a green status dot for running and a
+// dim grey one for exited, and a light selection band that flips the row text
+// dark.
 var (
-	titleStyle = lipgloss.NewStyle().Bold(true)
+	accent     = lipgloss.AdaptiveColor{Light: "#874BFD", Dark: "#7D56F4"}
+	runningCol = lipgloss.Color("#51bd73")
+	exitedCol  = lipgloss.Color("#888888")
+	titleCol   = lipgloss.AdaptiveColor{Light: "#1a1a1a", Dark: "#dddddd"}
+	descCol    = lipgloss.AdaptiveColor{Light: "#A49FA5", Dark: "#777777"}
+	selBg      = lipgloss.Color("#dde4f0")
+	selFg      = lipgloss.Color("#1a1a1a")
+)
+
+var (
+	paneStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(accent)
+
+	paneTitleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(accent).
+			Padding(0, 1)
 
 	activeTabStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("0")).
-			Background(lipgloss.Color("39")).
-			Padding(0, 1)
+			Foreground(lipgloss.Color("230")).
+			Background(accent).
+			Padding(0, 2)
 
 	inactiveTabStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("245")).
-				Padding(0, 1)
+				Foreground(descCol).
+				Padding(0, 2)
 
-	runningDotStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
-	exitedDotStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	runningDotStyle = lipgloss.NewStyle().Foreground(runningCol)
+	exitedDotStyle  = lipgloss.NewStyle().Foreground(exitedCol)
 
-	selectedRowStyle = lipgloss.NewStyle().
+	rowTitleStyle = lipgloss.NewStyle().Foreground(titleCol)
+	rowDescStyle  = lipgloss.NewStyle().Foreground(descCol)
+
+	selRowTitleStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color("39"))
-	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	bannerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-	errorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
-	helpStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+				Background(selBg).
+				Foreground(selFg)
+	selRowDescStyle = lipgloss.NewStyle().
+			Background(selBg).
+			Foreground(selFg)
 
-	focusedLabelStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("39"))
-	labelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	previewStyle = lipgloss.NewStyle().Foreground(titleCol)
+
+	bannerStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
+	dimStyle    = lipgloss.NewStyle().Foreground(descCol)
+	errorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#de613e"))
+
+	menuKeyStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.AdaptiveColor{Light: "#655F5F", Dark: "#cfcaca"})
+	menuDescStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#7A7474", Dark: "#9C9494"})
+	menuSepStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#DDDADA", Dark: "#3C3C3C"})
+
+	titleStyle        = lipgloss.NewStyle().Bold(true).Foreground(accent)
+	focusedLabelStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
+	labelStyle        = lipgloss.NewStyle().Foreground(descCol)
+)
+
+const (
+	branchIcon  = "Ꮧ"
+	runningIcon = "●"
+	exitedIcon  = "●"
+	menuSep     = " • "
 )

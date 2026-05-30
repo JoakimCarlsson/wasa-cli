@@ -154,6 +154,29 @@ func (c *Client) List() ([]string, error) {
 	return parseSessions(stdout), nil
 }
 
+// Capture returns the visible contents of the active pane of the session named
+// name as plain text, for rendering a read-only preview. A session that does
+// not exist yields an empty string rather than an error, so a just-exited
+// session degrades to a blank preview instead of a hard failure.
+func (c *Client) Capture(name string) (string, error) {
+	if err := validateName(name); err != nil {
+		return "", err
+	}
+
+	stdout, _, err := c.output(captureArgs(name)...)
+	switch {
+	case err == nil:
+		return stdout, nil
+	case errors.Is(err, exec.ErrNotFound):
+		return "", notInstalled(err)
+	default:
+		if _, ok := errors.AsType[*exec.ExitError](err); ok {
+			return "", nil
+		}
+		return "", fmt.Errorf("tmux capture-pane: %w", err)
+	}
+}
+
 // Kill kills the session named name.
 func (c *Client) Kill(name string) error {
 	if err := validateName(name); err != nil {
@@ -187,6 +210,10 @@ func hasArgs(name string) []string {
 
 func killArgs(name string) []string {
 	return []string{"kill-session", "-t", name}
+}
+
+func captureArgs(name string) []string {
+	return []string{"capture-pane", "-p", "-t", name}
 }
 
 func listArgs() []string {

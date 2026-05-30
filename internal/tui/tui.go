@@ -12,6 +12,8 @@
 package tui
 
 import (
+	"time"
+
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -48,6 +50,8 @@ type Model struct {
 	width  int
 	height int
 
+	preview string
+
 	status string
 	err    error
 }
@@ -75,8 +79,23 @@ func Run(home string, reg *registry.Registry, currentID string) error {
 	return err
 }
 
+// previewInterval is how often the preview pane re-captures the selected
+// session's tmux output. The session list's running/exited status still comes
+// from the registry, never from this capture; this only refreshes the read-only
+// preview body.
+const previewInterval = 750 * time.Millisecond
+
 // Init implements tea.Model.
-func (m Model) Init() tea.Cmd { return nil }
+func (m Model) Init() tea.Cmd { return tick() }
+
+type tickMsg struct{}
+
+func tick() tea.Cmd {
+	return tea.Tick(
+		previewInterval,
+		func(time.Time) tea.Msg { return tickMsg{} },
+	)
+}
 
 type createdMsg struct {
 	session *registry.Session
@@ -96,6 +115,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
+
+	case tickMsg:
+		m.updatePreview()
+		return m, tick()
 
 	case createdMsg:
 		if msg.err != nil {
@@ -148,15 +171,19 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "right", "tab", "]":
 		m.cycleTab(1)
+		m.updatePreview()
 	case "left", "shift+tab", "[":
 		m.cycleTab(-1)
+		m.updatePreview()
 	case "up":
 		if m.cursor > 0 {
 			m.cursor--
+			m.updatePreview()
 		}
 	case "down":
 		if m.cursor < len(m.sessions())-1 {
 			m.cursor++
+			m.updatePreview()
 		}
 	case "n":
 		return m.enterCreate()
@@ -287,6 +314,21 @@ func (m *Model) refresh() {
 		m.cursor = n - 1
 	}
 	m.cursor = max(m.cursor, 0)
+	m.updatePreview()
+}
+
+// updatePreview re-captures the selected session's tmux output into the preview
+// buffer. A non-running or absent session clears the buffer. Capture errors are
+// swallowed: the preview is a convenience, not a source of truth.
+func (m *Model) updatePreview() {
+	s := m.selectedSession()
+	if s == nil || s.Status != registry.StatusRunning {
+		m.preview = ""
+		return
+	}
+	if out, err := m.tmux.Capture(s.TmuxName); err == nil {
+		m.preview = out
+	}
 }
 
 func (m *Model) cycleTab(delta int) {

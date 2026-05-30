@@ -4,33 +4,60 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
+
 	"github.com/joakimcarlsson/wasa/internal/registry"
+)
+
+const (
+	minWidth    = 40
+	listColFrac = 0.34
+	chromeRows  = 6
 )
 
 // View implements tea.Model.
 func (m Model) View() string {
 	if m.mode == modeCreate {
-		return m.form.view() + m.footer()
+		return m.form.view() + "\n" + m.statusLine()
+	}
+	if m.width < minWidth || m.height < 8 {
+		return m.compactView()
 	}
 
-	if len(m.workspaces) == 0 {
-		return m.chrome(noWorkspaceBanner())
-	}
+	tabs := m.tabBar()
 
-	var b strings.Builder
-	b.WriteString(m.tabBar())
-	b.WriteString("\n\n")
-	b.WriteString(m.sessionList())
-	return m.chrome(b.String())
+	bodyH := max(m.height-chromeRows, 3)
+	listW := max(int(float64(m.width)*listColFrac), 24)
+	previewW := m.width - listW - 4
+
+	list := paneStyle.Width(listW).Height(bodyH).Render(
+		m.paneTitle("sessions") + "\n" + m.sessionList(listW),
+	)
+	preview := paneStyle.Width(previewW).Height(bodyH).Render(
+		m.paneTitle("preview") + "\n" + m.previewBody(previewW, bodyH-1),
+	)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, list, preview)
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		tabs,
+		body,
+		m.menuBar(),
+		m.statusLine(),
+	)
 }
 
-func (m Model) chrome(body string) string {
-	return body + m.footer()
+func (m Model) paneTitle(name string) string {
+	return paneTitleStyle.Render(name)
 }
 
 func (m Model) tabBar() string {
-	parts := make([]string, len(m.workspaces))
+	if len(m.workspaces) == 0 {
+		return inactiveTabStyle.Render("no workspaces")
+	}
 	active := m.tabIndex()
+	parts := make([]string, len(m.workspaces))
 	for i, w := range m.workspaces {
 		if i == active {
 			parts[i] = activeTabStyle.Render(w.Name)
@@ -38,10 +65,13 @@ func (m Model) tabBar() string {
 			parts[i] = inactiveTabStyle.Render(w.Name)
 		}
 	}
-	return strings.Join(parts, " ")
+	return lipgloss.JoinHorizontal(lipgloss.Bottom, parts...)
 }
 
-func (m Model) sessionList() string {
+func (m Model) sessionList(paneW int) string {
+	if len(m.workspaces) == 0 {
+		return noWorkspaceBanner()
+	}
 	ss := m.sessions()
 	if len(ss) == 0 {
 		ws := m.currentWorkspace()
@@ -52,72 +82,132 @@ func (m Model) sessionList() string {
 		return noSessionBanner(name)
 	}
 
+	inner := paneW - 2
 	var b strings.Builder
 	for i, s := range ss {
-		b.WriteString(m.sessionRow(i, s))
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(m.sessionRow(i, s, inner))
 		b.WriteString("\n")
 	}
 	return b.String()
 }
 
-func (m Model) sessionRow(i int, s *registry.Session) string {
-	marker := "  "
-	if i == m.cursor {
-		marker = selectedRowStyle.Render("> ")
+func (m Model) sessionRow(i int, s *registry.Session, w int) string {
+	selected := i == m.cursor
+	titleS, descS := rowTitleStyle, rowDescStyle
+	if selected {
+		titleS, descS = selRowTitleStyle, selRowDescStyle
 	}
 
 	title := s.Title
 	if title == "" {
 		title = s.Branch
 	}
+	prefix := fmt.Sprintf(" %d ", i+1)
+	head := fmt.Sprintf("%s%s %s", prefix, statusDot(s.Status), title)
+	sub := fmt.Sprintf("   %s %s · %s", branchIcon, s.Branch, s.ProfileName)
 
-	row := fmt.Sprintf(
-		"%s %-24s %s",
-		statusDot(s.Status),
-		title,
-		dimStyle.Render(fmt.Sprintf("%s · %s", s.Branch, s.ProfileName)),
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		titleS.Render(pad(head, w)),
+		descS.Render(pad(sub, w)),
 	)
-	if i == m.cursor {
-		row = selectedRowStyle.Render(row)
-	}
-	return marker + row
 }
 
-func (m Model) footer() string {
-	var b strings.Builder
-	b.WriteString("\n")
+func (m Model) previewBody(w, h int) string {
+	s := m.selectedSession()
+	if s == nil {
+		return dimStyle.Render("No session selected.")
+	}
+	if s.Status != registry.StatusRunning {
+		return dimStyle.Render("Session exited — nothing to preview.")
+	}
+	if strings.TrimSpace(m.preview) == "" {
+		return dimStyle.Render("Waiting for output…")
+	}
+
+	lines := strings.Split(strings.ReplaceAll(m.preview, "\t", "    "), "\n")
+	if len(lines) > h {
+		lines = lines[len(lines)-h:]
+	}
+	for i, ln := range lines {
+		lines[i] = runewidth.Truncate(ln, w, "")
+	}
+	return previewStyle.Render(strings.Join(lines, "\n"))
+}
+
+func (m Model) menuBar() string {
+	items := [][2]string{
+		{"n", "new"},
+		{"↵", "attach"},
+		{"k", "kill"},
+		{"⇥", "tabs"},
+		{"↑↓", "select"},
+		{"q", "quit"},
+	}
+	parts := make([]string, len(items))
+	for i, it := range items {
+		parts[i] = menuKeyStyle.Render(
+			it[0],
+		) + " " + menuDescStyle.Render(
+			it[1],
+		)
+	}
+	return " " + strings.Join(parts, menuSepStyle.Render(menuSep))
+}
+
+func (m Model) statusLine() string {
 	if m.err != nil {
-		b.WriteString(errorStyle.Render("error: " + m.err.Error()))
-		b.WriteString("\n")
-	} else if m.status != "" {
-		b.WriteString(dimStyle.Render(m.status))
-		b.WriteString("\n")
+		return errorStyle.Render(" error: " + m.err.Error())
 	}
-	if m.mode == modeList {
-		b.WriteString(helpStyle.Render(
-			"n new · enter attach · k kill · ←/→ tabs · ↑/↓ select · q quit",
-		))
+	if m.status != "" {
+		return dimStyle.Render(" " + m.status)
 	}
-	return b.String()
+	return ""
+}
+
+func (m Model) compactView() string {
+	parts := []string{
+		m.tabBar(),
+		"",
+		m.sessionList(max(m.width, minWidth)),
+		m.menuBar(),
+	}
+	if s := m.statusLine(); s != "" {
+		parts = append(parts, s)
+	}
+	return strings.Join(parts, "\n")
 }
 
 func statusDot(status string) string {
 	if status == registry.StatusRunning {
-		return runningDotStyle.Render("●")
+		return runningDotStyle.Render(runningIcon)
 	}
-	return exitedDotStyle.Render("●")
+	return exitedDotStyle.Render(exitedIcon)
+}
+
+func pad(s string, w int) string {
+	if w <= 0 {
+		return s
+	}
+	s = runewidth.Truncate(s, w, "…")
+	if gap := w - runewidth.StringWidth(s); gap > 0 {
+		s += strings.Repeat(" ", gap)
+	}
+	return s
 }
 
 func noWorkspaceBanner() string {
 	return bannerStyle.Render("No workspaces yet.") + "\n\n" +
 		dimStyle.Render(
-			"Run wasa inside a git repository to register it as a workspace,\n"+
-				"then press n to create your first session.",
-		) + "\n"
+			"Run wasa inside a git repo to\nregister one, then press n.",
+		)
 }
 
 func noSessionBanner(name string) string {
-	title := "No sessions in this workspace."
+	title := "No sessions here."
 	if name != "" {
 		title = fmt.Sprintf("No sessions in %s.", name)
 	}

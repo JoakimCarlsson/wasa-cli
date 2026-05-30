@@ -154,7 +154,7 @@ func (f createForm) view() string {
 		b.WriteString(errorStyle.Render(f.err))
 		b.WriteString("\n\n")
 	}
-	b.WriteString(helpStyle.Render(
+	b.WriteString(dimStyle.Render(
 		"tab/↑↓ move · ←/→ choose profile · enter create · esc cancel",
 	))
 	return b.String()
