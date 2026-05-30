@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"text/tabwriter"
 
+	"github.com/joakimcarlsson/wasa/internal/hook"
 	"github.com/joakimcarlsson/wasa/internal/profile"
 	"github.com/joakimcarlsson/wasa/internal/registry"
 	"github.com/joakimcarlsson/wasa/internal/tmux"
@@ -195,6 +196,17 @@ func sessionNew(args []string) error {
 	}
 
 	sessionID := registry.NewSessionID()
+	if err := hook.Run(hook.ShellRunner{}, hook.Hook{
+		Command:      prof.PostWorktreeHook,
+		RepoPath:     current.RepoPath,
+		WorktreePath: worktreePath,
+		Branch:       branch,
+		Session:      sessionID,
+		Env:          env,
+	}); err != nil {
+		return err
+	}
+
 	tmuxName := registry.TmuxName(current.ID, sessionID)
 	if err := tmux.New().SpawnEnv(tmuxName, worktreePath, env, program); err != nil {
 		return err
