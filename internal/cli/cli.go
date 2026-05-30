@@ -48,6 +48,13 @@ func run(version string, args []string, stdout, stderr io.Writer) int {
 
 	rest := fs.Args()
 	if len(rest) == 0 {
+		if interactive(stdout) {
+			if err := runCockpit(); err != nil {
+				fmt.Fprintf(stderr, "%s: %v\n", programName, err)
+				return 1
+			}
+			return 0
+		}
 		usage(stdout, version)
 		return 0
 	}

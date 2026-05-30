@@ -7,16 +7,10 @@ import (
 	"path/filepath"
 	"text/tabwriter"
 
-	"github.com/joakimcarlsson/wasa/internal/hook"
-	"github.com/joakimcarlsson/wasa/internal/profile"
+	"github.com/joakimcarlsson/wasa/internal/launch"
 	"github.com/joakimcarlsson/wasa/internal/registry"
 	"github.com/joakimcarlsson/wasa/internal/tmux"
 )
-
-// defaultSessionProgram is the program a session runs when none is given on the
-// command line. wasa is a cockpit for AI coding agents, so the default is the
-// claude agent rather than a bare shell.
-const defaultSessionProgram = "claude"
 
 func init() {
 	commands = append(commands,
@@ -151,7 +145,7 @@ func sessionNew(args []string) error {
 	fs.StringVar(
 		&program,
 		"program",
-		defaultSessionProgram,
+		launch.DefaultProgram,
 		"program to run in the session",
 	)
 	fs.StringVar(
@@ -176,57 +170,20 @@ func sessionNew(args []string) error {
 		return errors.New("not a git repository")
 	}
 
-	prof, err := current.SelectProfile(profileName)
-	if err != nil {
-		return err
-	}
-
-	env, err := profile.Resolve(prof, program)
-	if err != nil {
-		return err
-	}
-
-	m, err := newManager()
-	if err != nil {
-		return err
-	}
-	worktreePath, err := m.Add(branch)
-	if err != nil {
-		return err
-	}
-
-	sessionID := registry.NewSessionID()
-	if err := hook.Run(hook.ShellRunner{}, hook.Hook{
-		Command:      prof.PostWorktreeHook,
-		RepoPath:     current.RepoPath,
-		WorktreePath: worktreePath,
-		Branch:       branch,
-		Session:      sessionID,
-		Env:          env,
-	}); err != nil {
-		return err
-	}
-
-	tmuxName := registry.TmuxName(current.ID, sessionID)
-	if err := tmux.New().SpawnEnv(tmuxName, worktreePath, env, program); err != nil {
-		return err
-	}
-
-	reg.AddSession(&registry.Session{
-		ID:           sessionID,
-		WorkspaceID:  current.ID,
-		ProfileName:  prof.Name,
-		Title:        title,
-		Program:      program,
-		Branch:       branch,
-		WorktreePath: worktreePath,
-		TmuxName:     tmuxName,
+	s, err := launch.CreateSession(wasaHome(), reg, current, launch.Params{
+		Branch:  branch,
+		Title:   title,
+		Program: program,
+		Profile: profileName,
 	})
+	if err != nil {
+		return err
+	}
 	if err := reg.Save(); err != nil {
 		return err
 	}
 
-	fmt.Fprintln(os.Stdout, tmuxName)
+	fmt.Fprintln(os.Stdout, s.TmuxName)
 	return nil
 }
 

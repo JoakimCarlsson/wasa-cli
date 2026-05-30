@@ -169,6 +169,19 @@ func (r *Registry) MarkAttached(sessionID string) bool {
 	return false
 }
 
+// MarkExited sets the given session's status to exited, recording a kill. It
+// reports whether the session was found. Unlike Reconcile it does not probe
+// tmux; the caller has already stopped the session.
+func (r *Registry) MarkExited(sessionID string) bool {
+	for _, s := range r.sess {
+		if s.ID == sessionID {
+			s.Status = StatusExited
+			return true
+		}
+	}
+	return false
+}
+
 // Reconcile marks every running session whose tmux session no longer exists as
 // exited, using has to probe tmux. A probe error leaves that session unchanged.
 // It reports whether any session's status changed.
