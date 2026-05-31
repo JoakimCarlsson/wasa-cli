@@ -31,14 +31,15 @@ const (
 
 // createForm collects the inputs for a new session: branch, optional title,
 // program, and a profile chosen from the workspace's profiles with the default
-// (first) preselected. The program field is a free-text input seeded from the
-// agents detected on PATH plus a bare-shell entry; ←/→ cycle those choices and
-// typing overrides with any program name.
+// (first) preselected. The program field shows every agent detected on PATH
+// plus a bare-shell entry as a visible menu; ←/→ move the selection and typing
+// overrides it with any program name outside the known set.
 type createForm struct {
 	inputs   []textinput.Model
 	profiles []string
 	profIdx  int
 	programs []string
+	shell    string
 	progIdx  int
 	focus    int
 	err      string
@@ -54,7 +55,8 @@ func newCreateForm(profiles []string) createForm {
 	title.Placeholder = "optional title"
 	title.CharLimit = 200
 
-	programs := append(launch.DetectAgents(), launch.Shell())
+	shell := launch.Shell()
+	programs := append(launch.DetectAgents(), shell)
 
 	program := textinput.New()
 	program.CharLimit = 200
@@ -64,6 +66,7 @@ func newCreateForm(profiles []string) createForm {
 		inputs:   []textinput.Model{branch, title, program},
 		profiles: profiles,
 		programs: programs,
+		shell:    shell,
 	}
 }
 
@@ -163,13 +166,18 @@ func (f createForm) view() string {
 	b.WriteString(titleStyle.Render("New session"))
 	b.WriteString("\n\n")
 
-	labels := []string{"Branch", "Title", "Program"}
-	for i, in := range f.inputs {
+	labels := []string{"Branch", "Title"}
+	for i := fieldBranch; i <= fieldTitle; i++ {
 		b.WriteString(f.label(labels[i], i))
 		b.WriteString("\n")
-		b.WriteString(in.View())
+		b.WriteString(f.inputs[i].View())
 		b.WriteString("\n\n")
 	}
+
+	b.WriteString(f.label("Program", fieldProgram))
+	b.WriteString("\n")
+	b.WriteString(f.programView())
+	b.WriteString("\n\n")
 
 	b.WriteString(f.label("Profile", fieldProfile))
 	b.WriteString("\n")
@@ -191,6 +199,39 @@ func (f createForm) label(text string, field int) string {
 		return focusedLabelStyle.Render("> " + text)
 	}
 	return labelStyle.Render("  " + text)
+}
+
+// programView renders the detected-agents-plus-shell menu inline, highlighting
+// the active entry. A value typed outside the known set is shown as a trailing
+// highlighted entry so free-text overrides stay visible.
+func (f createForm) programView() string {
+	cur := strings.TrimSpace(f.inputs[fieldProgram].Value())
+	parts := make([]string, 0, len(f.programs)+1)
+	matched := false
+	for _, p := range f.programs {
+		if p == cur {
+			matched = true
+			parts = append(
+				parts,
+				focusedLabelStyle.Render("["+f.programLabel(p)+"]"),
+			)
+			continue
+		}
+		parts = append(parts, dimStyle.Render(f.programLabel(p)))
+	}
+	if !matched && cur != "" {
+		parts = append(parts, focusedLabelStyle.Render("["+cur+"]"))
+	}
+	return "  " + strings.Join(parts, "   ")
+}
+
+// programLabel is the menu label for a program value: the shell entry shows as
+// "shell" rather than its resolved path, every agent shows by name.
+func (f createForm) programLabel(p string) string {
+	if p == f.shell {
+		return "shell"
+	}
+	return p
 }
 
 func (f createForm) profileView() string {
