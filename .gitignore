@@ -3,6 +3,9 @@
 /wasa
 /wasa.exe
 
+# GoReleaser output
+/dist/
+
 # Test & coverage artifacts
 *.test
 *.out

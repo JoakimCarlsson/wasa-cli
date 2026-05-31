@@ -19,10 +19,16 @@ func TestWorkspaceIDIsStable(t *testing.T) {
 func TestWorkspaceIDDiffersByPathAndRemote(t *testing.T) {
 	base := WorkspaceID("/home/me/repo", "git@github.com:me/repo.git")
 
-	if got := WorkspaceID("/home/me/other", "git@github.com:me/repo.git"); got == base {
+	if got := WorkspaceID(
+		"/home/me/other",
+		"git@github.com:me/repo.git",
+	); got == base {
 		t.Fatal("WorkspaceID should differ for a different repo path")
 	}
-	if got := WorkspaceID("/home/me/repo", "git@github.com:me/fork.git"); got == base {
+	if got := WorkspaceID(
+		"/home/me/repo",
+		"git@github.com:me/fork.git",
+	); got == base {
 		t.Fatal("WorkspaceID should differ for a different remote")
 	}
 }
