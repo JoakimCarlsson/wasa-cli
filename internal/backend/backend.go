@@ -4,17 +4,13 @@
 // that picks the implementation for the host platform.
 //
 // Extracting this seam decouples wasa from tmux. On Linux and macOS Default
-// returns *tmux.Client, which drives the tmux binary. The seam is what lets a
-// native Windows backend land as a sibling implementation without touching any
-// call site: every caller depends on SessionBackend, never on a concrete
-// backend type.
+// returns the tmux backend (internal/backend/unix); on Windows it returns the
+// native pseudo-console backend (internal/backend/windows). Each platform
+// backend satisfies SessionBackend, so callers depend on the interface and never
+// on a concrete backend type.
 package backend
 
-import (
-	"os/exec"
-
-	"github.com/joakimcarlsson/wasa/internal/tmux"
-)
+import "os/exec"
 
 // SessionBackend is everything wasa's orchestration layer needs from a session
 // multiplexer. It is the minimal surface tmux already provides — detached
@@ -49,5 +45,3 @@ type SessionBackend interface {
 	// Kill terminates the session named name.
 	Kill(name string) error
 }
-
-var _ SessionBackend = (*tmux.Client)(nil)

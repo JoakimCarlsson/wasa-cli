@@ -18,7 +18,7 @@ func init() {
 	})
 }
 
-const tmuxUsage = "usage: wasa tmux <spawn|attach|has|list|kill> [arguments]"
+const tmuxUsage = "usage: wasa tmux <spawn|attach|capture|has|list|kill> [arguments]"
 
 func runTmux(args []string) error {
 	if len(args) == 0 {
@@ -31,6 +31,8 @@ func runTmux(args []string) error {
 		return tmuxSpawn(rest)
 	case "attach":
 		return tmuxAttach(rest)
+	case "capture":
+		return tmuxCapture(rest)
 	case "has":
 		return tmuxHas(rest)
 	case "list":
@@ -86,6 +88,20 @@ func attach(b backend.SessionBackend, name string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+func tmuxCapture(args []string) error {
+	name, err := nameFlag("wasa tmux capture", args)
+	if err != nil {
+		return err
+	}
+
+	out, err := backend.Default().Capture(name)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stdout, out)
+	return nil
 }
 
 func tmuxHas(args []string) error {
