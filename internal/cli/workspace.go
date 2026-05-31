@@ -7,9 +7,9 @@ import (
 	"os"
 	"text/tabwriter"
 
+	"github.com/joakimcarlsson/wasa/internal/backend"
 	"github.com/joakimcarlsson/wasa/internal/launch"
 	"github.com/joakimcarlsson/wasa/internal/registry"
-	"github.com/joakimcarlsson/wasa/internal/tmux"
 )
 
 func init() {
@@ -300,7 +300,7 @@ func openRegistry() (*registry.Registry, *registry.Workspace, error) {
 		return nil, nil, err
 	}
 
-	client := tmux.New()
+	client := backend.Default()
 	changed := reg.Reconcile(client.Has)
 
 	var current *registry.Workspace

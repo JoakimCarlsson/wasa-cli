@@ -8,10 +8,10 @@
 package launch
 
 import (
+	"github.com/joakimcarlsson/wasa/internal/backend"
 	"github.com/joakimcarlsson/wasa/internal/hook"
 	"github.com/joakimcarlsson/wasa/internal/profile"
 	"github.com/joakimcarlsson/wasa/internal/registry"
-	"github.com/joakimcarlsson/wasa/internal/tmux"
 	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
@@ -74,7 +74,7 @@ func CreateSession(
 	}
 
 	tmuxName := registry.TmuxName(ws.ID, sessionID)
-	if err := tmux.New().SpawnEnv(tmuxName, worktreePath, env, program); err != nil {
+	if err := backend.Default().SpawnEnv(tmuxName, worktreePath, env, program); err != nil {
 		return nil, err
 	}
 
@@ -97,7 +97,7 @@ func CreateSession(
 // finish lifecycle. A tmux failure is returned without changing the recorded
 // status.
 func KillSession(reg *registry.Registry, s *registry.Session) error {
-	if err := tmux.New().Kill(s.TmuxName); err != nil {
+	if err := backend.Default().Kill(s.TmuxName); err != nil {
 		return err
 	}
 	reg.MarkExited(s.ID)

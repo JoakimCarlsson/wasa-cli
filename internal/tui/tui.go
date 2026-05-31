@@ -17,9 +17,9 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/joakimcarlsson/wasa/internal/backend"
 	"github.com/joakimcarlsson/wasa/internal/launch"
 	"github.com/joakimcarlsson/wasa/internal/registry"
-	"github.com/joakimcarlsson/wasa/internal/tmux"
 )
 
 // mode is the model's interaction mode: browsing the session list or filling in
@@ -38,7 +38,7 @@ const (
 type Model struct {
 	home string
 	reg  *registry.Registry
-	tmux *tmux.Client
+	tmux backend.SessionBackend
 
 	workspaces []*registry.Workspace
 	activeID   string
@@ -60,7 +60,7 @@ type Model struct {
 // repository wasa was launched in; it becomes the initially active tab when
 // present, otherwise the most-recently-used workspace is.
 func New(home string, reg *registry.Registry, currentID string) Model {
-	m := Model{home: home, reg: reg, tmux: tmux.New()}
+	m := Model{home: home, reg: reg, tmux: backend.Default()}
 	m.workspaces = reg.ListWorkspaces()
 	switch {
 	case currentID != "" && m.hasWorkspace(currentID):
