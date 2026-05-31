@@ -3,6 +3,7 @@ package launch
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 )
 
@@ -13,23 +14,52 @@ import (
 var KnownAgents = []string{
 	"claude",       // Claude Code
 	"codex",        // OpenAI Codex CLI
+	"copilot",      // GitHub Copilot CLI
 	"gemini",       // Gemini CLI
 	"cursor-agent", // Cursor CLI
 	"aider",        // Aider
 }
 
 // DetectAgents returns the subset of KnownAgents resolvable on PATH, preserving
-// KnownAgents order. Resolution goes through exec.LookPath, so it honors PATHEXT
-// on Windows just like the rest of wasa. The result is empty when none of the
-// known agents are installed.
+// KnownAgents order. The result is empty when none of the known agents are
+// installed.
 func DetectAgents() []string {
 	found := make([]string, 0, len(KnownAgents))
 	for _, name := range KnownAgents {
-		if _, err := exec.LookPath(name); err == nil {
+		if _, ok := lookAgent(name); ok {
 			found = append(found, name)
 		}
 	}
 	return found
+}
+
+// lookAgent resolves an agent CLI on PATH, returning its full path. It first
+// tries exec.LookPath, which honors PATHEXT (.exe/.cmd/.bat). On Windows it then
+// falls back to a PowerShell-script (.ps1) shim: PATHEXT omits .ps1, but npm and
+// some editor installs ship CLIs such as copilot as a .ps1.
+func lookAgent(name string) (string, bool) {
+	if p, err := exec.LookPath(name); err == nil {
+		return p, true
+	}
+	if runtime.GOOS == "windows" {
+		return lookPS1(name)
+	}
+	return "", false
+}
+
+// lookPS1 searches PATH for name+".ps1", the shim extension exec.LookPath skips
+// because PATHEXT does not list it.
+func lookPS1(name string) (string, bool) {
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == "" {
+			continue
+		}
+		cand := filepath.Join(dir, name+".ps1")
+		if info, err := os.Stat(cand); err == nil && !info.IsDir() {
+			return cand, true
+		}
+	}
+	return "", false
 }
 
 // Shell returns the OS shell wasa runs for a plain (no-agent) session: $SHELL

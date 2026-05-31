@@ -52,6 +52,27 @@ func TestDetectAgentsNoneFound(t *testing.T) {
 	}
 }
 
+func TestDetectAgentsFindsPS1OnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("PATHEXT/.ps1 fallback is Windows-only")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(dir, "copilot.ps1"),
+		[]byte("exit 0\r\n"),
+		0o755,
+	); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	// .ps1 absent from PATHEXT: exec.LookPath misses it, the fallback finds it.
+	t.Setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+
+	if got := DetectAgents(); !slices.Contains(got, "copilot") {
+		t.Fatalf("DetectAgents() = %v, want copilot via .ps1 fallback", got)
+	}
+}
+
 func TestShellHonorsEnv(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Setenv("ComSpec", `C:\Windows\System32\cmd.exe`)
