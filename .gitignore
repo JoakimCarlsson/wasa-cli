@@ -1,0 +1,25 @@
+# Build output
+/bin/
+/wasa
+/wasa.exe
+
+# Test & coverage artifacts
+*.test
+*.out
+coverage.*
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Dependency vendor directory (not used; restore if vendoring)
+/vendor/
+
+# Editor / IDE
+/.vscode/
+/.idea/
+*.swp
+
+# OS cruft
+.DS_Store
+Thumbs.db

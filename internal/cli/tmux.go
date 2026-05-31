@@ -7,7 +7,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/joakimcarlsson/wasa/internal/tmux"
+	"github.com/joakimcarlsson/wasa/internal/backend"
 )
 
 func init() {
@@ -18,7 +18,7 @@ func init() {
 	})
 }
 
-const tmuxUsage = "usage: wasa tmux <spawn|attach|has|list|kill> [arguments]"
+const tmuxUsage = "usage: wasa tmux <spawn|attach|capture|has|list|kill> [arguments]"
 
 func runTmux(args []string) error {
 	if len(args) == 0 {
@@ -31,6 +31,8 @@ func runTmux(args []string) error {
 		return tmuxSpawn(rest)
 	case "attach":
 		return tmuxAttach(rest)
+	case "capture":
+		return tmuxCapture(rest)
 	case "has":
 		return tmuxHas(rest)
 	case "list":
@@ -58,7 +60,7 @@ func tmuxSpawn(args []string) error {
 		)
 	}
 
-	if err := tmux.New().Spawn(name, dir, fs.Args()...); err != nil {
+	if err := backend.Default().SpawnEnv(name, dir, nil, fs.Args()...); err != nil {
 		return err
 	}
 	fmt.Fprintln(os.Stdout, name)
@@ -70,7 +72,36 @@ func tmuxAttach(args []string) error {
 	if err != nil {
 		return err
 	}
-	return tmux.New().Attach(name)
+	return attach(backend.Default(), name)
+}
+
+// attach runs the backend's attach command against the real terminal, wiring
+// the process's standard streams to the session and blocking until the user
+// detaches. The TUI never takes this path; it hands AttachCmd to
+// tea.ExecProcess so Bubble Tea can own the terminal across the attach.
+func attach(b backend.SessionBackend, name string) error {
+	cmd, err := b.AttachCmd(name)
+	if err != nil {
+		return err
+	}
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func tmuxCapture(args []string) error {
+	name, err := nameFlag("wasa tmux capture", args)
+	if err != nil {
+		return err
+	}
+
+	out, err := backend.Default().Capture(name)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stdout, out)
+	return nil
 }
 
 func tmuxHas(args []string) error {
@@ -79,7 +110,7 @@ func tmuxHas(args []string) error {
 		return err
 	}
 
-	ok, err := tmux.New().Has(name)
+	ok, err := backend.Default().Has(name)
 	if err != nil {
 		return err
 	}
@@ -95,7 +126,7 @@ func tmuxList(args []string) error {
 		return errors.New("usage: wasa tmux list")
 	}
 
-	names, err := tmux.New().List()
+	names, err := backend.Default().List()
 	if err != nil {
 		return err
 	}
@@ -110,7 +141,7 @@ func tmuxKill(args []string) error {
 	if err != nil {
 		return err
 	}
-	return tmux.New().Kill(name)
+	return backend.Default().Kill(name)
 }
 
 func nameFlag(usage string, args []string) (string, error) {

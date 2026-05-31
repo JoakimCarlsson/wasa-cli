@@ -102,6 +102,9 @@ func usage(w io.Writer, version string) {
 		return
 	}
 	for _, c := range commands {
+		if c.Hidden {
+			continue
+		}
 		fmt.Fprintf(w, "  %-12s %s\n", c.Name, c.Summary)
 	}
 }

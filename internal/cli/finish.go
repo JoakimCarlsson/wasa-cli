@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/joakimcarlsson/wasa/internal/backend"
 	"github.com/joakimcarlsson/wasa/internal/finish"
 	"github.com/joakimcarlsson/wasa/internal/registry"
-	"github.com/joakimcarlsson/wasa/internal/tmux"
 	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
@@ -103,18 +103,18 @@ func runFinish(args []string) error {
 }
 
 // newFinishOps builds the concrete teardown operations bound to ws's repository:
-// tmux on PATH and a worktree Manager rooted at the workspace's repo so worktree
-// removal and branch deletion run against the right git repository regardless of
-// the working directory.
+// the default session backend and a worktree Manager rooted at the workspace's
+// repo so worktree removal and branch deletion run against the right git
+// repository regardless of the working directory.
 func newFinishOps(ws *registry.Workspace) finish.Ops {
 	return finishOps{
-		tmux: tmux.New(),
+		tmux: backend.Default(),
 		wt:   worktree.New(ws.RepoPath, wasaHome(), ws.ID),
 	}
 }
 
 type finishOps struct {
-	tmux *tmux.Client
+	tmux backend.SessionBackend
 	wt   *worktree.Manager
 }
 

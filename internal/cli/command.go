@@ -7,6 +7,10 @@ type Command struct {
 	Name string
 	// Summary is a one-line description shown in the top-level usage listing.
 	Summary string
+	// Hidden omits the command from the usage listing. It is for internal
+	// subcommands wasa invokes on itself, such as the Windows session daemon and
+	// attach relay, which users never type.
+	Hidden bool
 	// Run executes the command with its remaining arguments.
 	Run func(args []string) error
 }
