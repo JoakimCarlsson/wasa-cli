@@ -68,7 +68,8 @@ func CreateSession(
 	}
 
 	tmuxName := registry.TmuxName(ws.ID, sessionID)
-	if err := backend.Default().SpawnEnv(tmuxName, worktreePath, env, program); err != nil {
+	if err := backend.Default().
+		SpawnEnv(tmuxName, worktreePath, env, program); err != nil {
 		return nil, err
 	}
 

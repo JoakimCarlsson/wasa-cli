@@ -60,7 +60,8 @@ func tmuxSpawn(args []string) error {
 		)
 	}
 
-	if err := backend.Default().SpawnEnv(name, dir, nil, fs.Args()...); err != nil {
+	if err := backend.Default().
+		SpawnEnv(name, dir, nil, fs.Args()...); err != nil {
 		return err
 	}
 	fmt.Fprintln(os.Stdout, name)
