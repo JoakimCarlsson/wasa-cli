@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/joakimcarlsson/wasa/internal/backend"
@@ -223,8 +224,8 @@ func sessionNew(args []string) error {
 	fs.StringVar(
 		&program,
 		"program",
-		launch.DefaultProgram,
-		"program to run in the session",
+		"",
+		"program to run (default: the sole detected agent, else the shell)",
 	)
 	fs.StringVar(
 		&branch,
@@ -238,6 +239,13 @@ func sessionNew(args []string) error {
 	}
 	if branch == "" {
 		return errors.New(sessionNewUsage)
+	}
+	if program == "" {
+		resolved, err := resolveProgram()
+		if err != nil {
+			return err
+		}
+		program = resolved
 	}
 
 	reg, current, err := openRegistry()
@@ -263,6 +271,26 @@ func sessionNew(args []string) error {
 
 	fmt.Fprintln(os.Stdout, s.TmuxName)
 	return nil
+}
+
+// resolveProgram picks the program for a session new invocation that omitted
+// --program. It uses the sole detected agent when exactly one is on PATH,
+// refuses to guess when several are (the caller must pass --program), and falls
+// back to the OS shell when none are installed.
+func resolveProgram() (string, error) {
+	agents := launch.DetectAgents()
+	switch len(agents) {
+	case 0:
+		return launch.Shell(), nil
+	case 1:
+		return agents[0], nil
+	default:
+		return "", fmt.Errorf(
+			"multiple agents found on PATH (%s); "+
+				"pass --program to choose one",
+			strings.Join(agents, ", "),
+		)
+	}
 }
 
 func sessionList(args []string) error {

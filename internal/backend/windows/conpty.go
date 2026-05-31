@@ -76,6 +76,7 @@ func startConPty(
 	if len(argv) == 0 {
 		return nil, errors.New("conpty: empty program")
 	}
+	argv = resolveProgram(argv)
 
 	var ptyIn, cmdIn, cmdOut, ptyOut windows.Handle
 	if err := windows.CreatePipe(&ptyIn, &cmdIn, nil, 0); err != nil {
