@@ -36,13 +36,14 @@ env: build
 	@powershell -NoProfile -Command "$$d=(Resolve-Path '$(CURDIR)/bin').Path; $$u=[Environment]::GetEnvironmentVariable('Path','User'); if (($$u -split ';') -notcontains $$d) { [Environment]::SetEnvironmentVariable('Path', ($$u.TrimEnd(';') + ';' + $$d), 'User'); Write-Host ('Added ' + $$d + ' to your user PATH.') } else { Write-Host ('Already on PATH: ' + $$d) }; Write-Host 'Open a NEW terminal, then run: wasa'"
 else
 env: build
-	@dir="$(CURDIR)/bin"; prof="$$HOME/.profile"; \
-	if echo ":$$PATH:" | grep -q ":$$dir:"; then \
-	  echo "Already on PATH: $$dir"; \
-	elif grep -qsF "$$dir" "$$prof" 2>/dev/null; then \
-	  echo "Already in $$prof: $$dir"; \
-	else \
-	  printf 'export PATH="$$PATH:%s"\n' "$$dir" >> "$$prof"; \
-	  echo "Added $$dir to $$prof. Open a NEW terminal (or run: source $$prof), then run: wasa"; \
-	fi
+	@dir="$(CURDIR)/bin"; \
+	for f in "$$HOME/.profile" "$$HOME/.bashrc" "$$HOME/.zshrc"; do \
+	  if grep -qsF "$$dir" "$$f" 2>/dev/null; then \
+	    echo "Already in $$f"; \
+	  else \
+	    printf 'export PATH="$$PATH:%s"\n' "$$dir" >> "$$f"; \
+	    echo "Added to $$f"; \
+	  fi; \
+	done; \
+	echo "wasa is on PATH for sh, bash and zsh. Open a NEW terminal, then run: wasa"
 endif
