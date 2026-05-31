@@ -15,13 +15,10 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
-// DefaultProgram is the program a session runs when the caller names none. wasa
-// is a cockpit for AI coding agents, so the default is the claude agent rather
-// than a bare shell.
-const DefaultProgram = "claude"
-
 // Params describes a session to create. Branch is required; an empty Program
-// defaults to DefaultProgram and an empty Profile selects the workspace default.
+// runs the backend's OS shell and an empty Profile selects the workspace
+// default. Callers derive a concrete Program from DetectAgents and Shell rather
+// than relying on a hardcoded agent name.
 type Params struct {
 	Branch  string
 	Title   string
@@ -42,9 +39,6 @@ func CreateSession(
 	p Params,
 ) (*registry.Session, error) {
 	program := p.Program
-	if program == "" {
-		program = DefaultProgram
-	}
 
 	prof, err := ws.SelectProfile(p.Profile)
 	if err != nil {

@@ -31,11 +31,15 @@ const (
 
 // createForm collects the inputs for a new session: branch, optional title,
 // program, and a profile chosen from the workspace's profiles with the default
-// (first) preselected.
+// (first) preselected. The program field is a free-text input seeded from the
+// agents detected on PATH plus a bare-shell entry; ←/→ cycle those choices and
+// typing overrides with any program name.
 type createForm struct {
 	inputs   []textinput.Model
 	profiles []string
 	profIdx  int
+	programs []string
+	progIdx  int
 	focus    int
 	err      string
 }
@@ -50,13 +54,16 @@ func newCreateForm(profiles []string) createForm {
 	title.Placeholder = "optional title"
 	title.CharLimit = 200
 
+	programs := append(launch.DetectAgents(), launch.Shell())
+
 	program := textinput.New()
 	program.CharLimit = 200
-	program.SetValue(launch.DefaultProgram)
+	program.SetValue(programs[0])
 
 	return createForm{
 		inputs:   []textinput.Model{branch, title, program},
 		profiles: profiles,
+		programs: programs,
 	}
 }
 
@@ -78,8 +85,12 @@ func (f createForm) update(msg tea.Msg) (createForm, formResult, tea.Cmd) {
 			f.focusPrev()
 			return f, formNone, nil
 		case "left", "right":
-			if f.focus == fieldProfile {
+			switch f.focus {
+			case fieldProfile:
 				f.cycleProfile(key.String() == "right")
+				return f, formNone, nil
+			case fieldProgram:
+				f.cycleProgram(key.String() == "right")
 				return f, formNone, nil
 			}
 		}
@@ -102,6 +113,21 @@ func (f *createForm) cycleProfile(forward bool) {
 		return
 	}
 	f.profIdx = (f.profIdx - 1 + len(f.profiles)) % len(f.profiles)
+}
+
+// cycleProgram steps the program field through the detected-agents-plus-shell
+// menu, writing the chosen program into the text input. Typing afterwards
+// overrides the selection, so a program outside the known set stays reachable.
+func (f *createForm) cycleProgram(forward bool) {
+	if len(f.programs) == 0 {
+		return
+	}
+	if forward {
+		f.progIdx = (f.progIdx + 1) % len(f.programs)
+	} else {
+		f.progIdx = (f.progIdx - 1 + len(f.programs)) % len(f.programs)
+	}
+	f.inputs[fieldProgram].SetValue(f.programs[f.progIdx])
 }
 
 func (f *createForm) focusNext() { f.setFocus((f.focus + 1) % fieldCount) }
@@ -155,7 +181,7 @@ func (f createForm) view() string {
 		b.WriteString("\n\n")
 	}
 	b.WriteString(dimStyle.Render(
-		"tab/↑↓ move · ←/→ choose profile · enter create · esc cancel",
+		"tab/↑↓ move · ←/→ choose program/profile · enter create · esc cancel",
 	))
 	return b.String()
 }
