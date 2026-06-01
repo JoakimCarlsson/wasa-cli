@@ -79,6 +79,7 @@ type Model struct {
 	tmux   backend.SessionBackend
 	stream backend.StreamingBackend
 	cfg    config.Config
+	theme  Theme
 	keys   keymap
 
 	workspaces []*registry.Workspace
@@ -136,13 +137,13 @@ func New(
 	currentID string,
 	cfg config.Config,
 ) Model {
-	applyTheme(cfg.Theme)
 	be := backend.Default()
 	m := Model{
 		home:         home,
 		reg:          reg,
 		tmux:         be,
 		cfg:          cfg,
+		theme:        newTheme(cfg.Theme),
 		keys:         newKeymap(cfg.Keys),
 		now:          time.Now,
 		statuses:     sessionstatus.NewTracker(time.Now),
@@ -546,7 +547,7 @@ func (m Model) enterPick() (tea.Model, tea.Cmd) {
 		}
 	}
 	m.picker = newDirPicker(
-		rootPath, sel, m.osHome, m.recentDirs(),
+		m.theme, rootPath, sel, m.osHome, m.recentDirs(),
 		m.pickerWidth(), m.pickerHeight(),
 	)
 	m.mode = modePick
@@ -624,7 +625,8 @@ func (m Model) enterBranchPick() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.branch = newBranchPicker(
-		repoBranches(m.form.branchRepo), m.pickerWidth(), m.pickerHeight(),
+		m.theme, repoBranches(m.form.branchRepo),
+		m.pickerWidth(), m.pickerHeight(),
 	)
 	m.mode = modePickBranch
 	return m, textinput.Blink
@@ -681,10 +683,10 @@ func (m Model) enterConfirmDelete() (tea.Model, tea.Cmd) {
 	}
 	title, _ := sessionLabel(s)
 	body := confirmBody(
-		fmt.Sprintf("Delete %q?\nThis cannot be undone.", title), s,
+		m.theme, fmt.Sprintf("Delete %q?\nThis cannot be undone.", title), s,
 	)
 	return m.enterConfirm(
-		newConfirmDialog("Delete session", body, "Delete", "Cancel", true),
+		newConfirmDialog(m.theme, "Delete session", body, "Delete", "Cancel", true),
 		m.deleteCmd(s),
 	)
 }
@@ -699,12 +701,12 @@ func (m Model) enterConfirmKill() (tea.Model, tea.Cmd) {
 	}
 	title, _ := sessionLabel(s)
 	body := confirmBody(
-		fmt.Sprintf(
+		m.theme, fmt.Sprintf(
 			"Kill %q?\nIt stops but stays in the list as exited.", title,
 		), s,
 	)
 	return m.enterConfirm(
-		newConfirmDialog("Kill session", body, "Kill", "Cancel", true),
+		newConfirmDialog(m.theme, "Kill session", body, "Kill", "Cancel", true),
 		m.killCmd(s),
 	)
 }
@@ -746,7 +748,7 @@ func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 // with a working copy of the current config. Saving (ctrl+s) persists and applies
 // it live; cancelling (esc) discards the edits.
 func (m Model) enterConfig() (tea.Model, tea.Cmd) {
-	m.editor = newConfigEditor(m.cfg, m.pickerWidth(), m.configRows())
+	m.editor = newConfigEditor(m.theme, m.cfg, m.pickerWidth(), m.configRows())
 	m.mode = modeConfig
 	m.err = nil
 	m.status = ""
@@ -783,7 +785,7 @@ func (m Model) applyConfig(cfg config.Config) (tea.Model, tea.Cmd) {
 	}
 	cfg.Path = config.Path(m.home)
 	m.cfg = cfg
-	applyTheme(cfg.Theme)
+	m.theme = newTheme(cfg.Theme)
 	m.keys = newKeymap(cfg.Keys)
 	m.notify = makeNotifier(cfg.Notify)
 	m.err = nil
@@ -815,7 +817,7 @@ func (m Model) enterCreate() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	m.form = newCreateForm(names)
+	m.form = newCreateForm(m.theme, names)
 	m.mode = modeCreate
 	m.err = nil
 	m.status = ""
@@ -1225,7 +1227,7 @@ func (m *Model) applyDiff(msg diffMsg) tea.Cmd {
 	m.diffText = msg.text
 	m.diffAdded, m.diffRemoved = msg.added, msg.removed
 	m.sizeDiffViewport()
-	m.diffVP.SetContent(colorizeDiff(msg.text))
+	m.diffVP.SetContent(colorizeDiff(m.theme, msg.text))
 	m.diffVP.SetYOffset(0)
 	return nil
 }

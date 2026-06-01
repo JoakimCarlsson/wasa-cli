@@ -7,7 +7,7 @@ import (
 )
 
 func TestBranchPickerEmptyQueryKeepsOrder(t *testing.T) {
-	p := newBranchPicker([]string{"main", "feature/x", "fix/y"}, 60, 14)
+	p := newBranchPicker(testTheme, []string{"main", "feature/x", "fix/y"}, 60, 14)
 	if len(p.matches) != 3 {
 		t.Fatalf("got %d matches, want 3", len(p.matches))
 	}
@@ -20,7 +20,7 @@ func TestBranchPickerEmptyQueryKeepsOrder(t *testing.T) {
 }
 
 func TestBranchPickerFilters(t *testing.T) {
-	p := newBranchPicker(
+	p := newBranchPicker(testTheme,
 		[]string{"main", "feature/login", "feature/logout"},
 		60,
 		14,
@@ -34,7 +34,7 @@ func TestBranchPickerFilters(t *testing.T) {
 }
 
 func TestBranchPickerChoosesSelected(t *testing.T) {
-	p := newBranchPicker([]string{"main", "develop"}, 60, 14)
+	p := newBranchPicker(testTheme, []string{"main", "develop"}, 60, 14)
 
 	p, _, _ = p.update(keyDown()) // onto develop
 	p, result, _ := p.update(keyEnter())
@@ -50,7 +50,7 @@ func TestBranchPickerChoosesSelected(t *testing.T) {
 // TestBranchPickerCreatesTypedBranch checks that with a query matching nothing,
 // enter chooses the typed text so a worktree can be made on a new branch.
 func TestBranchPickerCreatesTypedBranch(t *testing.T) {
-	p := newBranchPicker([]string{"main"}, 60, 14)
+	p := newBranchPicker(testTheme, []string{"main"}, 60, 14)
 
 	p, _, _ = p.update(keyRunes("feature/new"))
 	if len(p.matches) != 0 {
@@ -67,7 +67,7 @@ func TestBranchPickerCreatesTypedBranch(t *testing.T) {
 }
 
 func TestBranchPickerEscCancels(t *testing.T) {
-	p := newBranchPicker([]string{"main"}, 60, 14)
+	p := newBranchPicker(testTheme, []string{"main"}, 60, 14)
 	_, result, _ := p.update(tea.KeyMsg{Type: tea.KeyEsc})
 	if result != pickCancel {
 		t.Errorf("result = %v, want pickCancel", result)

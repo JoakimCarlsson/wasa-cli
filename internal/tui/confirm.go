@@ -23,6 +23,7 @@ const (
 // state; the parent decides what confirming means. The cancel button starts
 // focused so a stray enter on a destructive prompt cancels rather than confirms.
 type confirmDialog struct {
+	th          Theme
 	title       string
 	body        string
 	confirmText string
@@ -32,10 +33,12 @@ type confirmDialog struct {
 }
 
 func newConfirmDialog(
+	th Theme,
 	title, body, confirmText, cancelText string,
 	danger bool,
 ) confirmDialog {
 	return confirmDialog{
+		th:          th,
 		title:       title,
 		body:        body,
 		confirmText: confirmText,
@@ -67,9 +70,9 @@ func (d confirmDialog) update(msg tea.Msg) (confirmDialog, confirmResult) {
 }
 
 func (d confirmDialog) view() string {
-	heading := titleStyle
+	heading := d.th.titleStyle
 	if d.danger {
-		heading = errorStyle.Bold(true)
+		heading = d.th.errorStyle.Bold(true)
 	}
 	top := heading.Render(d.title) + "\n\n" + d.body
 
@@ -77,20 +80,20 @@ func (d confirmDialog) view() string {
 	if w := lipgloss.Width(top); lipgloss.Width(buttons) < w {
 		buttons = lipgloss.PlaceHorizontal(w, lipgloss.Center, buttons)
 	}
-	return modalStyle.Render(top + "\n\n" + buttons)
+	return d.th.modalStyle.Render(top + "\n\n" + buttons)
 }
 
 // buttons renders the cancel/confirm pair, filling the focused one and dimming
 // the other. The confirm button fills red when the dialog is destructive.
 func (d confirmDialog) buttons() string {
-	cancelStyle, confirmStyle := btnInactiveStyle, btnInactiveStyle
+	cancelStyle, confirmStyle := d.th.btnInactiveStyle, d.th.btnInactiveStyle
 	if d.onConfirm {
-		confirmStyle = btnConfirmStyle
+		confirmStyle = d.th.btnConfirmStyle
 		if d.danger {
-			confirmStyle = btnDangerStyle
+			confirmStyle = d.th.btnDangerStyle
 		}
 	} else {
-		cancelStyle = btnCancelStyle
+		cancelStyle = d.th.btnCancelStyle
 	}
 	return strings.Join([]string{
 		cancelStyle.Render(d.cancelText),

@@ -60,6 +60,7 @@ type cfgField struct {
 // are edited with RGB sliders, bindings by recording keypresses, layout values as
 // numbers; every edit funnels back through the same string setters as config.json.
 type configEditor struct {
+	th      Theme
 	working config.Config
 	fields  []cfgField
 	cursor  int
@@ -74,7 +75,7 @@ type configEditor struct {
 	height int
 }
 
-func newConfigEditor(cfg config.Config, width, height int) configEditor {
+func newConfigEditor(th Theme, cfg config.Config, width, height int) configEditor {
 	working := cfg
 	working.Keys = make(config.Keys, len(cfg.Keys))
 	for action, keys := range cfg.Keys {
@@ -83,6 +84,7 @@ func newConfigEditor(cfg config.Config, width, height int) configEditor {
 		working.Keys[action] = cp
 	}
 	return configEditor{
+		th:      th,
 		working: working,
 		fields:  configFields(),
 		width:   width,
@@ -327,11 +329,11 @@ func (e configEditor) beginEdit() (configEditor, cfgResult, tea.Cmd) {
 	switch f.kind {
 	case kindColor:
 		col, _ := parseColor(f.get(e.working))
-		e.color = newColorEditor(col)
+		e.color = newColorEditor(e.th, col)
 		e.phase = editColor
 		return e, cfgNone, nil
 	case kindKeys:
-		e.record = newRecordEditor(f.label, e.working)
+		e.record = newRecordEditor(e.th, f.label, e.working)
 		e.phase = editKeys
 		return e, cfgNone, nil
 	default:
@@ -431,11 +433,11 @@ func (e configEditor) view() string {
 		body = e.listBody()
 	}
 
-	parts := []string{titleStyle.Render("Settings"), "", body, "", e.hint()}
+	parts := []string{e.th.titleStyle.Render("Settings"), "", body, "", e.hint()}
 	if e.err != "" {
-		parts = append(parts, errorStyle.Render(e.err))
+		parts = append(parts, e.th.errorStyle.Render(e.err))
 	}
-	return pickerStyle.Width(e.width).Render(
+	return e.th.pickerStyle.Width(e.width).Render(
 		lipgloss.JoinVertical(lipgloss.Left, parts...),
 	)
 }
@@ -443,17 +445,17 @@ func (e configEditor) view() string {
 func (e configEditor) hint() string {
 	switch e.phase {
 	case editColor:
-		return dimStyle.Render(
+		return e.th.dimStyle.Render(
 			"←→ adjust · ↑↓ channel · tab light/dark · enter apply · esc back",
 		)
 	case editKeys:
-		return dimStyle.Render(
+		return e.th.dimStyle.Render(
 			"press keys to bind · ⌫ remove · enter apply · esc back",
 		)
 	case editText:
-		return dimStyle.Render("enter apply · esc back")
+		return e.th.dimStyle.Render("enter apply · esc back")
 	default:
-		return dimStyle.Render(
+		return e.th.dimStyle.Render(
 			"↑↓ move · enter edit · changes apply on enter · esc close",
 		)
 	}
@@ -468,7 +470,7 @@ func (e configEditor) listBody() string {
 			if len(lines) > 0 {
 				lines = append(lines, "")
 			}
-			lines = append(lines, titleStyle.Render(f.section))
+			lines = append(lines, e.th.titleStyle.Render(f.section))
 			lastSection = f.section
 		}
 		if i == e.cursor {
@@ -481,18 +483,18 @@ func (e configEditor) listBody() string {
 
 func (e configEditor) row(i int, f cfgField) string {
 	if e.phase == editText && i == e.cursor {
-		return focusedLabelStyle.Render("> "+f.label) + "  " + e.input.View()
+		return e.th.focusedLabelStyle.Render("> "+f.label) + "  " + e.input.View()
 	}
 	value := f.get(e.working)
 	if f.kind == kindColor {
 		value = colorSwatch(value) + " " + value
 	}
 	if i == e.cursor {
-		return selRowTitleStyle.Render(pad("> "+f.label, 18)) + "  " + value
+		return e.th.selRowTitleStyle.Render(pad("> "+f.label, 18)) + "  " + value
 	}
-	return labelStyle.Render(
+	return e.th.labelStyle.Render(
 		pad("  "+f.label, 18),
-	) + "  " + dimStyle.Render(
+	) + "  " + e.th.dimStyle.Render(
 		value,
 	)
 }

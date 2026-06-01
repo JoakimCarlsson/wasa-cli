@@ -68,7 +68,7 @@ func TestApplyDiffDropsStaleDelivery(t *testing.T) {
 // the test runner's no-color profile, so the colours are verified manually.
 func TestColorizeDiffPreservesContent(t *testing.T) {
 	in := "@@ -1 +1 @@\n+added\n-removed\n context"
-	out := colorizeDiff(in)
+	out := colorizeDiff(testTheme, in)
 	for _, want := range []string{"@@ -1 +1 @@", "added", "removed", " context"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("colorizeDiff dropped %q from:\n%s", want, out)

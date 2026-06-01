@@ -14,13 +14,14 @@ import (
 // backspace are reserved by the editor as commit/cancel/remove, so they cannot be
 // recorded here.
 type recordEditor struct {
+	th     Theme
 	action string
 	keys   []string
 	other  map[string]string // key -> the other action that already binds it
 	warn   string
 }
 
-func newRecordEditor(action string, working config.Config) recordEditor {
+func newRecordEditor(th Theme, action string, working config.Config) recordEditor {
 	other := make(map[string]string)
 	for a, ks := range working.Keys {
 		if a == action {
@@ -30,7 +31,7 @@ func newRecordEditor(action string, working config.Config) recordEditor {
 			other[k] = a
 		}
 	}
-	return recordEditor{action: action, other: other}
+	return recordEditor{th: th, action: action, other: other}
 }
 
 // add records a pressed key, ignoring an exact repeat of the last one, and warns
@@ -61,22 +62,22 @@ func (e recordEditor) removeLast() recordEditor {
 func (e recordEditor) value() string { return strings.Join(e.keys, ", ") }
 
 func (e recordEditor) view() string {
-	captured := dimStyle.Render("(press a key)")
+	captured := e.th.dimStyle.Render("(press a key)")
 	if len(e.keys) > 0 {
 		labels := make([]string, len(e.keys))
 		for i, k := range e.keys {
-			labels[i] = matchStyle.Render(keyLabel(k))
+			labels[i] = e.th.matchStyle.Render(keyLabel(k))
 		}
 		captured = strings.Join(labels, " ")
 	}
 
 	lines := []string{
-		titleStyle.Render("Bind " + e.action),
+		e.th.titleStyle.Render("Bind " + e.action),
 		"",
 		captured,
 	}
 	if e.warn != "" {
-		lines = append(lines, "", errorStyle.Render(e.warn))
+		lines = append(lines, "", e.th.errorStyle.Render(e.warn))
 	}
 	return strings.Join(lines, "\n")
 }

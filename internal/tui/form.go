@@ -49,6 +49,7 @@ const (
 // detected on PATH plus a bare-shell entry as a visible menu; ←/→ move the
 // selection and typing overrides it with any program name outside the known set.
 type createForm struct {
+	th         Theme
 	inputs     []textinput.Model
 	branchRepo string
 	profiles   []string
@@ -60,7 +61,7 @@ type createForm struct {
 	err        string
 }
 
-func newCreateForm(profiles []string) createForm {
+func newCreateForm(th Theme, profiles []string) createForm {
 	dir := textinput.New()
 	dir.Placeholder = "ctrl+f to browse, or empty for here"
 	dir.CharLimit = 4096
@@ -82,6 +83,7 @@ func newCreateForm(profiles []string) createForm {
 	program.SetValue(programs[0])
 
 	f := createForm{
+		th:       th,
 		inputs:   []textinput.Model{dir, branch, title, program},
 		profiles: profiles,
 		programs: programs,
@@ -293,7 +295,7 @@ func (f createForm) params() launch.Params {
 
 func (f createForm) view() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("New session"))
+	b.WriteString(f.th.titleStyle.Render("New session"))
 	b.WriteString("\n\n")
 
 	labels := []string{"Directory", "Branch", "Title"}
@@ -301,7 +303,7 @@ func (f createForm) view() string {
 		b.WriteString(f.label(labels[i], i))
 		b.WriteString("\n")
 		if i == fieldBranch && !f.branchEnabled() {
-			b.WriteString(dimStyle.Render("  (only inside a git repository)"))
+			b.WriteString(f.th.dimStyle.Render("  (only inside a git repository)"))
 		} else {
 			b.WriteString(f.inputs[i].View())
 		}
@@ -319,10 +321,10 @@ func (f createForm) view() string {
 	b.WriteString("\n\n")
 
 	if f.err != "" {
-		b.WriteString(errorStyle.Render(f.err))
+		b.WriteString(f.th.errorStyle.Render(f.err))
 		b.WriteString("\n\n")
 	}
-	b.WriteString(dimStyle.Render(
+	b.WriteString(f.th.dimStyle.Render(
 		"tab/↑↓ move · ←/→ choose program/profile · " +
 			"ctrl+f browse dir/branch · enter create · esc cancel",
 	))
@@ -331,9 +333,9 @@ func (f createForm) view() string {
 
 func (f createForm) label(text string, field int) string {
 	if f.focus == field {
-		return focusedLabelStyle.Render("> " + text)
+		return f.th.focusedLabelStyle.Render("> " + text)
 	}
-	return labelStyle.Render("  " + text)
+	return f.th.labelStyle.Render("  " + text)
 }
 
 // programView renders the detected-agents-plus-shell menu inline, highlighting
@@ -348,14 +350,14 @@ func (f createForm) programView() string {
 			matched = true
 			parts = append(
 				parts,
-				focusedLabelStyle.Render("["+f.programLabel(p)+"]"),
+				f.th.focusedLabelStyle.Render("["+f.programLabel(p)+"]"),
 			)
 			continue
 		}
-		parts = append(parts, dimStyle.Render(f.programLabel(p)))
+		parts = append(parts, f.th.dimStyle.Render(f.programLabel(p)))
 	}
 	if !matched && cur != "" {
-		parts = append(parts, focusedLabelStyle.Render("["+cur+"]"))
+		parts = append(parts, f.th.focusedLabelStyle.Render("["+cur+"]"))
 	}
 	return "  " + strings.Join(parts, "   ")
 }
@@ -371,12 +373,12 @@ func (f createForm) programLabel(p string) string {
 
 func (f createForm) profileView() string {
 	if len(f.profiles) == 0 {
-		return dimStyle.Render("  (no profiles)")
+		return f.th.dimStyle.Render("  (no profiles)")
 	}
 	name := f.profiles[f.profIdx]
 	marker := ""
 	if f.profIdx == 0 {
 		marker = " (default)"
 	}
-	return fmt.Sprintf("  ◄ %s%s ►", name, dimStyle.Render(marker))
+	return fmt.Sprintf("  ◄ %s%s ►", name, f.th.dimStyle.Render(marker))
 }

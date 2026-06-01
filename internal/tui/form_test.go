@@ -12,7 +12,7 @@ import (
 // Branch field is skipped in tab order and a stray branch value is ignored, so a
 // plain session is produced.
 func TestFormBranchDisabledWithoutRepo(t *testing.T) {
-	f := newCreateForm(nil)
+	f := newCreateForm(testTheme, nil)
 	if f.branchEnabled() {
 		t.Fatal("branch should be disabled before a directory is chosen")
 	}
@@ -47,7 +47,7 @@ func TestFormBranchEnabledWithRepo(t *testing.T) {
 	repo := t.TempDir()
 	initRepo(t, repo)
 
-	f := newCreateForm(nil)
+	f := newCreateForm(testTheme, nil)
 	f.setDir(repo)
 	if !f.branchEnabled() {
 		t.Fatal(
@@ -86,7 +86,7 @@ func TestFormBranchRepoFollowsChosenDirectory(t *testing.T) {
 
 	plain := t.TempDir()
 
-	f := newCreateForm(nil)
+	f := newCreateForm(testTheme, nil)
 	if f.branchEnabled() {
 		t.Fatal("branch should be disabled before a directory is chosen")
 	}
@@ -138,7 +138,7 @@ func TestFormCtrlFRoutesByField(t *testing.T) {
 	repo := t.TempDir()
 	initRepo(t, repo)
 
-	f := newCreateForm(nil)
+	f := newCreateForm(testTheme, nil)
 	ctrlF := tea.KeyMsg{Type: tea.KeyCtrlF}
 
 	if _, result, _ := f.update(ctrlF); result != formPickDir {

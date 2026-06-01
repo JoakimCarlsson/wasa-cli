@@ -6,15 +6,15 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/config"
 )
 
-// The cockpit's lipgloss styles. They are package-level so the view code can
-// reference them directly, but their colours are not fixed: applyTheme rebuilds
-// every style from a config.Theme. The package initialises them from the
-// built-in default theme, and New re-applies the resolved theme at startup, so
-// zero config reproduces the historical palette while a config.json recolours the
-// whole cockpit. The aesthetic, adapted from claude-squad / agent-deck: a purple
-// accent on borders and the active tab, a green status dot for running and a dim
-// grey one for exited, and a light selection band that flips the row text dark.
-var (
+// Theme is the cockpit's resolved palette: every lipgloss style the view code
+// draws with, built once from a config.Theme and passed by value into the
+// render paths. It replaces the old package-level style vars so a Model carries
+// its own theme, nothing mutates global state, and a test can build a Theme
+// without disturbing any other. The aesthetic, adapted from claude-squad /
+// agent-deck: a purple accent on borders and the active tab, a green status dot
+// for running and a dim grey one for exited, and a light selection band that
+// flips the row text dark.
+type Theme struct {
 	paneStyle      lipgloss.Style
 	paneTitleStyle lipgloss.Style
 
@@ -61,9 +61,7 @@ var (
 	titleStyle        lipgloss.Style
 	focusedLabelStyle lipgloss.Style
 	labelStyle        lipgloss.Style
-)
-
-func init() { applyTheme(config.Default().Theme) }
+}
 
 // themeColor converts a config.Color to a lipgloss colour. A colour whose light
 // and dark variants are equal becomes a plain lipgloss.Color (identical to a
@@ -76,9 +74,10 @@ func themeColor(c config.Color) lipgloss.TerminalColor {
 	return lipgloss.AdaptiveColor{Light: c.Light, Dark: c.Dark}
 }
 
-// applyTheme rebuilds every package style from t. It is called once at init with
-// the default theme and again by New with the resolved theme.
-func applyTheme(t config.Theme) {
+// newTheme builds the cockpit's styles from t. Zero config (config.Default's
+// theme) reproduces the historical palette; a config.json recolours the whole
+// cockpit by recolouring the styles a Model holds, with no global state.
+func newTheme(t config.Theme) Theme {
 	accent := themeColor(t.Accent)
 	running := themeColor(t.Running)
 	waiting := themeColor(t.Waiting)
@@ -92,102 +91,106 @@ func applyTheme(t config.Theme) {
 	onAccent := themeColor(t.OnAccent)
 	inactiveBtnBg := themeColor(t.InactiveBtnBg)
 
-	paneStyle = lipgloss.NewStyle().
+	var th Theme
+
+	th.paneStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(accent)
 
-	paneTitleStyle = lipgloss.NewStyle().
+	th.paneTitleStyle = lipgloss.NewStyle().
 		Bold(true).
 		Foreground(accent).
 		Padding(0, 1)
 
-	activeTabStyle = lipgloss.NewStyle().
+	th.activeTabStyle = lipgloss.NewStyle().
 		Bold(true).
 		Foreground(onAccent).
 		Background(accent).
 		Padding(0, 2)
 
-	inactiveTabStyle = lipgloss.NewStyle().
+	th.inactiveTabStyle = lipgloss.NewStyle().
 		Foreground(desc).
 		Padding(0, 2)
 
-	paneTabInactiveStyle = lipgloss.NewStyle().
+	th.paneTabInactiveStyle = lipgloss.NewStyle().
 		Border(tabBorderWithBottom("┴", "─", "┴"), true).
 		BorderForeground(accent).
 		Foreground(desc).
 		Align(lipgloss.Center)
-	paneTabActiveStyle = lipgloss.NewStyle().
+	th.paneTabActiveStyle = lipgloss.NewStyle().
 		Border(tabBorderWithBottom("┘", " ", "└"), true).
 		BorderForeground(accent).
 		Bold(true).
 		Foreground(accent).
 		Align(lipgloss.Center)
-	paneWindowStyle = lipgloss.NewStyle().
+	th.paneWindowStyle = lipgloss.NewStyle().
 		BorderForeground(accent).
 		Border(lipgloss.RoundedBorder(), false, true, true, true)
 
-	runningDotStyle = lipgloss.NewStyle().Foreground(running)
-	waitingDotStyle = lipgloss.NewStyle().Foreground(waiting)
-	idleDotStyle = lipgloss.NewStyle().Foreground(idle)
-	exitedDotStyle = lipgloss.NewStyle().Foreground(exited)
+	th.runningDotStyle = lipgloss.NewStyle().Foreground(running)
+	th.waitingDotStyle = lipgloss.NewStyle().Foreground(waiting)
+	th.idleDotStyle = lipgloss.NewStyle().Foreground(idle)
+	th.exitedDotStyle = lipgloss.NewStyle().Foreground(exited)
 
-	rowTitleStyle = lipgloss.NewStyle().Foreground(title)
-	rowDescStyle = lipgloss.NewStyle().Foreground(desc)
+	th.rowTitleStyle = lipgloss.NewStyle().Foreground(title)
+	th.rowDescStyle = lipgloss.NewStyle().Foreground(desc)
 
-	selRowTitleStyle = lipgloss.NewStyle().
+	th.selRowTitleStyle = lipgloss.NewStyle().
 		Bold(true).
 		Background(selBg).
 		Foreground(selFg)
-	selRowDescStyle = lipgloss.NewStyle().
+	th.selRowDescStyle = lipgloss.NewStyle().
 		Background(selBg).
 		Foreground(selFg)
 
-	bannerStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
-	dimStyle = lipgloss.NewStyle().Foreground(desc)
-	errorStyle = lipgloss.NewStyle().Foreground(danger)
+	th.bannerStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
+	th.dimStyle = lipgloss.NewStyle().Foreground(desc)
+	th.errorStyle = lipgloss.NewStyle().Foreground(danger)
 
-	diffAddStyle = lipgloss.NewStyle().Foreground(running)
-	diffDelStyle = lipgloss.NewStyle().Foreground(danger)
-	diffHunkStyle = lipgloss.NewStyle().Foreground(accent)
-	diffMetaStyle = lipgloss.NewStyle().Foreground(desc)
+	th.diffAddStyle = lipgloss.NewStyle().Foreground(running)
+	th.diffDelStyle = lipgloss.NewStyle().Foreground(danger)
+	th.diffHunkStyle = lipgloss.NewStyle().Foreground(accent)
+	th.diffMetaStyle = lipgloss.NewStyle().Foreground(desc)
 
-	modalStyle = lipgloss.NewStyle().
+	th.modalStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(danger).
 		Padding(1, 2)
 
-	pickerStyle = lipgloss.NewStyle().
+	th.pickerStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(accent).
 		Padding(1, 2)
 
-	matchStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
+	th.matchStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
 
 	btnBase := lipgloss.NewStyle().Padding(0, 3)
-	btnInactiveStyle = btnBase.
+	th.btnInactiveStyle = btnBase.
 		Foreground(desc).
 		Background(inactiveBtnBg)
-	btnCancelStyle = btnBase.
+	th.btnCancelStyle = btnBase.
 		Bold(true).
 		Foreground(onAccent).
 		Background(accent)
-	btnConfirmStyle = btnCancelStyle
-	btnDangerStyle = btnBase.
+	th.btnConfirmStyle = th.btnCancelStyle
+	th.btnDangerStyle = btnBase.
 		Bold(true).
 		Foreground(onAccent).
 		Background(danger)
 
-	menuKeyStyle = lipgloss.NewStyle().
+	th.menuKeyStyle = lipgloss.NewStyle().
 		Bold(true).
 		Foreground(themeColor(t.MenuKey))
-	menuDescStyle = lipgloss.NewStyle().
+	th.menuDescStyle = lipgloss.NewStyle().
 		Foreground(themeColor(t.MenuDesc))
-	menuSepStyle = lipgloss.NewStyle().
+	th.menuSepStyle = lipgloss.NewStyle().
 		Foreground(themeColor(t.MenuSep))
 
-	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
-	focusedLabelStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
-	labelStyle = lipgloss.NewStyle().Foreground(desc)
+	th.titleStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
+	th.focusedLabelStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
+	th.labelStyle = lipgloss.NewStyle().Foreground(desc)
+
+	return th
 }
 
 // tabBorderWithBottom is a rounded border with its bottom edge overridden, used
