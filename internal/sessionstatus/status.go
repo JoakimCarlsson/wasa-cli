@@ -4,8 +4,8 @@
 // learns a status — the authoritative hook channel and the best-effort pane
 // heuristic — and the rule for choosing between them.
 //
-// Two sources feed it. A hook-emitting agent (Claude, Gemini, Codex, OpenCode,
-// Copilot, Cursor) reports its own lifecycle via `wasa hook-handler`, which maps
+// Two sources feed it. A hook-emitting agent (Claude, Gemini, Codex, Copilot,
+// Cursor) reports its own lifecycle via `wasa hook-handler`, which maps
 // the event through that agent's Adapter and writes a Record to the store; the
 // cockpit reads it. Any other program — a plain shell, an arbitrary command —
 // has no such channel, so its status is derived from the pane content by the

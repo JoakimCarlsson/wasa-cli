@@ -13,7 +13,6 @@ func TestForAndLookup(t *testing.T) {
 		"claude":          "claude",
 		"/usr/bin/gemini": "gemini",
 		"codex --resume":  "codex",
-		"opencode":        "opencode",
 		"copilot":         "copilot",
 		"cursor-agent":    "cursor",
 		"cursor":          "cursor",
@@ -36,8 +35,8 @@ func TestForAndLookup(t *testing.T) {
 	if _, ok := Lookup("nope"); ok {
 		t.Error("Lookup(nope) found an adapter")
 	}
-	if len(All()) != 6 {
-		t.Errorf("All() = %d adapters, want 6", len(All()))
+	if len(All()) != 5 {
+		t.Errorf("All() = %d adapters, want 5", len(All()))
 	}
 }
 
@@ -63,8 +62,6 @@ func TestAdapterMapEvent(t *testing.T) {
 		{"gemini", "BeforeAgent", Working, true},
 		{"codex", "approval-requested", Waiting, true},
 		{"codex", "agent-turn-complete", Idle, true},
-		{"opencode", "permission.asked", Waiting, true},
-		{"opencode", "session.idle", Idle, true},
 		{"copilot", "notification", Waiting, true},
 		{"copilot", "userPromptSubmitted", Working, true},
 		{"cursor", "stop", Idle, true},
@@ -201,22 +198,3 @@ func TestCodexInstallCreatesOnlyWhenAbsent(t *testing.T) {
 	}
 }
 
-func TestOpencodeInstallDropsPlugin(t *testing.T) {
-	dir := t.TempDir()
-	a, _ := Lookup("opencode")
-	if err := a.Install(
-		[]string{"XDG_CONFIG_HOME=" + dir},
-		"wasa hook-handler --tool opencode",
-	); err != nil {
-		t.Fatalf("install: %v", err)
-	}
-	data, err := os.ReadFile(
-		filepath.Join(dir, "opencode", "plugin", "wasa-status.js"),
-	)
-	if err != nil {
-		t.Fatalf("plugin not written: %v", err)
-	}
-	if !strings.Contains(string(data), "hook-handler --tool opencode") {
-		t.Fatalf("plugin missing handler command: %s", data)
-	}
-}

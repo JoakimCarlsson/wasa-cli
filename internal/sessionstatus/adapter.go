@@ -29,7 +29,6 @@ var adapters = []Adapter{
 	claudeAdapter{},
 	geminiAdapter{},
 	codexAdapter{},
-	opencodeAdapter{},
 	copilotAdapter{},
 	cursorAdapter{},
 }
