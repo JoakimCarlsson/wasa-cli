@@ -178,6 +178,23 @@ func configFields() []cfgField {
 		intField("compactHeight",
 			func(l *config.Layout) *int { return &l.CompactHeight }),
 	)
+
+	fs = append(fs, cfgField{
+		section: "Notify",
+		label:   "mode",
+		kind:    kindText,
+		get: func(cfg config.Config) string {
+			return string(cfg.Notify)
+		},
+		set: func(cfg *config.Config, s string) error {
+			n := config.Notify(strings.TrimSpace(s))
+			if err := config.ValidateNotify(n); err != nil {
+				return err
+			}
+			cfg.Notify = n
+			return nil
+		},
+	})
 	return fs
 }
 

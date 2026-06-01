@@ -31,9 +31,24 @@ type Config struct {
 	Theme  Theme  `json:"theme"`
 	Keys   Keys   `json:"keys"`
 	Layout Layout `json:"layout"`
+	Notify Notify `json:"notify"`
 
 	Path string `json:"-"`
 }
+
+// Notify selects how the cockpit announces a session that transitions into
+// needing attention (waiting for input) or finishing (exited) while it is not
+// the focused session. It is deliberately small: silent, a terminal bell, or a
+// desktop notification through the host's notifier.
+type Notify string
+
+// Notification modes. NotifyBell is the conservative default — a contained
+// terminal bell that spawns no external process and, debounced, cannot spam.
+const (
+	NotifyOff  Notify = "off"
+	NotifyBell Notify = "bell"
+	NotifyOS   Notify = "os"
+)
 
 // Color is a single palette entry. It may carry distinct light- and dark-terminal
 // variants; the cockpit renders the one matching the terminal background. In the
@@ -72,6 +87,8 @@ func (c *Color) UnmarshalJSON(b []byte) error {
 type Theme struct {
 	Accent        Color `json:"accent"`
 	Running       Color `json:"running"`
+	Waiting       Color `json:"waiting"`
+	Idle          Color `json:"idle"`
 	Exited        Color `json:"exited"`
 	Title         Color `json:"title"`
 	Desc          Color `json:"desc"`
@@ -169,6 +186,8 @@ func Default() Config {
 		Theme: Theme{
 			Accent:        Color{Light: "#874BFD", Dark: "#7D56F4"},
 			Running:       both("#51bd73"),
+			Waiting:       both("#e0af68"),
+			Idle:          both("#56b6c2"),
 			Exited:        both("#888888"),
 			Title:         Color{Light: "#1a1a1a", Dark: "#dddddd"},
 			Desc:          Color{Light: "#A49FA5", Dark: "#777777"},
@@ -187,7 +206,8 @@ func Default() Config {
 			CompactWidth:  40,
 			CompactHeight: 8,
 		},
-		Keys: defaultKeys(),
+		Keys:   defaultKeys(),
+		Notify: NotifyBell,
 	}
 }
 
@@ -262,7 +282,25 @@ func (c Config) validate() error {
 		}
 	}
 
+	if err := ValidateNotify(c.Notify); err != nil {
+		return err
+	}
 	return c.Layout.validate()
+}
+
+// ValidateNotify rejects a notify mode the cockpit does not recognise, so a typo
+// in the config file — or in the in-cockpit editor — is reported rather than
+// silently disabling notifications.
+func ValidateNotify(n Notify) error {
+	switch n {
+	case NotifyOff, NotifyBell, NotifyOS:
+		return nil
+	default:
+		return fmt.Errorf(
+			"notify must be one of %q, %q, %q, got %q",
+			NotifyOff, NotifyBell, NotifyOS, n,
+		)
+	}
 }
 
 func (l Layout) validate() error {
