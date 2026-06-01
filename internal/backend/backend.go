@@ -30,9 +30,10 @@ type SessionBackend interface {
 	// on detach.
 	AttachCmd(name string) (*exec.Cmd, error)
 
-	// Capture returns the visible contents of the session's active pane as plain
-	// text for a read-only preview. A session that no longer exists yields an
-	// empty string rather than an error.
+	// Capture returns the visible contents of the session's active pane, with
+	// the pane's escape sequences preserved, for a read-only preview that keeps
+	// the session's colors. A session that no longer exists yields an empty
+	// string rather than an error.
 	Capture(name string) (string, error)
 
 	// Has reports whether a session named name exists. A missing session is not

@@ -229,6 +229,35 @@ func TestEmptyRegistryShowsBanner(t *testing.T) {
 	}
 }
 
+// TestPreviewPreservesColor is the regression guard for issue #46 symptom 1:
+// the cockpit preview must render the captured agent's ANSI colors, and the
+// per-line width truncation must not slice through an escape sequence. The
+// capture carries a truecolor SGR followed by long text that overflows the
+// pane, so a correct (ANSI-aware) render keeps the full escape intact while a
+// naive byte/rune truncation would cut it mid-code.
+func TestPreviewPreservesColor(t *testing.T) {
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	reg.AddSession(&registry.Session{
+		ID: "s1", WorkspaceID: ws.ID, Branch: "feat/s1",
+		Status: registry.StatusRunning,
+	})
+
+	m := New(t.TempDir(), reg, ws.ID)
+	m.width, m.height = 100, 30
+	m.preview = "\x1b[38;2;255;0;0mRED" +
+		strings.Repeat("x", 200) + "\x1b[0m"
+
+	out := m.View()
+	if !strings.Contains(out, "\x1b[38;2;255;0;0m") {
+		t.Fatalf("preview dropped the truecolor escape; "+
+			"colors are stripped or corrupted.\n%q", out)
+	}
+}
+
 func TestSelectedSessionEmpty(t *testing.T) {
 	reg, err := registry.Open(t.TempDir())
 	if err != nil {
