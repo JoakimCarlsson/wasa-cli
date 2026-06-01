@@ -148,6 +148,42 @@ func TestEnterCreatePreselectsDefaultProfile(t *testing.T) {
 	}
 }
 
+func TestEnterCreateWithNoWorkspaceOpensPlainForm(t *testing.T) {
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	m := New(t.TempDir(), reg, "")
+	if m.currentWorkspace() != nil {
+		t.Fatal("precondition: expected no current workspace")
+	}
+
+	next, _ := m.enterCreate()
+	got := next.(Model)
+	if got.mode != modeCreate {
+		t.Fatal("enterCreate did not open the form when there is no workspace")
+	}
+	if len(got.form.profiles) != 0 {
+		t.Fatalf(
+			"form profiles = %v, want none without a workspace",
+			got.form.profiles,
+		)
+	}
+
+	params := got.form.params()
+	if params.Branch != "" {
+		t.Fatalf(
+			"default params carried a branch %q, want a plain session",
+			params.Branch,
+		)
+	}
+	if params.WorkingDir == "" {
+		t.Fatal(
+			"plain session has no working directory; want the current directory",
+		)
+	}
+}
+
 func TestListCursorNavigation(t *testing.T) {
 	m, _, _ := testModel(t)
 

@@ -12,6 +12,7 @@
 package tui
 
 import (
+	"os"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -208,10 +209,6 @@ func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case formSubmit:
 		ws := m.currentWorkspace()
-		if ws == nil {
-			m.mode = modeList
-			return m, nil
-		}
 		params := m.form.params()
 		m.mode = modeList
 		m.status = "creating session…"
@@ -220,16 +217,30 @@ func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// enterCreate opens the create form. With a current workspace the form is seeded
+// with that workspace's profiles and its repository as the default working
+// directory; with no workspace — wasa launched outside any git repository — the
+// form opens with no profiles and the current directory as the default, so a
+// plain session can be created anywhere. ws being nil is the no-repo path, not
+// an error.
 func (m Model) enterCreate() (tea.Model, tea.Cmd) {
 	ws := m.currentWorkspace()
-	if ws == nil {
-		return m, nil
+
+	var (
+		names      []string
+		defaultDir string
+	)
+	if ws != nil {
+		names = make([]string, len(ws.Profiles))
+		for i, p := range ws.Profiles {
+			names[i] = p.Name
+		}
+		defaultDir = ws.RepoPath
+	} else if cwd, err := os.Getwd(); err == nil {
+		defaultDir = cwd
 	}
-	names := make([]string, len(ws.Profiles))
-	for i, p := range ws.Profiles {
-		names[i] = p.Name
-	}
-	m.form = newCreateForm(names, ws.RepoPath)
+
+	m.form = newCreateForm(names, defaultDir)
 	m.mode = modeCreate
 	m.err = nil
 	m.status = ""

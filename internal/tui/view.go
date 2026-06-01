@@ -70,11 +70,11 @@ func (m Model) tabBar() string {
 }
 
 func (m Model) sessionList(paneW int) string {
-	if len(m.workspaces) == 0 {
-		return noWorkspaceBanner()
-	}
 	ss := m.sessions()
 	if len(ss) == 0 {
+		if len(m.workspaces) == 0 {
+			return noWorkspaceBanner()
+		}
 		ws := m.currentWorkspace()
 		name := ""
 		if ws != nil {
@@ -207,7 +207,8 @@ func pad(s string, w int) string {
 func noWorkspaceBanner() string {
 	return bannerStyle.Render("No workspaces yet.") + "\n\n" +
 		dimStyle.Render(
-			"Add one with\nwasa workspace add <path>\n"+
+			"Press n to start a plain session here.\n\n"+
+				"Or add a repo with\nwasa workspace add <path>\n"+
 				"or run wasa inside a git repo.",
 		)
 }
