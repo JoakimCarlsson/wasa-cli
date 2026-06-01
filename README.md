@@ -99,8 +99,17 @@ wasa finish <session>
 ## Requirements
 
 - **Go 1.26 or later** to build from source.
-- **Linux / macOS:** [`tmux`](https://github.com/tmux/tmux) on your `PATH` for
-  background sessions.
+- **Linux / macOS:** [`tmux`](https://github.com/tmux/tmux) is **required** and
+  must be on your `PATH` — wasa spawns background sessions through it. Install
+  it with your package manager:
+
+  ```sh
+  brew install tmux        # macOS
+  sudo apt install tmux    # Debian / Ubuntu
+  sudo dnf install tmux    # Fedora
+  sudo pacman -S tmux      # Arch
+  ```
+
 - **Windows:** Windows 10 version 1809 (build 17763) or later for the native
   ConPTY backend. No tmux or WSL required.
 
