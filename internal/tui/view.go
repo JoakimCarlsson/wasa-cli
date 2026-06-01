@@ -11,6 +11,7 @@ import (
 
 	"github.com/joakimcarlsson/wasa/internal/config"
 	"github.com/joakimcarlsson/wasa/internal/registry"
+	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
 )
 
 // chromeRows is the number of rows the tab bar, menu and status line take from
@@ -146,7 +147,7 @@ func (m Model) sessionRow(i int, s *registry.Session, w int) string {
 	prefix := fmt.Sprintf(" %d ", i+1)
 	head := fmt.Sprintf("%s%s %s", prefix, statusDot(rs), title)
 	sub := fmt.Sprintf(
-		"   %s %s · %s · %s", branchIcon, ref, s.ProfileName, rs.label(),
+		"   %s %s · %s · %s", branchIcon, ref, s.ProfileName, rs.Label(),
 	)
 
 	return lipgloss.JoinVertical(
@@ -267,13 +268,13 @@ func confirmBody(prompt string, s *registry.Session) string {
 	)
 }
 
-func statusDot(s runtimeStatus) string {
+func statusDot(s sessionstatus.Status) string {
 	switch s {
-	case statusWaiting:
+	case sessionstatus.Waiting:
 		return waitingDotStyle.Render(waitingIcon)
-	case statusIdle:
+	case sessionstatus.Idle:
 		return idleDotStyle.Render(idleIcon)
-	case statusExited:
+	case sessionstatus.Exited:
 		return exitedDotStyle.Render(exitedIcon)
 	default:
 		return runningDotStyle.Render(runningIcon)

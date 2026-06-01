@@ -7,9 +7,18 @@ import (
 	"time"
 
 	"github.com/joakimcarlsson/wasa/internal/config"
-	"github.com/joakimcarlsson/wasa/internal/hookstatus"
 	"github.com/joakimcarlsson/wasa/internal/registry"
+	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
 )
+
+type fakeClock struct{ t time.Time }
+
+func (c *fakeClock) now() time.Time          { return c.t }
+func (c *fakeClock) advance(d time.Duration) { c.t = c.t.Add(d) }
+
+func newFakeClock() *fakeClock {
+	return &fakeClock{t: time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)}
+}
 
 // captureBackend is a SessionBackend whose pane content and liveness the test
 // drives directly, so a session can be made to settle at a prompt or to vanish
@@ -73,7 +82,7 @@ func notifyModel(
 	m.tmux = be
 	m.stream = nil
 	m.now = clk.now
-	m.statuses = newStatusTracker(clk.now)
+	m.statuses = sessionstatus.NewTracker(clk.now)
 
 	var recs []notifRec
 	rp := &recs
@@ -93,7 +102,7 @@ func TestNotifyOnWaitingTransitionSuppressesFocused(t *testing.T) {
 		t.Fatalf("notified on first observation: %v", *recs)
 	}
 
-	clk.advance(workingWindow + time.Second)
+	clk.advance(sessionstatus.WorkingWindow + time.Second)
 	m.sweepStatuses()
 
 	if len(*recs) != 1 {
@@ -135,7 +144,7 @@ func TestNotifyOffFiresNothing(t *testing.T) {
 	be.panes["t2"] = "$ "
 
 	m.sweepStatuses()
-	clk.advance(workingWindow + time.Second)
+	clk.advance(sessionstatus.WorkingWindow + time.Second)
 	m.sweepStatuses()
 	be.alive["t2"] = false
 	m.sweepStatuses()
@@ -148,11 +157,11 @@ func TestNotifyOffFiresNothing(t *testing.T) {
 func TestFreshHookOverridesScrape(t *testing.T) {
 	m, be, clk, recs := notifyModel(t)
 	s2, _ := m.reg.Session("s2")
-	m.lastStatus["s2"] = statusWorking
+	m.lastStatus["s2"] = sessionstatus.Working
 	be.panes["t2"] = "compiling project"
 
-	if err := hookstatus.Write(m.home, "s2", hookstatus.Record{
-		Status:    hookstatus.StatusWaiting,
+	if err := sessionstatus.Write(m.home, "s2", sessionstatus.Record{
+		Status:    sessionstatus.Waiting,
 		Event:     "Notification",
 		UpdatedAt: clk.now(),
 	}); err != nil {
@@ -161,49 +170,24 @@ func TestFreshHookOverridesScrape(t *testing.T) {
 
 	m.sweepStatuses()
 
-	if got := m.runtimeStatus(s2); got != statusWaiting {
-		t.Fatalf(
-			"hook did not override scrape: status = %v, want waiting",
-			got.label(),
-		)
+	if got := m.runtimeStatus(s2); got != sessionstatus.Waiting {
+		t.Fatalf("hook did not override scrape: status = %q, want waiting", got)
 	}
 	if len(*recs) != 1 || !strings.Contains((*recs)[0].body, "feat/s2") {
 		t.Fatalf("fresh waiting hook did not notify: %v", *recs)
 	}
 }
 
-func TestStaleHookFallsBackToScrape(t *testing.T) {
-	m, be, clk, _ := notifyModel(t)
-	s2, _ := m.reg.Session("s2")
-	be.panes["t2"] = "still streaming output"
-
-	if err := hookstatus.Write(m.home, "s2", hookstatus.Record{
-		Status:    hookstatus.StatusWaiting,
-		Event:     "Notification",
-		UpdatedAt: clk.now().Add(-hookstatus.Freshness - time.Minute),
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	m.sweepStatuses()
-
-	if got := m.runtimeStatus(s2); got == statusWaiting {
-		t.Fatal(
-			"a stale hook should be ignored in favour of the pane heuristic",
-		)
-	}
-}
-
 func TestNotifyDebouncesFlapping(t *testing.T) {
 	m, _, _, recs := notifyModel(t)
 	s2, _ := m.reg.Session("s2")
-	m.lastStatus["s2"] = statusWorking
+	m.lastStatus["s2"] = sessionstatus.Working
 
-	m.transition(s2, statusWaiting, "")
-	m.transition(s2, statusWorking, "")
-	m.transition(s2, statusWaiting, "")
-	m.transition(s2, statusWorking, "")
-	m.transition(s2, statusWaiting, "")
+	m.transition(s2, sessionstatus.Waiting, "")
+	m.transition(s2, sessionstatus.Working, "")
+	m.transition(s2, sessionstatus.Waiting, "")
+	m.transition(s2, sessionstatus.Working, "")
+	m.transition(s2, sessionstatus.Waiting, "")
 
 	if len(*recs) != 1 {
 		t.Fatalf("debounce failed: want 1 notification, got %d: %v",

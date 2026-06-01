@@ -23,9 +23,9 @@ import (
 
 	"github.com/joakimcarlsson/wasa/internal/backend"
 	"github.com/joakimcarlsson/wasa/internal/config"
-	"github.com/joakimcarlsson/wasa/internal/hookstatus"
 	"github.com/joakimcarlsson/wasa/internal/launch"
 	"github.com/joakimcarlsson/wasa/internal/registry"
+	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
 	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
@@ -86,10 +86,10 @@ type Model struct {
 	watchGen  int
 
 	now          func() time.Time
-	statuses     *statusTracker
+	statuses     *sessionstatus.Tracker
 	notify       func(title, body string)
 	lastNotifyAt map[string]time.Time
-	lastStatus   map[string]runtimeStatus
+	lastStatus   map[string]sessionstatus.Status
 
 	status string
 	err    error
@@ -115,10 +115,10 @@ func New(
 		cfg:          cfg,
 		keys:         newKeymap(cfg.Keys),
 		now:          time.Now,
-		statuses:     newStatusTracker(time.Now),
+		statuses:     sessionstatus.NewTracker(time.Now),
 		notify:       makeNotifier(cfg.Notify),
 		lastNotifyAt: make(map[string]time.Time),
-		lastStatus:   make(map[string]runtimeStatus),
+		lastStatus:   make(map[string]sessionstatus.Status),
 	}
 	m.osHome, _ = os.UserHomeDir()
 	if s, ok := be.(backend.StreamingBackend); ok {
@@ -708,7 +708,7 @@ func (m Model) deleteCmd(s *registry.Session) tea.Cmd {
 		if err := launch.DeleteSession(reg, s); err != nil {
 			return deletedMsg{err: err}
 		}
-		_ = hookstatus.Remove(home, s.ID)
+		_ = sessionstatus.Remove(home, s.ID)
 		if err := reg.Save(); err != nil {
 			return deletedMsg{err: err}
 		}
@@ -853,44 +853,19 @@ func (m *Model) sweepStatuses() {
 		keep[s.ID] = true
 		if s.Status != registry.StatusRunning {
 			if wasRunning[s.ID] {
-				m.statuses.markExited(s.ID)
-				m.transition(s, statusExited, focused)
+				m.transition(s, sessionstatus.Exited, focused)
 			}
 			continue
 		}
-		scraped, _ := m.statuses.observe(s.ID, m.contentFor(s))
-		m.transition(s, m.effectiveStatus(s, scraped), focused)
+		scraped := m.statuses.Observe(s.ID, m.contentFor(s))
+		eff := sessionstatus.Derive(m.home, s.ID, scraped, m.now())
+		m.transition(s, eff, focused)
 	}
-	m.statuses.forget(keep)
+	m.statuses.Forget(keep)
 	for id := range m.lastStatus {
 		if !keep[id] {
 			delete(m.lastStatus, id)
 		}
-	}
-}
-
-// effectiveStatus is the status the cockpit trusts for a running session: a
-// fresh hook record when the agent reports one — the authoritative path for a
-// hook-emitting tool like Claude Code — otherwise the pane-content heuristic
-// that is the only signal available for shells and arbitrary programs.
-func (m *Model) effectiveStatus(
-	s *registry.Session, scraped runtimeStatus,
-) runtimeStatus {
-	if rec, ok := hookstatus.Read(m.home, s.ID); ok && rec.Fresh(m.now()) {
-		return hookRuntime(rec.Status)
-	}
-	return scraped
-}
-
-// hookRuntime maps a hook-reported status onto the cockpit's runtime status.
-func hookRuntime(s hookstatus.Status) runtimeStatus {
-	switch s {
-	case hookstatus.StatusWaiting:
-		return statusWaiting
-	case hookstatus.StatusIdle:
-		return statusIdle
-	default:
-		return statusWorking
 	}
 }
 
@@ -900,7 +875,7 @@ func hookRuntime(s hookstatus.Status) runtimeStatus {
 // for a session is recorded without notifying, so a session already waiting
 // when the cockpit opens does not announce itself.
 func (m *Model) transition(
-	s *registry.Session, cur runtimeStatus, focusedID string,
+	s *registry.Session, cur sessionstatus.Status, focusedID string,
 ) {
 	prev, seen := m.lastStatus[s.ID]
 	m.lastStatus[s.ID] = cur
@@ -928,12 +903,12 @@ func (m *Model) contentFor(s *registry.Session) string {
 // session (the user is already looking at it), and for a repeat within the
 // debounce window so a flapping session cannot produce a burst.
 func (m *Model) maybeNotify(
-	s *registry.Session, cur runtimeStatus, focusedID string,
+	s *registry.Session, cur sessionstatus.Status, focusedID string,
 ) {
 	if m.cfg.Notify == config.NotifyOff {
 		return
 	}
-	if cur != statusWaiting && cur != statusExited {
+	if cur != sessionstatus.Waiting && cur != sessionstatus.Exited {
 		return
 	}
 	if s.ID == focusedID {
@@ -948,15 +923,15 @@ func (m *Model) maybeNotify(
 	m.notify(notifyTitle(cur), notifyBody(title, cur))
 }
 
-func notifyTitle(s runtimeStatus) string {
-	if s == statusExited {
+func notifyTitle(s sessionstatus.Status) string {
+	if s == sessionstatus.Exited {
 		return "wasa: session exited"
 	}
 	return "wasa: session waiting"
 }
 
-func notifyBody(title string, s runtimeStatus) string {
-	if s == statusExited {
+func notifyBody(title string, s sessionstatus.Status) string {
+	if s == sessionstatus.Exited {
 		return title + " has exited"
 	}
 	return title + " is waiting for input"
@@ -976,14 +951,14 @@ func (m Model) focusedSessionID() string {
 // registry says so (the persisted source of truth), otherwise the derived
 // runtime status, falling back to working for a running session not yet
 // observed.
-func (m Model) runtimeStatus(s *registry.Session) runtimeStatus {
+func (m Model) runtimeStatus(s *registry.Session) sessionstatus.Status {
 	if s.Status != registry.StatusRunning {
-		return statusExited
+		return sessionstatus.Exited
 	}
 	if st, ok := m.lastStatus[s.ID]; ok {
 		return st
 	}
-	return statusWorking
+	return sessionstatus.Working
 }
 
 func (m *Model) cycleTab(delta int) {

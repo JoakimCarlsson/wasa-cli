@@ -19,14 +19,12 @@ package launch
 import (
 	"errors"
 	"os"
-	"path/filepath"
-	"strings"
 
-	"github.com/joakimcarlsson/wasa/internal/agenthook"
 	"github.com/joakimcarlsson/wasa/internal/backend"
 	"github.com/joakimcarlsson/wasa/internal/hook"
 	"github.com/joakimcarlsson/wasa/internal/profile"
 	"github.com/joakimcarlsson/wasa/internal/registry"
+	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
 	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
@@ -83,36 +81,16 @@ func prepareHooks(home, sessionID, program string, env []string) []string {
 		hook.EnvSession+"="+sessionID,
 		"WASA_HOME="+home,
 	)
-	if !agenthook.Capable(program) {
+	adapter, ok := sessionstatus.For(program)
+	if !ok {
 		return env
 	}
 	exe, err := os.Executable()
 	if err != nil {
 		return env
 	}
-	_ = agenthook.InstallClaude(claudeConfigDir(env), exe+" hook-handler")
+	_ = adapter.Install(env, exe+" hook-handler --tool "+adapter.Name())
 	return env
-}
-
-// claudeConfigDir resolves the directory holding Claude Code's settings.json for
-// a session: the CLAUDE_CONFIG_DIR the profile set, when present, otherwise the
-// default ~/.claude. The former is the wasa-managed per-account directory the
-// profile's AgentConfigDir maps to, so wasa edits its own config rather than the
-// user's global one whenever a profile opts into an isolated account.
-func claudeConfigDir(env []string) string {
-	const key = "CLAUDE_CONFIG_DIR="
-	for i := len(env) - 1; i >= 0; i-- {
-		if strings.HasPrefix(env[i], key) {
-			if v := strings.TrimPrefix(env[i], key); v != "" {
-				return v
-			}
-		}
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ".claude"
-	}
-	return filepath.Join(home, ".claude")
 }
 
 // CreateSession runs the full create flow and registers the resulting session

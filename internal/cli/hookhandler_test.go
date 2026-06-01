@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/joakimcarlsson/wasa/internal/hook"
-	"github.com/joakimcarlsson/wasa/internal/hookstatus"
+	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
 )
 
 func feedStdin(t *testing.T, content string) {
@@ -33,16 +33,16 @@ func TestHookHandlerWritesRecord(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WASA_HOME", home)
 	t.Setenv(hook.EnvSession, "sx")
-	feedStdin(t, `{"hook_event_name":"Notification","session_id":"abc"}`)
+	feedStdin(t, `{"hook_event_name":"Notification"}`)
 
-	if err := runHookHandler(nil); err != nil {
+	if err := runHookHandler([]string{"--tool", "claude"}); err != nil {
 		t.Fatalf("runHookHandler: %v", err)
 	}
-	rec, ok := hookstatus.Read(home, "sx")
+	rec, ok := sessionstatus.Read(home, "sx")
 	if !ok {
 		t.Fatal("handler wrote no record")
 	}
-	if rec.Status != hookstatus.StatusWaiting {
+	if rec.Status != sessionstatus.Waiting {
 		t.Fatalf("status = %q, want waiting", rec.Status)
 	}
 }
@@ -53,7 +53,7 @@ func TestHookHandlerNoSessionIsNoop(t *testing.T) {
 	t.Setenv(hook.EnvSession, "")
 	feedStdin(t, `{"hook_event_name":"Stop"}`)
 
-	if err := runHookHandler(nil); err != nil {
+	if err := runHookHandler([]string{"--tool", "claude"}); err != nil {
 		t.Fatalf("runHookHandler: %v", err)
 	}
 	if entries, _ := os.ReadDir(
@@ -65,16 +65,30 @@ func TestHookHandlerNoSessionIsNoop(t *testing.T) {
 	}
 }
 
+func TestHookHandlerUnknownToolIsNoop(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WASA_HOME", home)
+	t.Setenv(hook.EnvSession, "sz")
+	feedStdin(t, `{"hook_event_name":"Stop"}`)
+
+	if err := runHookHandler([]string{"--tool", "nope"}); err != nil {
+		t.Fatalf("runHookHandler: %v", err)
+	}
+	if _, ok := sessionstatus.Read(home, "sz"); ok {
+		t.Fatal("handler wrote a record for an unknown tool")
+	}
+}
+
 func TestHookHandlerUnmappedEventIsNoop(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WASA_HOME", home)
 	t.Setenv(hook.EnvSession, "sy")
 	feedStdin(t, `{"hook_event_name":"PreCompact"}`)
 
-	if err := runHookHandler(nil); err != nil {
+	if err := runHookHandler([]string{"--tool", "claude"}); err != nil {
 		t.Fatalf("runHookHandler: %v", err)
 	}
-	if _, ok := hookstatus.Read(home, "sy"); ok {
+	if _, ok := sessionstatus.Read(home, "sy"); ok {
 		t.Fatal("handler wrote a record for an unmapped event")
 	}
 }

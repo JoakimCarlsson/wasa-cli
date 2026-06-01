@@ -6,6 +6,7 @@ import (
 
 	"github.com/joakimcarlsson/wasa/internal/config"
 	"github.com/joakimcarlsson/wasa/internal/registry"
+	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
 )
 
 // TestSessionListShowsRuntimeStatus renders a workspace whose running sessions
@@ -28,9 +29,9 @@ func TestSessionListShowsRuntimeStatus(t *testing.T) {
 
 	m := New(t.TempDir(), reg, ws.ID, config.Default())
 	m.width, m.height = 120, 30
-	m.lastStatus["work"] = statusWorking
-	m.lastStatus["wait"] = statusWaiting
-	m.lastStatus["idle"] = statusIdle
+	m.lastStatus["work"] = sessionstatus.Working
+	m.lastStatus["wait"] = sessionstatus.Waiting
+	m.lastStatus["idle"] = sessionstatus.Idle
 
 	out := m.View()
 	for _, label := range []string{"working", "waiting", "idle", "exited"} {
