@@ -4,9 +4,8 @@ A terminal cockpit for running and managing AI coding agents across repositories
 
 wasa launches each agent in its own isolated git worktree, so multiple agents can
 work on different branches of the same repository without stepping on each other.
-Sessions persist in the background even after you detach — via **tmux** on
-Linux/macOS, and via a native pseudo-console (**ConPTY**) daemon on Windows, with
-no tmux or WSL required.
+Sessions persist in the background even after you detach, via **tmux**. wasa runs
+on **Linux and macOS**; on **Windows** it runs inside **WSL2** with tmux installed.
 
 ## Installation
 
@@ -32,8 +31,8 @@ make env
 ```
 
 `make env` builds the binary into `./bin` and adds that directory to your `PATH` —
-to `~/.profile`, `~/.bashrc` and `~/.zshrc` on Linux/macOS, and to your user `PATH`
-on Windows. Open a new terminal afterwards and run `wasa`.
+to `~/.profile`, `~/.bashrc` and `~/.zshrc`. Open a new terminal afterwards and run
+`wasa`. On Windows, run this inside your WSL2 distribution.
 
 ### Prebuilt binary
 
@@ -110,8 +109,11 @@ wasa finish <session>
   sudo pacman -S tmux      # Arch
   ```
 
-- **Windows:** Windows 10 version 1809 (build 17763) or later for the native
-  ConPTY backend. No tmux or WSL required.
+- **Windows:** wasa has no native Windows build — run it inside **WSL2**. Install
+  a WSL2 distribution (e.g. Ubuntu), install `tmux` inside it, and run wasa there.
+  Keep your repositories in the WSL filesystem (e.g. `~/code/...`) rather than under
+  `/mnt/c/...`: the Linux filesystem is far faster and avoids git permission and
+  line-ending surprises across the Windows boundary.
 
 ## Development
 

@@ -3,7 +3,6 @@ package cli
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -13,9 +12,6 @@ import (
 func stubAgent(t *testing.T, dir, name string) {
 	t.Helper()
 	bin := filepath.Join(dir, name)
-	if runtime.GOOS == "windows" {
-		bin += ".bat"
-	}
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatalf("write stub %s: %v", name, err)
 	}
@@ -24,9 +20,6 @@ func stubAgent(t *testing.T, dir, name string) {
 func setPATH(t *testing.T, dir string) {
 	t.Helper()
 	t.Setenv("PATH", dir)
-	if runtime.GOOS == "windows" {
-		t.Setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
-	}
 }
 
 func TestResolveProgramSoleAgent(t *testing.T) {

@@ -3,8 +3,6 @@ package launch
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
-	"runtime"
 )
 
 // KnownAgents is the ordered set of AI coding-agent CLIs wasa probes for on
@@ -33,46 +31,20 @@ func DetectAgents() []string {
 	return found
 }
 
-// lookAgent resolves an agent CLI on PATH, returning its full path. It first
-// tries exec.LookPath, which honors PATHEXT (.exe/.cmd/.bat). On Windows it then
-// falls back to a PowerShell-script (.ps1) shim: PATHEXT omits .ps1, but npm and
-// some editor installs ship CLIs such as copilot as a .ps1.
+// lookAgent resolves an agent CLI on PATH via exec.LookPath, returning its full
+// path.
 func lookAgent(name string) (string, bool) {
-	if p, err := exec.LookPath(name); err == nil {
-		return p, true
+	p, err := exec.LookPath(name)
+	if err != nil {
+		return "", false
 	}
-	if runtime.GOOS == "windows" {
-		return lookPS1(name)
-	}
-	return "", false
+	return p, true
 }
 
-// lookPS1 searches PATH for name+".ps1", the shim extension exec.LookPath skips
-// because PATHEXT does not list it.
-func lookPS1(name string) (string, bool) {
-	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
-		if dir == "" {
-			continue
-		}
-		cand := filepath.Join(dir, name+".ps1")
-		if info, err := os.Stat(cand); err == nil && !info.IsDir() {
-			return cand, true
-		}
-	}
-	return "", false
-}
-
-// Shell returns the OS shell wasa runs for a plain (no-agent) session: $SHELL
-// or bash on Unix, %ComSpec% or cmd on Windows. It is the create flow's
-// fallback when no known agent is installed and the explicit menu choice for a
-// bare shell.
+// Shell returns the OS shell wasa runs for a plain (no-agent) session: $SHELL or
+// bash. It is the create flow's fallback when no known agent is installed and
+// the explicit menu choice for a bare shell.
 func Shell() string {
-	if runtime.GOOS == "windows" {
-		if sh := os.Getenv("ComSpec"); sh != "" {
-			return sh
-		}
-		return "cmd"
-	}
 	if sh := os.Getenv("SHELL"); sh != "" {
 		return sh
 	}

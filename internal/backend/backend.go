@@ -3,11 +3,9 @@
 // inspect and tear down persistent terminal sessions, plus the Default selector
 // that picks the implementation for the host platform.
 //
-// Extracting this seam decouples wasa from tmux. On Linux and macOS Default
-// returns the tmux backend (internal/backend/unix); on Windows it returns the
-// native pseudo-console backend (internal/backend/windows). Each platform
-// backend satisfies SessionBackend, so callers depend on the interface and never
-// on a concrete backend type.
+// Extracting this seam decouples wasa from tmux. Default returns the tmux
+// backend (internal/backend/unix), which satisfies SessionBackend, so callers
+// depend on the interface and never on a concrete backend type.
 package backend
 
 import "os/exec"
@@ -51,8 +49,8 @@ type SessionBackend interface {
 // deliver live, event-driven preview updates over a single persistent
 // connection instead of re-capturing the pane on a fixed poll. The TUI prefers
 // Watch when a backend provides it and falls back to the one-shot Capture poll
-// otherwise, so a backend that does not implement this interface (the Windows
-// ConPTY backend) keeps previewing exactly as before.
+// otherwise, so a backend that does not implement this interface keeps
+// previewing via the Capture poll.
 type StreamingBackend interface {
 	// Watch opens a live subscription to the named session's pane content and
 	// returns a Watcher streaming it. The caller owns the returned Watcher and
