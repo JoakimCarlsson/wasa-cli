@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/joakimcarlsson/wasa/internal/launch"
+	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
 // Create-form fields, in tab order: the directory comes first and the branch
@@ -37,27 +38,29 @@ const (
 // createForm collects the inputs for a new session. The two session shapes share
 // one form: leaving Branch empty creates a plain session that runs in the
 // Directory field; entering a branch opts into a worktree session created on it.
-// The Branch field is only meaningful when the cockpit is operating inside a
-// registered repository, since a worktree is created against that repository; so
-// it is enabled only when repoPath is set, and disabled (skipped in tab order
-// and shown dimmed) otherwise. Title and program are optional, and a profile is
-// chosen from the workspace's profiles with the default (first) preselected. The
-// program field shows every agent detected on PATH plus a bare-shell entry as a
-// visible menu; ←/→ move the selection and typing overrides it with any program
-// name outside the known set.
+// The Branch field is only meaningful when the chosen Directory resolves to a git
+// repository, since a worktree is created against that repository; so it is
+// enabled only when branchRepo is set, and disabled (skipped in tab order and
+// shown dimmed) otherwise. branchRepo is the repository toplevel resolved from the
+// Directory field — re-derived whenever that field changes. An empty Directory has
+// no branch context, so the field is disabled until a directory is chosen. Title
+// and program are optional, and a profile is chosen from the workspace's profiles
+// with the default (first) preselected. The program field shows every agent
+// detected on PATH plus a bare-shell entry as a visible menu; ←/→ move the
+// selection and typing overrides it with any program name outside the known set.
 type createForm struct {
-	inputs   []textinput.Model
-	repoPath string
-	profiles []string
-	profIdx  int
-	programs []string
-	shell    string
-	progIdx  int
-	focus    int
-	err      string
+	inputs     []textinput.Model
+	branchRepo string
+	profiles   []string
+	profIdx    int
+	programs   []string
+	shell      string
+	progIdx    int
+	focus      int
+	err        string
 }
 
-func newCreateForm(profiles []string, repoPath string) createForm {
+func newCreateForm(profiles []string) createForm {
 	dir := textinput.New()
 	dir.Placeholder = "ctrl+f to browse, or empty for here"
 	dir.CharLimit = 4096
@@ -78,13 +81,39 @@ func newCreateForm(profiles []string, repoPath string) createForm {
 	program.CharLimit = 200
 	program.SetValue(programs[0])
 
-	return createForm{
+	f := createForm{
 		inputs:   []textinput.Model{dir, branch, title, program},
-		repoPath: repoPath,
 		profiles: profiles,
 		programs: programs,
 		shell:    shell,
 	}
+	f.syncBranchRepo()
+	return f
+}
+
+// syncBranchRepo re-derives the repository the Branch field operates on from the
+// Directory field's current value, so the field's enabled state and the branch
+// picker always reflect the directory as currently chosen. An empty Directory has
+// no branch context and disables the field; a Directory inside a git repository
+// resolves to that repository; anything else (a plain directory, a path that does
+// not exist, git absent) leaves it empty, disabling the field.
+func (f *createForm) syncBranchRepo() {
+	f.branchRepo = branchRepoFor(f.dir())
+}
+
+// branchRepoFor resolves the repository toplevel that should back the Branch
+// field for dir. It returns an empty string when dir is empty or not inside a git
+// repository, mirroring repoBranches in swallowing resolution failures rather than
+// surfacing them.
+func branchRepoFor(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	top, err := worktree.Toplevel(dir)
+	if err != nil {
+		return ""
+	}
+	return top
 }
 
 func (f createForm) update(msg tea.Msg) (createForm, formResult, tea.Cmd) {
@@ -125,6 +154,9 @@ func (f createForm) update(msg tea.Msg) (createForm, formResult, tea.Cmd) {
 	if f.focus < len(f.inputs) {
 		var cmd tea.Cmd
 		f.inputs[f.focus], cmd = f.inputs[f.focus].Update(msg)
+		if f.focus == fieldDir {
+			f.syncBranchRepo()
+		}
 		return f, formNone, cmd
 	}
 	return f, formNone, nil
@@ -166,6 +198,7 @@ func (f createForm) dir() string {
 // and moves focus to it, so the picked value is visible and editable on return.
 func (f *createForm) setDir(path string) {
 	f.inputs[fieldDir].SetValue(path)
+	f.syncBranchRepo()
 	f.setFocus(fieldDir)
 }
 
@@ -176,11 +209,13 @@ func (f *createForm) setBranch(branch string) {
 	f.setFocus(fieldBranch)
 }
 
-// branchEnabled reports whether the Branch field is usable: only when the
-// cockpit is inside a registered repository, since a worktree session is created
-// against that repository's path.
+// branchEnabled reports whether the Branch field is usable: only when the chosen
+// Directory resolves to a git repository (or, with an empty Directory, when wasa
+// was launched inside one), since a worktree session is created against that
+// repository. branchRepo is kept in sync with the Directory field, so this reads
+// the cached resolution rather than shelling out to git on every render.
 func (f createForm) branchEnabled() bool {
-	return f.repoPath != ""
+	return f.branchRepo != ""
 }
 
 func (f *createForm) focusNext() { f.setFocus(f.stepFocus(1)) }

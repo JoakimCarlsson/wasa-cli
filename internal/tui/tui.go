@@ -424,16 +424,19 @@ func (m Model) updatePick(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // enterBranchPick opens the branch picker over the create form, listing the
-// current workspace repository's branches. With no workspace it is a no-op — the
-// form disables the Branch field there, so this should not be reached, but it
-// guards the path rather than assuming it.
+// branches of the repository that contains the Directory field's current value
+// (or the launch repository when that field is empty). It re-resolves that repo
+// on open so the list reflects the directory as currently chosen. When the chosen
+// directory is not inside a git repository it is a no-op — the form disables the
+// Branch field there, so this should not be reached, but it guards the path
+// rather than assuming it.
 func (m Model) enterBranchPick() (tea.Model, tea.Cmd) {
-	ws := m.currentWorkspace()
-	if ws == nil {
+	m.form.syncBranchRepo()
+	if !m.form.branchEnabled() {
 		return m, nil
 	}
 	m.branch = newBranchPicker(
-		repoBranches(ws.RepoPath), m.pickerWidth(), m.pickerHeight(),
+		repoBranches(m.form.branchRepo), m.pickerWidth(), m.pickerHeight(),
 	)
 	m.mode = modePickBranch
 	return m, textinput.Blink
@@ -615,19 +618,15 @@ func (m Model) configRows() int {
 func (m Model) enterCreate() (tea.Model, tea.Cmd) {
 	ws := m.currentWorkspace()
 
-	var (
-		names    []string
-		repoPath string
-	)
+	var names []string
 	if ws != nil {
 		names = make([]string, len(ws.Profiles))
 		for i, p := range ws.Profiles {
 			names[i] = p.Name
 		}
-		repoPath = ws.RepoPath
 	}
 
-	m.form = newCreateForm(names, repoPath)
+	m.form = newCreateForm(names)
 	m.mode = modeCreate
 	m.err = nil
 	m.status = ""

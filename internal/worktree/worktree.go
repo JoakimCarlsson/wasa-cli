@@ -42,6 +42,21 @@ func New(repoDir, home, workspace string) *Manager {
 	}
 }
 
+// Toplevel returns the absolute path of the root of the git working tree that
+// contains dir, via `git -C dir rev-parse --show-toplevel`. It is the single
+// path→repository resolver shared by the CLI and the cockpit, so a directory
+// always maps to the same repository regardless of who asks. It errors when dir
+// is not inside a git repository, does not exist, or git is unavailable, so a
+// caller can treat any error as "not a repository".
+func Toplevel(dir string) (string, error) {
+	cmd := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("not a git repository: %s", dir)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // Worktree is one entry from git worktree list.
 type Worktree struct {
 	Path     string

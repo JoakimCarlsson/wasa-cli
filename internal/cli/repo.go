@@ -1,13 +1,13 @@
 package cli
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/joakimcarlsson/wasa/internal/registry"
+	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
 // currentRepo resolves the git repository containing the working directory and
@@ -49,12 +49,7 @@ func registerRepo(
 }
 
 func repoToplevel(dir string) (string, error) {
-	cmd := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel")
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("not a git repository: %s", dir)
-	}
-	return strings.TrimSpace(string(out)), nil
+	return worktree.Toplevel(dir)
 }
 
 // repoRemoteURL returns the URL of the origin remote, falling back to the first
