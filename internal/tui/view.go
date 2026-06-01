@@ -65,10 +65,8 @@ func (m Model) listView() string {
 	list := paneStyle.Width(listW).Height(bodyH).Render(
 		m.paneTitle("sessions") + "\n" + m.sessionList(listW),
 	)
-	preview := paneStyle.Width(previewW).Height(bodyH).Render(
-		m.paneTitle("preview") + "\n" + m.previewBody(previewW, bodyH-1),
-	)
-	body := lipgloss.JoinHorizontal(lipgloss.Top, list, preview)
+	right := m.tabbedRightPane(previewW, bodyH)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, list, right)
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -157,6 +155,159 @@ func (m Model) sessionRow(i int, s *registry.Session, w int) string {
 	)
 }
 
+// tabRowRows is the height the tab row occupies above the content window: the
+// box top border, the label line and the bottom edge that doubles as the
+// window's top border.
+const tabRowRows = 3
+
+// tabbedRightPane renders the right pane as a row of connected tab boxes —
+// Preview, Diff, Terminal — sitting on a content window, in the lipgloss tabs
+// idiom (after claude-squad): the tabs span the pane width, the active tab's
+// bottom border opens into the window beneath it, and the inactive tabs close
+// against the window's top edge. contentW and bodyH are the content width and
+// the full body height the pane must fill so it lines up with the sessions
+// pane.
+func (m Model) tabbedRightPane(contentW, bodyH int) string {
+	outerW := contentW + 2
+	contentH := max(bodyH-(tabRowRows-1), 1)
+
+	n := len(paneTabNames)
+	tabW := outerW / n
+	lastW := outerW - tabW*(n-1)
+
+	tabs := make([]string, n)
+	for i, name := range paneTabNames {
+		w := tabW
+		if i == n-1 {
+			w = lastW
+		}
+
+		style := paneTabInactiveStyle
+		if paneTab(i) == m.pane {
+			style = paneTabActiveStyle
+		}
+		border, _, _, _, _ := style.GetBorder()
+		switch {
+		case i == 0 && paneTab(i) == m.pane:
+			border.BottomLeft = "│"
+		case i == 0:
+			border.BottomLeft = "├"
+		case i == n-1 && paneTab(i) == m.pane:
+			border.BottomRight = "│"
+		case i == n-1:
+			border.BottomRight = "┤"
+		}
+		style = style.Border(border)
+		tabs[i] = style.Width(w - style.GetHorizontalFrameSize()).Render(name)
+	}
+
+	row := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
+	window := paneWindowStyle.Width(contentW).Height(contentH).Render(
+		m.paneBody(contentW, contentH),
+	)
+	return lipgloss.JoinVertical(lipgloss.Left, row, window)
+}
+
+// paneBody renders the body of the active right-pane tab into a w×h area.
+func (m Model) paneBody(w, h int) string {
+	switch m.pane {
+	case paneDiff:
+		return m.diffBody(w, h)
+	case paneTerminal:
+		return m.terminalBody(w, h)
+	default:
+		return m.previewBody(w, h)
+	}
+}
+
+// diffBody renders the Diff tab: a colorized git diff of the selected worktree
+// session against its recorded base commit, in a scrollable viewport under an
+// additions/deletions summary line. A plain (non-worktree) session shows an
+// explanatory state rather than an error; a worktree with no changes shows an
+// empty state; and the diff is shown only once it has been computed for the
+// current selection.
+func (m Model) diffBody(w, h int) string {
+	s := m.selectedSession()
+	if s == nil {
+		return dimStyle.Render("No session selected.")
+	}
+	if s.Branch == "" || s.WorktreePath == "" || s.BaseCommit == "" {
+		return dimStyle.Render("Diff is only available for worktree sessions.")
+	}
+	if m.diffSID != s.ID {
+		return dimStyle.Render("Loading diff…")
+	}
+	if m.diffErr != nil {
+		return errorStyle.Render("diff error: " + m.diffErr.Error())
+	}
+	if strings.TrimSpace(m.diffText) == "" {
+		return dimStyle.Render("No changes.")
+	}
+
+	vp := m.diffVP
+	vp.Width = max(w, 1)
+	vp.Height = max(h-1, 1)
+	return diffSummaryLine(m.diffAdded, m.diffRemoved) + "\n" + vp.View()
+}
+
+// diffSummaryLine renders the "N additions(+) / M deletions(-)" header above the
+// diff, the additions in the add colour and the deletions in the delete colour.
+func diffSummaryLine(added, removed int) string {
+	return diffAddStyle.Render(fmt.Sprintf("%d additions(+)", added)) +
+		dimStyle.Render(" / ") +
+		diffDelStyle.Render(fmt.Sprintf("%d deletions(-)", removed))
+}
+
+// colorizeDiff styles a plain unified diff line by line: hunk headers in the
+// accent, additions green and deletions red, and the file/metadata lines dimmed.
+// The context lines are left unstyled. git emits the diff without colour, so the
+// cockpit colours it itself to match the theme.
+func colorizeDiff(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		lines[i] = styleDiffLine(line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func styleDiffLine(line string) string {
+	switch {
+	case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
+		return diffMetaStyle.Render(line)
+	case strings.HasPrefix(line, "@@"):
+		return diffHunkStyle.Render(line)
+	case strings.HasPrefix(line, "+"):
+		return diffAddStyle.Render(line)
+	case strings.HasPrefix(line, "-"):
+		return diffDelStyle.Render(line)
+	case strings.HasPrefix(line, "diff "),
+		strings.HasPrefix(line, "index "),
+		strings.HasPrefix(line, "new file"),
+		strings.HasPrefix(line, "deleted file"),
+		strings.HasPrefix(line, "rename "),
+		strings.HasPrefix(line, "similarity "):
+		return diffMetaStyle.Render(line)
+	default:
+		return line
+	}
+}
+
+// terminalBody renders the Terminal tab: a capture of the selected session's
+// companion shell. Until the first capture for the current selection arrives it
+// shows a starting hint, so a stale capture from a previously selected session
+// is never shown as if it were this one's.
+func (m Model) terminalBody(w, h int) string {
+	s := m.selectedSession()
+	if s == nil {
+		return dimStyle.Render("No session selected.")
+	}
+	if m.termShown != companionName(s) ||
+		strings.TrimSpace(ansi.Strip(m.termContent)) == "" {
+		return dimStyle.Render("Starting shell…")
+	}
+	return renderCapture(m.termContent, w, h)
+}
+
 func (m Model) previewBody(w, h int) string {
 	s := m.selectedSession()
 	if s == nil {
@@ -170,16 +321,21 @@ func (m Model) previewBody(w, h int) string {
 	if strings.TrimSpace(ansi.Strip(m.preview)) == "" {
 		return dimStyle.Render("Waiting for output…")
 	}
+	return renderCapture(m.preview, w, h)
+}
 
-	lines := strings.Split(strings.ReplaceAll(m.preview, "\t", "    "), "\n")
+// renderCapture fits a tmux pane capture to a w×h area for the Preview and
+// Terminal tabs: it expands tabs, keeps the last h lines so the freshest output
+// shows, and truncates each line to the visible width without slicing an escape
+// sequence — resetting at the end so an unterminated colour cannot bleed into
+// the pane border or the padding lipgloss adds. The capture is already styled,
+// so it is emitted as-is and never re-styled.
+func renderCapture(content string, w, h int) string {
+	lines := strings.Split(strings.ReplaceAll(content, "\t", "    "), "\n")
 	if len(lines) > h {
 		lines = lines[len(lines)-h:]
 	}
 	for i, ln := range lines {
-		// Truncate by visible width without cutting escape sequences, then
-		// reset so an unterminated color can't bleed into the pane border or
-		// the spaces lipgloss pads the line with. The captured content is
-		// already styled, so it is emitted as-is and never re-styled.
 		lines[i] = ansi.Truncate(ln, w, "") + "\x1b[0m"
 	}
 	return strings.Join(lines, "\n")
@@ -192,6 +348,7 @@ func (m Model) menuBar() string {
 		{m.menuKey(config.ActionKill), "kill"},
 		{m.menuKey(config.ActionDelete), "delete"},
 		{m.menuKey(config.ActionTabNext), "tabs"},
+		{m.menuKey(config.ActionPaneTab), "panes"},
 		{
 			m.menuKey(
 				config.ActionCursorUp,

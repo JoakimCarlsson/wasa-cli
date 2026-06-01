@@ -20,6 +20,45 @@ func newTestRegistry(t *testing.T) (*Registry, *time.Time) {
 	return reg, &clock
 }
 
+// TestLoadPreBaseCommitState is the back-compatibility guard for the new
+// optional BaseCommit field: a registry written before it existed (a worktree
+// session JSON with no baseCommit key) must load without error and leave
+// BaseCommit empty, so an upgrade does not invalidate persisted state.
+func TestLoadPreBaseCommitState(t *testing.T) {
+	dir := t.TempDir()
+	old := `{
+  "workspaces": [],
+  "sessions": [
+    {
+      "id": "s1",
+      "branch": "feature/x",
+      "worktreePath": "/wt/x",
+      "tmuxName": "wasa_a_s1",
+      "status": "running",
+      "createdAt": "2026-01-01T00:00:00Z"
+    }
+  ]
+}`
+	if err := os.WriteFile(
+		filepath.Join(dir, fileName), []byte(old), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	reg, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open pre-baseCommit state: %v", err)
+	}
+	s, ok := reg.Session("s1")
+	if !ok {
+		t.Fatal("session not loaded from pre-baseCommit state")
+	}
+	if s.BaseCommit != "" {
+		t.Fatalf("BaseCommit = %q, want empty for a pre-upgrade session",
+			s.BaseCommit)
+	}
+}
+
 func TestEmptyEnumeration(t *testing.T) {
 	reg, err := Open(t.TempDir())
 	if err != nil {

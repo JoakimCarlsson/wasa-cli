@@ -21,6 +21,10 @@ var (
 	activeTabStyle   lipgloss.Style
 	inactiveTabStyle lipgloss.Style
 
+	paneTabActiveStyle   lipgloss.Style
+	paneTabInactiveStyle lipgloss.Style
+	paneWindowStyle      lipgloss.Style
+
 	runningDotStyle lipgloss.Style
 	waitingDotStyle lipgloss.Style
 	idleDotStyle    lipgloss.Style
@@ -35,6 +39,11 @@ var (
 	bannerStyle lipgloss.Style
 	dimStyle    lipgloss.Style
 	errorStyle  lipgloss.Style
+
+	diffAddStyle  lipgloss.Style
+	diffDelStyle  lipgloss.Style
+	diffHunkStyle lipgloss.Style
+	diffMetaStyle lipgloss.Style
 
 	modalStyle  lipgloss.Style
 	pickerStyle lipgloss.Style
@@ -102,6 +111,21 @@ func applyTheme(t config.Theme) {
 		Foreground(desc).
 		Padding(0, 2)
 
+	paneTabInactiveStyle = lipgloss.NewStyle().
+		Border(tabBorderWithBottom("┴", "─", "┴"), true).
+		BorderForeground(accent).
+		Foreground(desc).
+		Align(lipgloss.Center)
+	paneTabActiveStyle = lipgloss.NewStyle().
+		Border(tabBorderWithBottom("┘", " ", "└"), true).
+		BorderForeground(accent).
+		Bold(true).
+		Foreground(accent).
+		Align(lipgloss.Center)
+	paneWindowStyle = lipgloss.NewStyle().
+		BorderForeground(accent).
+		Border(lipgloss.RoundedBorder(), false, true, true, true)
+
 	runningDotStyle = lipgloss.NewStyle().Foreground(running)
 	waitingDotStyle = lipgloss.NewStyle().Foreground(waiting)
 	idleDotStyle = lipgloss.NewStyle().Foreground(idle)
@@ -121,6 +145,11 @@ func applyTheme(t config.Theme) {
 	bannerStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
 	dimStyle = lipgloss.NewStyle().Foreground(desc)
 	errorStyle = lipgloss.NewStyle().Foreground(danger)
+
+	diffAddStyle = lipgloss.NewStyle().Foreground(running)
+	diffDelStyle = lipgloss.NewStyle().Foreground(danger)
+	diffHunkStyle = lipgloss.NewStyle().Foreground(accent)
+	diffMetaStyle = lipgloss.NewStyle().Foreground(desc)
 
 	modalStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -159,6 +188,19 @@ func applyTheme(t config.Theme) {
 	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
 	focusedLabelStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
 	labelStyle = lipgloss.NewStyle().Foreground(desc)
+}
+
+// tabBorderWithBottom is a rounded border with its bottom edge overridden, used
+// for the pane tab boxes: an inactive tab closes its bottom against the window
+// rule with ┴ corners, while the active tab opens its bottom (blank middle, ┘ └
+// corners) so the box flows into the content window beneath it, the way a
+// browser tab connects to its page.
+func tabBorderWithBottom(left, middle, right string) lipgloss.Border {
+	b := lipgloss.RoundedBorder()
+	b.BottomLeft = left
+	b.Bottom = middle
+	b.BottomRight = right
+	return b
 }
 
 const (

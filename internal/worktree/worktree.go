@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -160,6 +161,74 @@ func (m *Manager) Branches() ([]string, error) {
 	return names, nil
 }
 
+// HeadSHA returns the full object name of the repository's current HEAD — the
+// commit a worktree added now branches from. It is captured at session creation
+// and stored so the worktree can later be diffed against it. It errors in a
+// repository with no commits yet.
+func (m *Manager) HeadSHA() (string, error) {
+	out, err := m.git("rev-parse", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// DiffResult is a worktree's diff against its base commit: the unified diff text
+// and the total added and removed line counts for the cockpit's summary line.
+type DiffResult struct {
+	Text    string
+	Added   int
+	Removed int
+}
+
+// Diff returns the diff of the worktree at worktreePath against baseCommit, the
+// commit the worktree branched from. It first runs `git add -N .` inside the
+// worktree so untracked files appear in the diff as additions, then captures the
+// unified diff and, separately, the numstat totals for the summary. The commands
+// run inside the worktree rather than the main repository, so they see the
+// session's working changes.
+func (m *Manager) Diff(worktreePath, baseCommit string) (DiffResult, error) {
+	if worktreePath == "" || baseCommit == "" {
+		return DiffResult{}, errors.New("worktree path and base commit required")
+	}
+
+	if _, err := m.gitAt(worktreePath, "add", "-N", "."); err != nil {
+		return DiffResult{}, err
+	}
+	text, err := m.gitAt(worktreePath, "--no-pager", "diff", baseCommit)
+	if err != nil {
+		return DiffResult{}, err
+	}
+	stat, err := m.gitAt(
+		worktreePath, "--no-pager", "diff", "--numstat", baseCommit,
+	)
+	if err != nil {
+		return DiffResult{}, err
+	}
+
+	added, removed := parseNumstat(stat)
+	return DiffResult{Text: string(text), Added: added, Removed: removed}, nil
+}
+
+// parseNumstat sums the added and removed columns of `git diff --numstat`
+// output. Each line is "added\tremoved\tpath"; binary files report "-" in both
+// columns, which is skipped.
+func parseNumstat(out []byte) (added, removed int) {
+	for line := range strings.SplitSeq(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		if a, err := strconv.Atoi(fields[0]); err == nil {
+			added += a
+		}
+		if r, err := strconv.Atoi(fields[1]); err == nil {
+			removed += r
+		}
+	}
+	return added, removed
+}
+
 // DeleteBranch deletes the local branch. When force is false git refuses to
 // delete a branch whose commits are not merged into its upstream or HEAD (git
 // branch -d); force deletes it regardless (git branch -D), discarding any
@@ -189,7 +258,14 @@ func (m *Manager) branchExists(branch string) bool {
 }
 
 func (m *Manager) git(args ...string) ([]byte, error) {
-	full := append([]string{"-C", m.RepoDir}, args...)
+	return m.gitAt(m.RepoDir, args...)
+}
+
+// gitAt runs git with its working directory set to dir (git -C dir). The
+// repository commands use RepoDir; the diff commands run inside the worktree,
+// which is a different directory, so the two cannot share a fixed -C.
+func (m *Manager) gitAt(dir string, args ...string) ([]byte, error) {
+	full := append([]string{"-C", dir}, args...)
 	cmd := exec.Command(m.bin(), full...)
 
 	var stdout, stderr bytes.Buffer

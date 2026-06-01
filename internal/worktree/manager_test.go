@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -124,6 +125,79 @@ func TestBranches(t *testing.T) {
 			t.Errorf("unexpected branch %q in %v", b, branches)
 		}
 	}
+}
+
+func TestHeadSHA(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available on PATH")
+	}
+	repo := t.TempDir()
+	initRepo(t, repo)
+
+	sha, err := New(repo, t.TempDir(), "demo").HeadSHA()
+	if err != nil {
+		t.Fatalf("HeadSHA: %v", err)
+	}
+	if len(sha) != 40 {
+		t.Fatalf("HeadSHA = %q, want a 40-char object name", sha)
+	}
+}
+
+func TestDiff(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available on PATH")
+	}
+	home := t.TempDir()
+	repo := t.TempDir()
+	initRepo(t, repo)
+
+	m := New(repo, home, "demo")
+	base, err := m.HeadSHA()
+	if err != nil {
+		t.Fatalf("HeadSHA: %v", err)
+	}
+	wt, err := m.Add("feature/diff")
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	// A fresh worktree against its base commit has nothing to show.
+	res, err := m.Diff(wt, base)
+	if err != nil {
+		t.Fatalf("Diff (clean): %v", err)
+	}
+	if res.Text != "" || res.Added != 0 || res.Removed != 0 {
+		t.Fatalf("clean worktree diff = %+v, want empty", res)
+	}
+
+	// An untracked file must appear (git add -N .) and count as additions.
+	if err := os.WriteFile(
+		filepath.Join(wt, "new.txt"), []byte("alpha\nbeta\n"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	res, err = m.Diff(wt, base)
+	if err != nil {
+		t.Fatalf("Diff (changed): %v", err)
+	}
+	if !containsAll(res.Text, "new.txt", "+alpha", "+beta") {
+		t.Fatalf("diff missing the untracked file content:\n%s", res.Text)
+	}
+	if res.Added != 2 {
+		t.Fatalf("Added = %d, want 2", res.Added)
+	}
+	if res.Removed != 0 {
+		t.Fatalf("Removed = %d, want 0", res.Removed)
+	}
+}
+
+func containsAll(s string, subs ...string) bool {
+	for _, sub := range subs {
+		if !strings.Contains(s, sub) {
+			return false
+		}
+	}
+	return true
 }
 
 func initRepo(t *testing.T, dir string) {

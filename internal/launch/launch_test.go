@@ -21,14 +21,15 @@ type recordingOps struct {
 	spawnEnv    []string
 	spawnName   string
 	worktree    string
+	baseCommit  string
 }
 
 func (o *recordingOps) ops() ops {
 	return ops{
-		addWorktree: func(_, _, _, branch string) (string, error) {
+		addWorktree: func(_, _, _, branch string) (string, string, error) {
 			o.addCalled = true
 			o.addBranch = branch
-			return o.worktree, nil
+			return o.worktree, o.baseCommit, nil
 		},
 		runHook: func(h hook.Hook) error {
 			o.hookCalled = true
@@ -168,7 +169,7 @@ func TestCreateSessionWorktreeStillAddsAndHooks(t *testing.T) {
 	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
 	ws.Profiles[0].PostWorktreeHook = "echo hi"
 
-	o := &recordingOps{worktree: "/wt/feature-x"}
+	o := &recordingOps{worktree: "/wt/feature-x", baseCommit: "abc123"}
 	s, err := createSession(o.ops(), "/home", reg, ws, Params{
 		Branch:  "feature/x",
 		Program: "claude",
@@ -185,6 +186,9 @@ func TestCreateSessionWorktreeStillAddsAndHooks(t *testing.T) {
 	}
 	if s.Branch != "feature/x" || s.WorktreePath != "/wt/feature-x" {
 		t.Fatalf("worktree session record = %+v", s)
+	}
+	if s.BaseCommit != "abc123" {
+		t.Fatalf("BaseCommit = %q, want the captured HEAD abc123", s.BaseCommit)
 	}
 	if o.spawnDir != "/wt/feature-x" {
 		t.Fatalf("spawned in %q, want the worktree /wt/feature-x", o.spawnDir)
