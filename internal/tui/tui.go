@@ -12,6 +12,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"time"
 
@@ -30,6 +31,7 @@ type mode int
 const (
 	modeList mode = iota
 	modeCreate
+	modeConfirm
 )
 
 // Model is the cockpit's Bubble Tea model. It holds the registry it drives, the
@@ -45,8 +47,11 @@ type Model struct {
 	activeID   string
 	cursor     int
 
-	mode mode
-	form createForm
+	mode    mode
+	form    createForm
+	confirm confirmDialog
+
+	confirmCmd tea.Cmd
 
 	width  int
 	height int
@@ -105,6 +110,8 @@ type createdMsg struct {
 
 type killedMsg struct{ err error }
 
+type deletedMsg struct{ err error }
+
 type attachedMsg struct {
 	sessionID string
 	err       error
@@ -145,6 +152,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		return m, nil
 
+	case deletedMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		m.err = nil
+		m.status = "deleted session"
+		m.refresh()
+		return m, nil
+
 	case attachedMsg:
 		if msg.err != nil {
 			m.err = msg.err
@@ -159,8 +176,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if m.mode == modeCreate {
+	switch m.mode {
+	case modeCreate:
 		return m.updateCreate(msg)
+	case modeConfirm:
+		return m.updateConfirm(msg)
 	}
 	return m.updateList(msg)
 }
@@ -195,7 +215,9 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m.attach()
 	case "k":
-		return m.kill()
+		return m.enterConfirmKill()
+	case "d":
+		return m.enterConfirmDelete()
 	}
 	return m, nil
 }
@@ -215,6 +237,74 @@ func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.createCmd(ws, params)
 	}
 	return m, cmd
+}
+
+// enterConfirmDelete opens the delete-confirmation modal for the selected
+// session. The delete command captures that session, so a later list change
+// cannot retarget it. With no session selected it is a no-op.
+func (m Model) enterConfirmDelete() (tea.Model, tea.Cmd) {
+	s := m.selectedSession()
+	if s == nil {
+		return m, nil
+	}
+	title, _ := sessionLabel(s)
+	body := confirmBody(
+		fmt.Sprintf("Delete %q?\nThis cannot be undone.", title), s,
+	)
+	return m.enterConfirm(
+		newConfirmDialog("Delete session", body, "Delete", "Cancel", true),
+		m.deleteCmd(s),
+	)
+}
+
+// enterConfirmKill opens the kill-confirmation modal for the selected session.
+// Like the existing instant kill it applies only to a running session; with no
+// session selected or an already-exited one it is a no-op.
+func (m Model) enterConfirmKill() (tea.Model, tea.Cmd) {
+	s := m.selectedSession()
+	if s == nil || s.Status != registry.StatusRunning {
+		return m, nil
+	}
+	title, _ := sessionLabel(s)
+	body := confirmBody(
+		fmt.Sprintf(
+			"Kill %q?\nIt stops but stays in the list as exited.", title,
+		), s,
+	)
+	return m.enterConfirm(
+		newConfirmDialog("Kill session", body, "Kill", "Cancel", true),
+		m.killCmd(s),
+	)
+}
+
+// enterConfirm opens dialog as a modal and stores onConfirm as the command to
+// run if it is accepted.
+func (m Model) enterConfirm(dialog confirmDialog, onConfirm tea.Cmd) (tea.Model, tea.Cmd) {
+	m.confirm = dialog
+	m.confirmCmd = onConfirm
+	m.mode = modeConfirm
+	m.err = nil
+	m.status = ""
+	return m, nil
+}
+
+// updateConfirm routes key input for the active confirm modal. Accepting it runs
+// the stored command; cancelling returns to the list with no change.
+func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
+	dialog, result := m.confirm.update(msg)
+	m.confirm = dialog
+	switch result {
+	case confirmYes:
+		cmd := m.confirmCmd
+		m.mode = modeList
+		m.confirmCmd = nil
+		return m, cmd
+	case confirmNo:
+		m.mode = modeList
+		m.confirmCmd = nil
+		return m, nil
+	}
+	return m, nil
 }
 
 // enterCreate opens the create form. With a current workspace the form is seeded
@@ -275,17 +365,6 @@ func (m Model) attach() (tea.Model, tea.Cmd) {
 	})
 }
 
-func (m Model) kill() (tea.Model, tea.Cmd) {
-	s := m.selectedSession()
-	if s == nil {
-		return m, nil
-	}
-	if s.Status != registry.StatusRunning {
-		return m, nil
-	}
-	return m, m.killCmd(s)
-}
-
 func (m Model) createCmd(ws *registry.Workspace, params launch.Params) tea.Cmd {
 	home, reg := m.home, m.reg
 	return func() tea.Msg {
@@ -310,6 +389,19 @@ func (m Model) killCmd(s *registry.Session) tea.Cmd {
 			return killedMsg{err: err}
 		}
 		return killedMsg{}
+	}
+}
+
+func (m Model) deleteCmd(s *registry.Session) tea.Cmd {
+	reg := m.reg
+	return func() tea.Msg {
+		if err := launch.DeleteSession(reg, s); err != nil {
+			return deletedMsg{err: err}
+		}
+		if err := reg.Save(); err != nil {
+			return deletedMsg{err: err}
+		}
+		return deletedMsg{}
 	}
 }
 

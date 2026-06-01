@@ -208,6 +208,169 @@ func TestListCursorNavigation(t *testing.T) {
 	}
 }
 
+func TestEnterConfirmDeleteOpensModal(t *testing.T) {
+	m, _, _ := testModel(t)
+
+	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	got := next.(Model)
+	if got.mode != modeConfirm {
+		t.Fatal("d did not open the confirm modal")
+	}
+	if got.confirmCmd == nil {
+		t.Fatal("d opened the modal without a pending delete command")
+	}
+}
+
+func TestEnterConfirmDeleteNoSelectionIsNoop(t *testing.T) {
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	m := New(t.TempDir(), reg, ws.ID)
+
+	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	got := next.(Model)
+	if got.mode != modeList {
+		t.Fatal("d opened a modal with no session selected")
+	}
+	if got.confirmCmd != nil {
+		t.Fatal("confirmCmd set with no session selected")
+	}
+}
+
+func TestConfirmCancelLeavesSessionUnchanged(t *testing.T) {
+	m, _, _ := testModel(t)
+	next, _ := m.enterConfirmDelete()
+	m = next.(Model)
+
+	for _, key := range []tea.KeyMsg{
+		{Type: tea.KeyEsc},
+		{Type: tea.KeyRunes, Runes: []rune("n")},
+		{Type: tea.KeyRunes, Runes: []rune("q")},
+	} {
+		next, _ := m.updateConfirm(key)
+		got := next.(Model)
+		if got.mode != modeList {
+			t.Fatalf("cancel key %v did not return to the list", key)
+		}
+		if got.confirmCmd != nil {
+			t.Fatalf("cancel key %v left a pending command", key)
+		}
+	}
+	if _, ok := m.reg.Session("a1"); !ok {
+		t.Fatal("cancel removed the session record")
+	}
+}
+
+func TestConfirmDeleteRemovesExitedSession(t *testing.T) {
+	m, _, _ := testModel(t)
+	m.cursor = 1 // select a2; a1 stays so the cursor has a neighbour to land on
+
+	a2, _ := m.reg.Session("a2")
+	a2.Status = registry.StatusExited // exited path runs no backend
+
+	next, _ := m.enterConfirmDelete()
+	m = next.(Model)
+
+	// y confirms directly regardless of which button is focused.
+	next, cmd := m.updateConfirm(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	m = next.(Model)
+	if m.mode != modeList {
+		t.Fatal("confirm did not return to the list")
+	}
+	if cmd == nil {
+		t.Fatal("confirm produced no delete command")
+	}
+
+	// The exited-session path runs no backend; the command removes the record
+	// and Saves. Feeding its result back into Update refreshes and clamps.
+	next, _ = m.Update(cmd())
+	m = next.(Model)
+	if m.err != nil {
+		t.Fatalf("delete reported error: %v", m.err)
+	}
+	if _, ok := m.reg.Session("a2"); ok {
+		t.Fatal("delete left the session record in the registry")
+	}
+	if got := len(m.sessions()); got != 1 {
+		t.Fatalf("wsA sessions after delete = %d, want 1", got)
+	}
+	if m.cursor < 0 || m.cursor >= len(m.sessions()) {
+		t.Fatalf("cursor %d out of range after delete", m.cursor)
+	}
+}
+
+func TestConfirmEnterDefaultsToCancel(t *testing.T) {
+	m, _, _ := testModel(t)
+	next, _ := m.enterConfirmDelete()
+	m = next.(Model)
+
+	// The cancel button starts focused, so a stray enter must not delete.
+	next, cmd := m.updateConfirm(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if m.mode != modeList {
+		t.Fatal("enter did not close the modal")
+	}
+	if cmd != nil {
+		t.Fatal("enter on the default (cancel) focus produced a command")
+	}
+	if _, ok := m.reg.Session("a1"); !ok {
+		t.Fatal("enter on the default focus deleted the session")
+	}
+}
+
+func TestConfirmFocusConfirmThenEnter(t *testing.T) {
+	m, _, _ := testModel(t)
+	a1, _ := m.reg.Session("a1")
+	a1.Status = registry.StatusExited // exited path runs no backend
+
+	next, _ := m.enterConfirmDelete()
+	m = next.(Model)
+
+	// Move focus onto the confirm button, then enter deletes.
+	next, _ = m.updateConfirm(tea.KeyMsg{Type: tea.KeyTab})
+	m = next.(Model)
+	next, cmd := m.updateConfirm(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("enter on the confirm button produced no delete command")
+	}
+	next, _ = m.Update(cmd())
+	m = next.(Model)
+	if _, ok := m.reg.Session("a1"); ok {
+		t.Fatal("tab+enter did not delete the session")
+	}
+}
+
+func TestKillOpensConfirmForRunningSession(t *testing.T) {
+	m, _, _ := testModel(t)
+	if m.selectedSession().Status != registry.StatusRunning {
+		t.Fatal("precondition: selected session should be running")
+	}
+
+	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	got := next.(Model)
+	if got.mode != modeConfirm {
+		t.Fatal("k did not open the confirm modal for a running session")
+	}
+	if got.confirmCmd == nil {
+		t.Fatal("k opened the modal without a pending kill command")
+	}
+}
+
+func TestKillExitedSessionIsNoop(t *testing.T) {
+	m, _, _ := testModel(t)
+	a1, _ := m.reg.Session("a1")
+	a1.Status = registry.StatusExited
+
+	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	got := next.(Model)
+	if got.mode != modeList {
+		t.Fatal("k opened a confirm modal for an already-exited session")
+	}
+}
+
 func TestEmptyRegistryShowsBanner(t *testing.T) {
 	reg, err := registry.Open(t.TempDir())
 	if err != nil {

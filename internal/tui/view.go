@@ -23,6 +23,18 @@ func (m Model) View() string {
 	if m.mode == modeCreate {
 		return m.form.view() + "\n" + m.statusLine()
 	}
+
+	base := m.listView()
+	if m.mode == modeConfirm {
+		return placeOverlay(m.confirm.view(), base)
+	}
+	return base
+}
+
+// listView is the cockpit's normal frame: the workspace tabs, the session list
+// and preview, the menu and the status line. It is also the background a modal
+// floats over, so it is built independently of which mode is active.
+func (m Model) listView() string {
 	if m.width < minWidth || m.height < 8 {
 		return m.compactView()
 	}
@@ -103,14 +115,7 @@ func (m Model) sessionRow(i int, s *registry.Session, w int) string {
 		titleS, descS = selRowTitleStyle, selRowDescStyle
 	}
 
-	ref := s.Branch
-	if ref == "" {
-		ref = filepath.Base(s.WorkingDir)
-	}
-	title := s.Title
-	if title == "" {
-		title = ref
-	}
+	title, ref := sessionLabel(s)
 	prefix := fmt.Sprintf(" %d ", i+1)
 	head := fmt.Sprintf("%s%s %s", prefix, statusDot(s.Status), title)
 	sub := fmt.Sprintf("   %s %s · %s", branchIcon, ref, s.ProfileName)
@@ -155,6 +160,7 @@ func (m Model) menuBar() string {
 		{"n", "new"},
 		{"↵", "attach"},
 		{"k", "kill"},
+		{"d", "delete"},
 		{"⇥", "tabs"},
 		{"↑↓", "select"},
 		{"q", "quit"},
@@ -191,6 +197,31 @@ func (m Model) compactView() string {
 		parts = append(parts, s)
 	}
 	return strings.Join(parts, "\n")
+}
+
+// sessionLabel returns a session's display title and its ref (branch, or the
+// base of its working directory for a plain session). The title falls back to
+// the ref when unset. It is the one place the list and the confirm modals agree
+// on how to name a session.
+func sessionLabel(s *registry.Session) (title, ref string) {
+	ref = s.Branch
+	if ref == "" {
+		ref = filepath.Base(s.WorkingDir)
+	}
+	title = s.Title
+	if title == "" {
+		title = ref
+	}
+	return title, ref
+}
+
+// confirmBody composes a confirm-modal body: the prompt followed by the dimmed
+// branch · profile line that identifies the target session.
+func confirmBody(prompt string, s *registry.Session) string {
+	_, ref := sessionLabel(s)
+	return prompt + "\n\n" + dimStyle.Render(
+		fmt.Sprintf("%s %s · %s", branchIcon, ref, s.ProfileName),
+	)
 }
 
 func statusDot(status string) string {
