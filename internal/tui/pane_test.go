@@ -30,20 +30,20 @@ func paneModel(t *testing.T) Model {
 
 func TestCyclePaneTabWraps(t *testing.T) {
 	m := paneModel(t)
-	if m.pane != panePreview {
-		t.Fatalf("initial pane = %d, want panePreview", m.pane)
+	if m.tabs.active != panePreview {
+		t.Fatalf("initial pane = %d, want panePreview", m.tabs.active)
 	}
-	m.cyclePaneTab(1)
-	if m.pane != paneDiff {
-		t.Fatalf("after one cycle pane = %d, want paneDiff", m.pane)
+	m.tabs.cycle(1)
+	if m.tabs.active != paneDiff {
+		t.Fatalf("after one cycle pane = %d, want paneDiff", m.tabs.active)
 	}
-	m.cyclePaneTab(1)
-	if m.pane != paneTerminal {
-		t.Fatalf("after two cycles pane = %d, want paneTerminal", m.pane)
+	m.tabs.cycle(1)
+	if m.tabs.active != paneTerminal {
+		t.Fatalf("after two cycles pane = %d, want paneTerminal", m.tabs.active)
 	}
-	m.cyclePaneTab(1)
-	if m.pane != panePreview {
-		t.Fatalf("cycle past end pane = %d, want wrap to panePreview", m.pane)
+	m.tabs.cycle(1)
+	if m.tabs.active != panePreview {
+		t.Fatalf("cycle past end pane = %d, want wrap to panePreview", m.tabs.active)
 	}
 }
 
@@ -53,19 +53,19 @@ func TestCyclePaneTabWraps(t *testing.T) {
 // watcher tears down and neither the stream nor the capture poll runs.
 func TestPaneTabGatesPreviewTarget(t *testing.T) {
 	m := paneModel(t)
-	if got := m.previewTarget(); got != "wasa_x_s1" {
+	if got := m.tabs.previewTarget(m.selectedSession()); got != "wasa_x_s1" {
 		t.Fatalf("Preview tab target = %q, want the session's tmux name", got)
 	}
-	m.cyclePaneTab(1) // Diff
-	if got := m.previewTarget(); got != "" {
+	m.tabs.cycle(1) // Diff
+	if got := m.tabs.previewTarget(m.selectedSession()); got != "" {
 		t.Fatalf("Diff tab target = %q, want empty", got)
 	}
-	m.cyclePaneTab(1) // Terminal
-	if got := m.previewTarget(); got != "" {
+	m.tabs.cycle(1) // Terminal
+	if got := m.tabs.previewTarget(m.selectedSession()); got != "" {
 		t.Fatalf("Terminal tab target = %q, want empty", got)
 	}
-	m.cyclePaneTab(1) // back to Preview
-	if got := m.previewTarget(); got != "wasa_x_s1" {
+	m.tabs.cycle(1) // back to Preview
+	if got := m.tabs.previewTarget(m.selectedSession()); got != "wasa_x_s1" {
 		t.Fatalf("returning to Preview target = %q, want resumed", got)
 	}
 }
@@ -79,8 +79,8 @@ func TestPaneTabKeyCyclesPane(t *testing.T) {
 
 	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlT})
 	got := next.(Model)
-	if got.pane != paneDiff {
-		t.Fatalf("pane-tab key did not advance the pane: %d", got.pane)
+	if got.tabs.active != paneDiff {
+		t.Fatalf("pane-tab key did not advance the pane: %d", got.tabs.active)
 	}
 }
 

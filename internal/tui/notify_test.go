@@ -80,7 +80,8 @@ func notifyModel(
 	}
 	clk := newFakeClock()
 	m.tmux = be
-	m.stream = nil
+	m.tabs.preview.tmux = be
+	m.tabs.preview.stream = nil
 	m.now = clk.now
 	m.statuses = sessionstatus.NewTracker(clk.now)
 

@@ -66,11 +66,12 @@ func TestTerminalEnsureSpawnsAndCaptures(t *testing.T) {
 	fb := newFakeBackend()
 	fb.captures["wasa_x_s1_term"] = "user@host:~$ "
 	m.tmux = fb
-	m.pane = paneTerminal
+	m.tabs.terminal.tmux = fb
+	m.tabs.active = paneTerminal
 
-	msg, ok := m.ensureTermCmd()().(termMsg)
+	msg, ok := m.tabs.terminal.ensure(m.selectedSession())().(termMsg)
 	if !ok {
-		t.Fatal("ensureTermCmd did not return a termMsg")
+		t.Fatal("ensure did not return a termMsg")
 	}
 	if msg.err != nil {
 		t.Fatalf("ensure errored: %v", msg.err)
@@ -79,12 +80,12 @@ func TestTerminalEnsureSpawnsAndCaptures(t *testing.T) {
 		t.Fatalf("companion not spawned with _term suffix: %v", fb.spawned)
 	}
 
-	m.applyTerm(msg)
-	if !m.terms["wasa_x_s1_term"] {
+	_ = m.tabs.terminal.apply(msg, m.selectedSession())
+	if !m.tabs.terminal.spawned["wasa_x_s1_term"] {
 		t.Fatal("companion not recorded for teardown")
 	}
-	if m.termContent != "user@host:~$ " {
-		t.Fatalf("capture not stored: %q", m.termContent)
+	if m.tabs.terminal.content != "user@host:~$ " {
+		t.Fatalf("capture not stored: %q", m.tabs.terminal.content)
 	}
 }
 
@@ -93,9 +94,10 @@ func TestTerminalReusesExistingCompanion(t *testing.T) {
 	fb := newFakeBackend()
 	fb.sessions["wasa_x_s1_term"] = true // already running
 	m.tmux = fb
-	m.pane = paneTerminal
+	m.tabs.terminal.tmux = fb
+	m.tabs.active = paneTerminal
 
-	m.ensureTermCmd()()
+	m.tabs.terminal.ensure(m.selectedSession())()
 	if len(fb.spawned) != 0 {
 		t.Fatalf("existing companion was respawned: %v", fb.spawned)
 	}
@@ -105,13 +107,15 @@ func TestTerminalReusesExistingCompanion(t *testing.T) {
 // that is no longer the selected session's does not overwrite the body.
 func TestTerminalDropsStaleCapture(t *testing.T) {
 	m := paneModel(t)
-	m.tmux = newFakeBackend()
+	m.tabs.terminal.tmux = newFakeBackend()
 
-	m.applyTerm(termMsg{name: "someone_else_term", content: "stale"})
-	if m.termContent != "" {
-		t.Fatalf("stale capture overwrote the body: %q", m.termContent)
+	_ = m.tabs.terminal.apply(
+		termMsg{name: "someone_else_term", content: "stale"}, m.selectedSession(),
+	)
+	if m.tabs.terminal.content != "" {
+		t.Fatalf("stale capture overwrote the body: %q", m.tabs.terminal.content)
 	}
-	if !m.terms["someone_else_term"] {
+	if !m.tabs.terminal.spawned["someone_else_term"] {
 		t.Fatal("companion should still be tracked for teardown")
 	}
 }
@@ -120,7 +124,8 @@ func TestTerminalAttachSpawnsAndTargetsCompanion(t *testing.T) {
 	m := paneModel(t)
 	fb := newFakeBackend()
 	m.tmux = fb
-	m.pane = paneTerminal
+	m.tabs.terminal.tmux = fb
+	m.tabs.active = paneTerminal
 
 	next, cmd := m.attach()
 	got := next.(Model)
@@ -133,7 +138,7 @@ func TestTerminalAttachSpawnsAndTargetsCompanion(t *testing.T) {
 	if len(fb.attached) != 1 || fb.attached[0] != "wasa_x_s1_term" {
 		t.Fatalf("attach targeted the wrong session: %v", fb.attached)
 	}
-	if !got.terms["wasa_x_s1_term"] {
+	if !got.tabs.terminal.spawned["wasa_x_s1_term"] {
 		t.Fatal("attach did not record the companion for teardown")
 	}
 }
@@ -157,15 +162,15 @@ func TestCloseTermsKillsAllCompanions(t *testing.T) {
 	fb := newFakeBackend()
 	fb.sessions["a_term"] = true
 	fb.sessions["b_term"] = true
-	m.tmux = fb
-	m.terms = map[string]bool{"a_term": true, "b_term": true}
+	m.tabs.terminal.tmux = fb
+	m.tabs.terminal.spawned = map[string]bool{"a_term": true, "b_term": true}
 
-	m.closeTerms()
+	m.tabs.terminal.close()
 	if len(fb.killed) != 2 {
-		t.Fatalf("closeTerms killed %d companions, want 2", len(fb.killed))
+		t.Fatalf("close killed %d companions, want 2", len(fb.killed))
 	}
-	if len(m.terms) != 0 {
-		t.Fatalf("terms not cleared after close: %v", m.terms)
+	if len(m.tabs.terminal.spawned) != 0 {
+		t.Fatalf("spawned not cleared after close: %v", m.tabs.terminal.spawned)
 	}
 }
 
@@ -176,14 +181,16 @@ func TestTerminalEnsureNoSelectionClearsBody(t *testing.T) {
 	}
 	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
 	m := New(t.TempDir(), reg, ws.ID, config.Default())
-	m.tmux = newFakeBackend()
-	m.pane = paneTerminal
-	m.termShown = "stale_term"
-	m.termContent = "stale"
+	m.tabs.terminal.tmux = newFakeBackend()
+	m.tabs.active = paneTerminal
+	m.tabs.terminal.shown = "stale_term"
+	m.tabs.terminal.content = "stale"
 
-	m.applyTerm(m.ensureTermCmd()().(termMsg))
-	if m.termContent != "" || m.termShown != "" {
+	_ = m.tabs.terminal.apply(
+		m.tabs.terminal.ensure(m.selectedSession())().(termMsg), m.selectedSession(),
+	)
+	if m.tabs.terminal.content != "" || m.tabs.terminal.shown != "" {
 		t.Fatalf("no selection should clear the body: shown=%q content=%q",
-			m.termShown, m.termContent)
+			m.tabs.terminal.shown, m.tabs.terminal.content)
 	}
 }

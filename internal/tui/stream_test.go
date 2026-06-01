@@ -85,19 +85,27 @@ func streamModel(t *testing.T) (Model, *fakeStream) {
 	m := New(t.TempDir(), reg, ws.ID, config.Default())
 	fs := &fakeStream{}
 	m.tmux = fs
-	m.stream = fs
+	m.tabs.preview.tmux = fs
+	m.tabs.preview.stream = fs
+	m.tabs.terminal.tmux = fs
 	return m, fs
+}
+
+// target is the preview target for the current selection, the input the model
+// feeds the preview pane on every retarget.
+func (m *Model) target() string {
+	return m.tabs.previewTarget(m.selectedSession())
 }
 
 func TestEnsureWatcherOpensStreamForSelected(t *testing.T) {
 	m, fs := streamModel(t)
 
-	cmd := m.ensureWatcher()
-	if m.watcher == nil {
+	cmd := m.tabs.retargetPreview(m.selectedSession())
+	if m.tabs.preview.watcher == nil {
 		t.Fatal("no watcher opened for the running selected session")
 	}
 	if cmd == nil {
-		t.Fatal("ensureWatcher returned no wait command for the new stream")
+		t.Fatal("retarget returned no wait command for the new stream")
 	}
 	if len(fs.watched) != 1 || fs.watched[0] != "wasa_s1" {
 		t.Fatalf("watched = %v, want [wasa_s1]", fs.watched)
@@ -106,29 +114,29 @@ func TestEnsureWatcherOpensStreamForSelected(t *testing.T) {
 
 func TestApplyPreviewStoresContentAndReArms(t *testing.T) {
 	m, _ := streamModel(t)
-	m.ensureWatcher()
+	m.tabs.retargetPreview(m.selectedSession())
 
-	cmd := m.applyPreview(
-		previewMsg{gen: m.watchGen, content: "live", ok: true},
+	cmd := m.tabs.preview.apply(
+		previewMsg{gen: m.tabs.preview.watchGen, content: "live", ok: true},
 	)
-	if m.preview != "live" {
-		t.Fatalf("preview = %q, want %q", m.preview, "live")
+	if m.tabs.preview.content != "live" {
+		t.Fatalf("preview = %q, want %q", m.tabs.preview.content, "live")
 	}
 	if cmd == nil {
-		t.Fatal("applyPreview did not re-arm the wait on the live stream")
+		t.Fatal("apply did not re-arm the wait on the live stream")
 	}
 }
 
 func TestApplyPreviewIgnoresStaleGeneration(t *testing.T) {
 	m, _ := streamModel(t)
-	m.ensureWatcher()
-	m.preview = "current"
+	m.tabs.retargetPreview(m.selectedSession())
+	m.tabs.preview.content = "current"
 
-	cmd := m.applyPreview(
-		previewMsg{gen: m.watchGen + 1, content: "stale", ok: true},
+	cmd := m.tabs.preview.apply(
+		previewMsg{gen: m.tabs.preview.watchGen + 1, content: "stale", ok: true},
 	)
-	if m.preview != "current" {
-		t.Fatalf("stale delivery overwrote preview: %q", m.preview)
+	if m.tabs.preview.content != "current" {
+		t.Fatalf("stale delivery overwrote preview: %q", m.tabs.preview.content)
 	}
 	if cmd != nil {
 		t.Fatal("stale delivery re-armed a wait")
@@ -137,15 +145,15 @@ func TestApplyPreviewIgnoresStaleGeneration(t *testing.T) {
 
 func TestSwitchSelectionMovesStream(t *testing.T) {
 	m, fs := streamModel(t)
-	m.ensureWatcher()
-	old := m.watcher.(*fakeWatcher)
+	m.tabs.retargetPreview(m.selectedSession())
+	old := m.tabs.preview.watcher.(*fakeWatcher)
 
 	m.cursor = 1
-	cmd := m.ensureWatcher()
+	cmd := m.tabs.retargetPreview(m.selectedSession())
 	if !old.isClosed() {
 		t.Fatal("old stream was not closed when selection moved")
 	}
-	if m.watcher == nil || m.watcher == any(old) {
+	if m.tabs.preview.watcher == nil || m.tabs.preview.watcher == any(old) {
 		t.Fatal("stream was not re-targeted to the new selection")
 	}
 	if cmd == nil {
@@ -158,25 +166,26 @@ func TestSwitchSelectionMovesStream(t *testing.T) {
 
 func TestDroppedStreamDegradesGracefully(t *testing.T) {
 	m, _ := streamModel(t)
-	m.ensureWatcher()
-	gen := m.watchGen
+	m.tabs.retargetPreview(m.selectedSession())
+	gen := m.tabs.preview.watchGen
 
-	cmd := m.applyPreview(previewMsg{gen: gen, ok: false})
-	if m.watcher != nil {
+	cmd := m.tabs.preview.apply(previewMsg{gen: gen, ok: false})
+	if m.tabs.preview.watcher != nil {
 		t.Fatal("dropped stream was not torn down")
 	}
 	if cmd != nil {
 		t.Fatal("dropped stream re-armed a wait instead of degrading")
 	}
-	if rc := m.pollOrReconnect(); rc == nil || m.watcher == nil {
+	if rc := m.tabs.preview.pollOrReconnect(m.target()); rc == nil ||
+		m.tabs.preview.watcher == nil {
 		t.Fatal("fallback tick did not reconnect the dropped stream")
 	}
 }
 
 func TestQuitClosesWatcher(t *testing.T) {
 	m, _ := streamModel(t)
-	m.ensureWatcher()
-	w := m.watcher.(*fakeWatcher)
+	m.tabs.retargetPreview(m.selectedSession())
+	w := m.tabs.preview.watcher.(*fakeWatcher)
 
 	if _, cmd := m.updateList(
 		tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")},
@@ -192,13 +201,13 @@ func TestWatchFailureFallsBackToPoll(t *testing.T) {
 	m, fs := streamModel(t)
 	fs.failOn = "wasa_s1"
 
-	if cmd := m.ensureWatcher(); cmd != nil {
-		t.Fatal("ensureWatcher returned a wait command despite a failed Watch")
+	if cmd := m.tabs.retargetPreview(m.selectedSession()); cmd != nil {
+		t.Fatal("retarget returned a wait command despite a failed Watch")
 	}
-	if m.watcher != nil {
+	if m.tabs.preview.watcher != nil {
 		t.Fatal("a watcher was retained after Watch failed")
 	}
-	if rc := m.pollOrReconnect(); rc != nil {
+	if rc := m.tabs.preview.pollOrReconnect(m.target()); rc != nil {
 		t.Fatal(
 			"pollOrReconnect returned a stream command after a failed Watch",
 		)
@@ -215,22 +224,22 @@ func TestExitedSelectionOpensNoStream(t *testing.T) {
 	s2, _ := m.reg.Session("s2")
 	s2.Status = registry.StatusExited
 
-	if cmd := m.ensureWatcher(); cmd != nil {
-		t.Fatal("ensureWatcher streamed an exited session")
+	if cmd := m.tabs.retargetPreview(m.selectedSession()); cmd != nil {
+		t.Fatal("retarget streamed an exited session")
 	}
-	if m.watcher != nil || len(fs.watched) != 0 {
+	if m.tabs.preview.watcher != nil || len(fs.watched) != 0 {
 		t.Fatalf("opened a stream for an exited session: %v", fs.watched)
 	}
 }
 
 func TestNoStreamBackendUsesPoll(t *testing.T) {
 	m, fs := streamModel(t)
-	m.stream = nil
+	m.tabs.preview.stream = nil
 
-	if cmd := m.ensureWatcher(); cmd != nil {
-		t.Fatal("ensureWatcher streamed without a streaming backend")
+	if cmd := m.tabs.retargetPreview(m.selectedSession()); cmd != nil {
+		t.Fatal("retarget streamed without a streaming backend")
 	}
-	m.pollOrReconnect()
+	m.tabs.preview.pollOrReconnect(m.target())
 	if fs.captures == 0 {
 		t.Fatal("non-streaming backend did not fall back to Capture poll")
 	}

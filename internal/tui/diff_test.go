@@ -24,13 +24,13 @@ func TestDiffBodyPlainSessionExplains(t *testing.T) {
 	})
 	m := New(t.TempDir(), reg, ws.ID, config.Default())
 	m.width, m.height = 120, 30
-	m.pane = paneDiff
+	m.tabs.active = paneDiff
 
-	if cmd := m.ensureDiffCmd(); cmd == nil {
+	if cmd := m.tabs.diff.ensure(m.selectedSession(), m.reg, m.home); cmd == nil {
 		t.Fatal("plain session should still produce a load command")
 	}
 	w, h := m.rightPaneSize()
-	body := m.diffBody(w, h)
+	body := m.tabs.diff.view(m.theme, m.selectedSession(), w, h)
 	if !strings.Contains(body, "only available for worktree sessions") {
 		t.Fatalf("plain session diff body = %q", body)
 	}
@@ -38,28 +38,33 @@ func TestDiffBodyPlainSessionExplains(t *testing.T) {
 
 func TestDiffBodyLoadingBeforeCompute(t *testing.T) {
 	m := diffWorktreeModel(t)
-	m.pane = paneDiff
+	m.tabs.active = paneDiff
 	w, h := m.rightPaneSize()
-	if body := m.diffBody(w, h); !strings.Contains(body, "Loading diff") {
+	body := m.tabs.diff.view(m.theme, m.selectedSession(), w, h)
+	if !strings.Contains(body, "Loading diff") {
 		t.Fatalf("uncomputed worktree diff body = %q", body)
 	}
 }
 
 func TestEnsureDiffCmdGuardsAlreadyLoaded(t *testing.T) {
 	m := diffWorktreeModel(t)
-	m.pane = paneDiff
-	m.diffSID = m.selectedSession().ID // pretend it is already loaded
-	if cmd := m.ensureDiffCmd(); cmd != nil {
-		t.Fatal("ensureDiffCmd recomputed an already-loaded diff")
+	m.tabs.active = paneDiff
+	m.tabs.diff.sid = m.selectedSession().ID // pretend it is already loaded
+	if cmd := m.tabs.diff.ensure(m.selectedSession(), m.reg, m.home); cmd != nil {
+		t.Fatal("ensure recomputed an already-loaded diff")
 	}
 }
 
 func TestApplyDiffDropsStaleDelivery(t *testing.T) {
 	m := diffWorktreeModel(t)
-	m.applyDiff(diffMsg{sessionID: "not-the-selected-one", text: "x", added: 9})
-	if m.diffSID != "" || m.diffAdded != 0 {
+	m.tabs.diff.apply(
+		m.theme,
+		diffMsg{sessionID: "not-the-selected-one", text: "x", added: 9},
+		m.selectedSession(),
+	)
+	if m.tabs.diff.sid != "" || m.tabs.diff.added != 0 {
 		t.Fatalf("stale diff was applied: sid=%q added=%d",
-			m.diffSID, m.diffAdded)
+			m.tabs.diff.sid, m.tabs.diff.added)
 	}
 }
 
@@ -117,9 +122,9 @@ func TestDiffTabShowsWorktreeChanges(t *testing.T) {
 	})
 	m := New(t.TempDir(), reg, ws.ID, config.Default())
 	m.width, m.height = 120, 30
-	m.pane = paneDiff
+	m.tabs.active = paneDiff
 
-	cmd := m.ensureDiffCmd()
+	cmd := m.tabs.diff.ensure(m.selectedSession(), m.reg, m.home)
 	if cmd == nil {
 		t.Fatal("expected a diff command for a worktree session")
 	}
@@ -127,13 +132,13 @@ func TestDiffTabShowsWorktreeChanges(t *testing.T) {
 	if !ok || msg.err != nil {
 		t.Fatalf("diff command failed: %+v", msg)
 	}
-	m.applyDiff(msg)
+	m.tabs.diff.apply(m.theme, msg, m.selectedSession())
 
-	if m.diffAdded != 2 {
-		t.Fatalf("diffAdded = %d, want 2", m.diffAdded)
+	if m.tabs.diff.added != 2 {
+		t.Fatalf("diffAdded = %d, want 2", m.tabs.diff.added)
 	}
 	w, h := m.rightPaneSize()
-	body := m.diffBody(w, h)
+	body := m.tabs.diff.view(m.theme, m.selectedSession(), w, h)
 	if !strings.Contains(body, "2 additions(+)") {
 		t.Fatalf("diff body missing summary line:\n%s", body)
 	}

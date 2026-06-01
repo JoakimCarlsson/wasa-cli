@@ -533,7 +533,7 @@ func TestPreviewPreservesColor(t *testing.T) {
 
 	m := New(t.TempDir(), reg, ws.ID, config.Default())
 	m.width, m.height = 100, 30
-	m.preview = "\x1b[38;2;255;0;0mRED" +
+	m.tabs.preview.content = "\x1b[38;2;255;0;0mRED" +
 		strings.Repeat("x", 200) + "\x1b[0m"
 
 	out := m.View()
