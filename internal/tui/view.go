@@ -192,10 +192,20 @@ func (m Model) diffBody(_, _ int) string {
 	return dimStyle.Render("Diff — not yet implemented.")
 }
 
-// terminalBody renders the Terminal tab. The companion shell arrives in a later
-// phase; for now it is a placeholder so the tab is navigable.
-func (m Model) terminalBody(_, _ int) string {
-	return dimStyle.Render("Terminal — not yet implemented.")
+// terminalBody renders the Terminal tab: a capture of the selected session's
+// companion shell. Until the first capture for the current selection arrives it
+// shows a starting hint, so a stale capture from a previously selected session
+// is never shown as if it were this one's.
+func (m Model) terminalBody(w, h int) string {
+	s := m.selectedSession()
+	if s == nil {
+		return dimStyle.Render("No session selected.")
+	}
+	if m.termShown != companionName(s) ||
+		strings.TrimSpace(ansi.Strip(m.termContent)) == "" {
+		return dimStyle.Render("Starting shell…")
+	}
+	return renderCapture(m.termContent, w, h)
 }
 
 func (m Model) previewBody(w, h int) string {
@@ -211,16 +221,21 @@ func (m Model) previewBody(w, h int) string {
 	if strings.TrimSpace(ansi.Strip(m.preview)) == "" {
 		return dimStyle.Render("Waiting for output…")
 	}
+	return renderCapture(m.preview, w, h)
+}
 
-	lines := strings.Split(strings.ReplaceAll(m.preview, "\t", "    "), "\n")
+// renderCapture fits a tmux pane capture to a w×h area for the Preview and
+// Terminal tabs: it expands tabs, keeps the last h lines so the freshest output
+// shows, and truncates each line to the visible width without slicing an escape
+// sequence — resetting at the end so an unterminated colour cannot bleed into
+// the pane border or the padding lipgloss adds. The capture is already styled,
+// so it is emitted as-is and never re-styled.
+func renderCapture(content string, w, h int) string {
+	lines := strings.Split(strings.ReplaceAll(content, "\t", "    "), "\n")
 	if len(lines) > h {
 		lines = lines[len(lines)-h:]
 	}
 	for i, ln := range lines {
-		// Truncate by visible width without cutting escape sequences, then
-		// reset so an unterminated color can't bleed into the pane border or
-		// the spaces lipgloss pads the line with. The captured content is
-		// already styled, so it is emitted as-is and never re-styled.
 		lines[i] = ansi.Truncate(ln, w, "") + "\x1b[0m"
 	}
 	return strings.Join(lines, "\n")

@@ -101,6 +101,10 @@ type Model struct {
 	watchName string
 	watchGen  int
 
+	termShown   string
+	termContent string
+	terms       map[string]bool
+
 	now          func() time.Time
 	statuses     *sessionstatus.Tracker
 	notify       func(title, body string)
@@ -135,6 +139,7 @@ func New(
 		notify:       makeNotifier(cfg.Notify),
 		lastNotifyAt: make(map[string]time.Time),
 		lastStatus:   make(map[string]sessionstatus.Status),
+		terms:        make(map[string]bool),
 	}
 	m.osHome, _ = os.UserHomeDir()
 	if s, ok := be.(backend.StreamingBackend); ok {
@@ -208,6 +213,16 @@ func waitPreview(gen int, ch <-chan string) tea.Cmd {
 	}
 }
 
+// termMsg carries the result of ensuring and capturing a session's companion
+// shell. name is the companion's tmux name (so a delivery for a session no
+// longer selected is ignored), content is its pane capture, and err is set when
+// the companion could not be spawned or addressed.
+type termMsg struct {
+	name    string
+	content string
+	err     error
+}
+
 type createdMsg struct {
 	session *registry.Session
 	err     error
@@ -231,10 +246,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		m.sweepStatuses()
-		return m, tea.Batch(tick(), m.pollOrReconnect())
+		return m, tea.Batch(tick(), m.paneTick())
 
 	case previewMsg:
 		return m, m.applyPreview(msg)
+
+	case termMsg:
+		return m, m.applyTerm(msg)
 
 	case createdMsg:
 		if msg.err != nil {
@@ -316,6 +334,7 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.keys.action(key.String()) {
 	case config.ActionQuit:
 		m.closeWatcher()
+		m.closeTerms()
 		return m, tea.Quit
 	case config.ActionTabNext:
 		m.cycleTab(1)
@@ -342,7 +361,20 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case config.ActionConfig:
 		return m.enterConfig()
 	}
-	return m, m.ensureWatcher()
+	return m, m.afterListChange()
+}
+
+// afterListChange is the command run after a list-mode key that may have moved
+// the selection or switched the active pane tab. It re-targets the preview
+// stream (tearing it down off the Preview tab) and, on the Terminal tab, kicks
+// an immediate companion ensure+capture so switching to it or moving the cursor
+// shows the shell without waiting for the next tick.
+func (m *Model) afterListChange() tea.Cmd {
+	cmd := m.ensureWatcher()
+	if m.pane == paneTerminal {
+		cmd = tea.Batch(cmd, m.ensureTermCmd())
+	}
+	return cmd
 }
 
 func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -676,12 +708,50 @@ func (m Model) attach() (tea.Model, tea.Cmd) {
 	if s == nil {
 		return m, nil
 	}
+	if m.pane == paneTerminal {
+		return m.attachTerm(s)
+	}
 	if s.Status != registry.StatusRunning {
 		m.status = "session has exited; nothing to attach to"
 		return m, nil
 	}
 
 	cmd, err := m.tmux.AttachCmd(s.TmuxName)
+	if err != nil {
+		m.err = err
+		return m, nil
+	}
+
+	sessionID := s.ID
+	return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return attachedMsg{sessionID: sessionID, err: err}
+	})
+}
+
+// attachTerm hands the terminal to the selected session's companion shell,
+// spawning it first if it does not yet exist. Like the agent attach it goes
+// through tea.ExecProcess so Bubble Tea releases the terminal for the duration
+// and resumes on detach (C-b d). The companion is independent of the agent, so
+// it attaches even when the agent session itself has exited.
+func (m Model) attachTerm(s *registry.Session) (tea.Model, tea.Cmd) {
+	name := companionName(s)
+	dir := s.WorktreePath
+	if dir == "" {
+		dir = s.WorkingDir
+	}
+	switch has, err := m.tmux.Has(name); {
+	case err != nil:
+		m.err = err
+		return m, nil
+	case !has:
+		if err := m.tmux.SpawnEnv(name, dir, nil, launch.Shell()); err != nil {
+			m.err = err
+			return m, nil
+		}
+	}
+	m.terms[name] = true
+
+	cmd, err := m.tmux.AttachCmd(name)
 	if err != nil {
 		m.err = err
 		return m, nil
@@ -709,10 +779,13 @@ func (m Model) createCmd(ws *registry.Workspace, params launch.Params) tea.Cmd {
 
 func (m Model) killCmd(s *registry.Session) tea.Cmd {
 	reg := m.reg
+	be := m.tmux
+	term := companionName(s)
 	return func() tea.Msg {
 		if err := launch.KillSession(reg, s); err != nil {
 			return killedMsg{err: err}
 		}
+		_ = be.Kill(term)
 		if err := reg.Save(); err != nil {
 			return killedMsg{err: err}
 		}
@@ -722,10 +795,13 @@ func (m Model) killCmd(s *registry.Session) tea.Cmd {
 
 func (m Model) deleteCmd(s *registry.Session) tea.Cmd {
 	reg, home := m.reg, m.home
+	be := m.tmux
+	term := companionName(s)
 	return func() tea.Msg {
 		if err := launch.DeleteSession(reg, s); err != nil {
 			return deletedMsg{err: err}
 		}
+		_ = be.Kill(term)
 		_ = sessionstatus.Remove(home, s.ID)
 		if err := reg.Save(); err != nil {
 			return deletedMsg{err: err}
@@ -853,6 +929,92 @@ func (m *Model) pollCapture() {
 	if out, err := m.tmux.Capture(name); err == nil {
 		m.preview = out
 	}
+}
+
+// paneTick is the per-tick work for the active right-pane tab. The Preview and
+// Diff tabs poll-or-reconnect the preview stream — a near no-op off the Preview
+// tab, since previewTarget is then empty — while the Terminal tab ensures the
+// selected session's companion shell exists and re-captures it.
+func (m *Model) paneTick() tea.Cmd {
+	if m.pane == paneTerminal {
+		return m.ensureTermCmd()
+	}
+	return m.pollOrReconnect()
+}
+
+// ensureTermCmd returns a command that lazily spawns the selected session's
+// companion shell — a tmux session distinct from the agent's, named off its
+// TmuxName, running launch.Shell() in the session's worktree (or working)
+// directory — when one does not already exist, then captures it for the
+// Terminal tab body. An existing companion is reused rather than respawned, so
+// it survives cockpit restarts. With no session selected it clears the body.
+func (m *Model) ensureTermCmd() tea.Cmd {
+	s := m.selectedSession()
+	if s == nil {
+		return func() tea.Msg { return termMsg{} }
+	}
+	name := companionName(s)
+	dir := s.WorktreePath
+	if dir == "" {
+		dir = s.WorkingDir
+	}
+	be := m.tmux
+	return func() tea.Msg {
+		has, err := be.Has(name)
+		if err != nil {
+			return termMsg{name: name, err: err}
+		}
+		if !has {
+			if err := be.SpawnEnv(name, dir, nil, launch.Shell()); err != nil {
+				return termMsg{name: name, err: err}
+			}
+		}
+		out, _ := be.Capture(name)
+		return termMsg{name: name, content: out}
+	}
+}
+
+// applyTerm stores a companion capture for rendering and records the companion
+// as live so it is torn down on exit. A delivery whose companion is no longer
+// the selected session's is dropped, so a late capture cannot overwrite the
+// body after the selection moved. A spawn or address error surfaces on the
+// status line.
+func (m *Model) applyTerm(msg termMsg) tea.Cmd {
+	if msg.err != nil {
+		m.err = msg.err
+		return nil
+	}
+	if msg.name == "" {
+		m.termShown = ""
+		m.termContent = ""
+		return nil
+	}
+	m.terms[msg.name] = true
+	if s := m.selectedSession(); s == nil || companionName(s) != msg.name {
+		return nil
+	}
+	m.termShown = msg.name
+	m.termContent = msg.content
+	return nil
+}
+
+// closeTerms kills every companion shell this run spawned. It runs on quit so no
+// wasa_*_term sessions are left behind. Each kill is best-effort: a companion a
+// session kill or delete already removed is gone, and tmux's error for a missing
+// session is swallowed.
+func (m *Model) closeTerms() {
+	for name := range m.terms {
+		_ = m.tmux.Kill(name)
+	}
+	m.terms = make(map[string]bool)
+}
+
+// companionName is the deterministic tmux name of a session's companion shell:
+// its agent TmuxName with a _term suffix. Deriving it from the stable TmuxName
+// keeps it identical across cockpit restarts and distinct from the agent
+// session, so the two never collide.
+func companionName(s *registry.Session) string {
+	return s.TmuxName + "_term"
 }
 
 // sweepStatuses refreshes the derived runtime status of every running session
