@@ -1,4 +1,10 @@
-package tui
+// Package component holds the cockpit's generic, reusable UI pieces — an
+// overlay compositor, a tab strip, a themed list and a key/help bar — built on
+// bubbles and lipgloss with no knowledge of wasa's domain. The app layer
+// composes these with its registry, backend and theme; nothing here imports the
+// app, so a component can be tested and reused in isolation. Styling is supplied
+// by the caller as lipgloss.Style values, never read from global state.
+package component
 
 import (
 	"strings"
@@ -6,13 +12,13 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// placeOverlay composites fg centered on top of bg and returns the merged frame.
+// Overlay composites fg centered on top of bg and returns the merged frame.
 // Both are treated as ANSI-styled, width-aware blocks of lines: each foreground
-// line replaces only the cells it covers on its background row, so the cockpit
-// stays visible around the box instead of being cleared — a modal floating over
-// the list rather than a full-screen swap. The cuts go through x/ansi so a style
-// is never sliced mid-escape.
-func placeOverlay(fg, bg string) string {
+// line replaces only the cells it covers on its background row, so the
+// background stays visible around the box instead of being cleared — a modal
+// floating over the content rather than a full-screen swap. The cuts go through
+// x/ansi so a style is never sliced mid-escape.
+func Overlay(fg, bg string) string {
 	bgLines := strings.Split(bg, "\n")
 	fgLines := strings.Split(fg, "\n")
 

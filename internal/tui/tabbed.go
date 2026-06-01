@@ -6,6 +6,7 @@ import (
 
 	"github.com/joakimcarlsson/wasa/internal/backend"
 	"github.com/joakimcarlsson/wasa/internal/registry"
+	"github.com/joakimcarlsson/wasa/internal/tui/component"
 )
 
 // paneTab selects which view the right pane shows: the live preview (today's
@@ -144,40 +145,14 @@ func (t tabbedPane) liveContent(name string) (string, bool) {
 // window's top edge. contentW and bodyH are the content width and the full body
 // height the pane must fill so it lines up with the sessions pane.
 func (t tabbedPane) view(th Theme, s *registry.Session, contentW, bodyH int) string {
-	outerW := contentW + 2
 	contentH := max(bodyH-(tabRowRows-1), 1)
 
-	n := len(paneTabNames)
-	tabW := outerW / n
-	lastW := outerW - tabW*(n-1)
-
-	tabs := make([]string, n)
-	for i, name := range paneTabNames {
-		w := tabW
-		if i == n-1 {
-			w = lastW
-		}
-
-		style := th.paneTabInactiveStyle
-		if paneTab(i) == t.active {
-			style = th.paneTabActiveStyle
-		}
-		border, _, _, _, _ := style.GetBorder()
-		switch {
-		case i == 0 && paneTab(i) == t.active:
-			border.BottomLeft = "│"
-		case i == 0:
-			border.BottomLeft = "├"
-		case i == n-1 && paneTab(i) == t.active:
-			border.BottomRight = "│"
-		case i == n-1:
-			border.BottomRight = "┤"
-		}
-		style = style.Border(border)
-		tabs[i] = style.Width(w - style.GetHorizontalFrameSize()).Render(name)
-	}
-
-	row := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
+	row := component.Tabs{
+		Names:         paneTabNames[:],
+		Active:        int(t.active),
+		ActiveStyle:   th.paneTabActiveStyle,
+		InactiveStyle: th.paneTabInactiveStyle,
+	}.Render(contentW + 2)
 	window := th.paneWindowStyle.Width(contentW).Height(contentH).Render(
 		t.body(th, s, contentW, contentH),
 	)

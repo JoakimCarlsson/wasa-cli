@@ -12,6 +12,7 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/config"
 	"github.com/joakimcarlsson/wasa/internal/registry"
 	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
+	"github.com/joakimcarlsson/wasa/internal/tui/component"
 )
 
 // chromeRows is the number of rows the tab bar, menu and status line take from
@@ -34,15 +35,15 @@ func (m Model) View() string {
 		if m.mode == modePickBranch {
 			overlay = m.branch.view()
 		}
-		return placeOverlay(overlay, bg) + "\n" + m.statusLine()
+		return component.Overlay(overlay, bg) + "\n" + m.statusLine()
 	}
 
 	base := m.listView()
 	if m.mode == modeConfirm {
-		return placeOverlay(m.confirm.view(), base)
+		return component.Overlay(m.confirm.view(), base)
 	}
 	if m.mode == modeConfig {
-		return placeOverlay(m.editor.view(), base)
+		return component.Overlay(m.editor.view(), base)
 	}
 	return base
 }
