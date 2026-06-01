@@ -562,27 +562,30 @@ func (m Model) enterConfig() (tea.Model, tea.Cmd) {
 	return m, textinput.Blink
 }
 
-// updateConfig routes input for the open settings panel. Saving validates,
-// persists and re-applies the config in place; a save that fails validation keeps
-// the panel open with the error. Cancelling returns to the list unchanged.
+// updateConfig routes input for the open settings panel. Each committed field
+// (cfgApply) is validated, persisted and applied to the running cockpit in place,
+// so an edit takes effect and survives a restart with no separate save step; a
+// commit that fails validation keeps the panel open with the error. Closing
+// (cfgClose) returns to the list — by then every committed edit is already saved.
 func (m Model) updateConfig(msg tea.Msg) (tea.Model, tea.Cmd) {
 	editor, result, cmd := m.editor.update(msg)
 	m.editor = editor
 	switch result {
-	case cfgSave:
-		return m.saveConfig(editor.config())
-	case cfgCancel:
+	case cfgApply:
+		return m.applyConfig(editor.config())
+	case cfgClose:
 		m.mode = modeList
 		return m, m.ensureWatcher()
 	}
 	return m, cmd
 }
 
-// saveConfig persists cfg to $WASA_HOME and applies it to the running cockpit:
+// applyConfig persists cfg to $WASA_HOME and applies it to the running cockpit:
 // the theme is re-applied, the keymap rebuilt, and the layout is picked up at the
-// next render. A persist that fails validation or the write leaves the panel open
-// with the error so the edits are not lost.
-func (m Model) saveConfig(cfg config.Config) (tea.Model, tea.Cmd) {
+// next render. The panel stays open so editing continues. A persist that fails
+// validation or the write leaves the edits in place and shows the error on the
+// panel rather than writing a bad file.
+func (m Model) applyConfig(cfg config.Config) (tea.Model, tea.Cmd) {
 	if err := config.Save(m.home, cfg); err != nil {
 		m.editor.err = err.Error()
 		return m, nil
@@ -591,10 +594,9 @@ func (m Model) saveConfig(cfg config.Config) (tea.Model, tea.Cmd) {
 	m.cfg = cfg
 	applyTheme(cfg.Theme)
 	m.keys = newKeymap(cfg.Keys)
-	m.mode = modeList
 	m.err = nil
 	m.status = "config saved"
-	return m, m.ensureWatcher()
+	return m, nil
 }
 
 // configRows is how many rows the settings panel may show; the editor scrolls its

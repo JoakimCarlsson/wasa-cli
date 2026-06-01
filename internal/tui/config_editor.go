@@ -16,9 +16,9 @@ import (
 type cfgResult int
 
 const (
-	cfgNone cfgResult = iota
-	cfgSave
-	cfgCancel
+	cfgNone  cfgResult = iota
+	cfgApply           // a field was committed; persist it and apply it live
+	cfgClose           // leave the panel
 )
 
 // fieldKind selects how a setting is edited: a free-text input for numbers, the
@@ -104,13 +104,28 @@ func configFields() []cfgField {
 		{"exited", func(t *config.Theme) *config.Color { return &t.Exited }},
 		{"title", func(t *config.Theme) *config.Color { return &t.Title }},
 		{"desc", func(t *config.Theme) *config.Color { return &t.Desc }},
-		{"selectionFg", func(t *config.Theme) *config.Color { return &t.SelectionFg }},
-		{"selectionBg", func(t *config.Theme) *config.Color { return &t.SelectionBg }},
+		{
+			"selectionFg",
+			func(t *config.Theme) *config.Color { return &t.SelectionFg },
+		},
+		{
+			"selectionBg",
+			func(t *config.Theme) *config.Color { return &t.SelectionBg },
+		},
 		{"danger", func(t *config.Theme) *config.Color { return &t.Danger }},
-		{"onAccent", func(t *config.Theme) *config.Color { return &t.OnAccent }},
-		{"inactiveBtnBg", func(t *config.Theme) *config.Color { return &t.InactiveBtnBg }},
+		{
+			"onAccent",
+			func(t *config.Theme) *config.Color { return &t.OnAccent },
+		},
+		{
+			"inactiveBtnBg",
+			func(t *config.Theme) *config.Color { return &t.InactiveBtnBg },
+		},
 		{"menuKey", func(t *config.Theme) *config.Color { return &t.MenuKey }},
-		{"menuDesc", func(t *config.Theme) *config.Color { return &t.MenuDesc }},
+		{
+			"menuDesc",
+			func(t *config.Theme) *config.Color { return &t.MenuDesc },
+		},
 		{"menuSep", func(t *config.Theme) *config.Color { return &t.MenuSep }},
 	}
 	for _, c := range colors {
@@ -264,16 +279,16 @@ func (e configEditor) update(msg tea.Msg) (configEditor, cfgResult, tea.Cmd) {
 
 // updateList routes input for the field list: navigation, opening the focused
 // field's editor, save and cancel.
-func (e configEditor) updateList(msg tea.Msg) (configEditor, cfgResult, tea.Cmd) {
+func (e configEditor) updateList(
+	msg tea.Msg,
+) (configEditor, cfgResult, tea.Cmd) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return e, cfgNone, nil
 	}
 	switch key.String() {
 	case "esc", "q":
-		return e, cfgCancel, nil
-	case "ctrl+s":
-		return e, cfgSave, nil
+		return e, cfgClose, nil
 	case "up", "k":
 		if e.cursor > 0 {
 			e.cursor--
@@ -313,7 +328,9 @@ func (e configEditor) beginEdit() (configEditor, cfgResult, tea.Cmd) {
 	}
 }
 
-func (e configEditor) updateText(msg tea.Msg) (configEditor, cfgResult, tea.Cmd) {
+func (e configEditor) updateText(
+	msg tea.Msg,
+) (configEditor, cfgResult, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.String() {
 		case "enter":
@@ -329,7 +346,9 @@ func (e configEditor) updateText(msg tea.Msg) (configEditor, cfgResult, tea.Cmd)
 	return e, cfgNone, cmd
 }
 
-func (e configEditor) updateColor(msg tea.Msg) (configEditor, cfgResult, tea.Cmd) {
+func (e configEditor) updateColor(
+	msg tea.Msg,
+) (configEditor, cfgResult, tea.Cmd) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return e, cfgNone, nil
@@ -346,7 +365,9 @@ func (e configEditor) updateColor(msg tea.Msg) (configEditor, cfgResult, tea.Cmd
 	return e, cfgNone, nil
 }
 
-func (e configEditor) updateKeys(msg tea.Msg) (configEditor, cfgResult, tea.Cmd) {
+func (e configEditor) updateKeys(
+	msg tea.Msg,
+) (configEditor, cfgResult, tea.Cmd) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return e, cfgNone, nil
@@ -375,7 +396,7 @@ func (e configEditor) commit(value string) (configEditor, cfgResult, tea.Cmd) {
 	}
 	e.phase = editNone
 	e.err = ""
-	return e, cfgNone, nil
+	return e, cfgApply, nil
 }
 
 // config returns the editor's working configuration, for the cockpit to persist
@@ -406,16 +427,18 @@ func (e configEditor) hint() string {
 	switch e.phase {
 	case editColor:
 		return dimStyle.Render(
-			"←→ adjust · ↑↓ channel · tab light/dark · enter ok · esc cancel",
+			"←→ adjust · ↑↓ channel · tab light/dark · enter apply · esc back",
 		)
 	case editKeys:
 		return dimStyle.Render(
-			"press keys to bind · ⌫ remove · enter ok · esc cancel",
+			"press keys to bind · ⌫ remove · enter apply · esc back",
 		)
 	case editText:
-		return dimStyle.Render("enter commit · esc discard")
+		return dimStyle.Render("enter apply · esc back")
 	default:
-		return dimStyle.Render("↑↓ move · enter edit · ctrl+s save · esc cancel")
+		return dimStyle.Render(
+			"↑↓ move · enter edit · changes apply on enter · esc close",
+		)
 	}
 }
 
@@ -450,7 +473,11 @@ func (e configEditor) row(i int, f cfgField) string {
 	if i == e.cursor {
 		return selRowTitleStyle.Render(pad("> "+f.label, 18)) + "  " + value
 	}
-	return labelStyle.Render(pad("  "+f.label, 18)) + "  " + dimStyle.Render(value)
+	return labelStyle.Render(
+		pad("  "+f.label, 18),
+	) + "  " + dimStyle.Render(
+		value,
+	)
 }
 
 // colorSwatch renders a small filled block in a colour value, so the field list

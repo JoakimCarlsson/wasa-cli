@@ -12,10 +12,16 @@ import (
 )
 
 func TestParseColorForms(t *testing.T) {
-	if c, err := parseColor("#abc"); err != nil || c != (config.Color{Light: "#abc", Dark: "#abc"}) {
+	if c, err := parseColor(
+		"#abc",
+	); err != nil ||
+		c != (config.Color{Light: "#abc", Dark: "#abc"}) {
 		t.Fatalf("single form: %+v %v", c, err)
 	}
-	if c, err := parseColor("#aaa / #bbb"); err != nil || c != (config.Color{Light: "#aaa", Dark: "#bbb"}) {
+	if c, err := parseColor(
+		"#aaa / #bbb",
+	); err != nil ||
+		c != (config.Color{Light: "#aaa", Dark: "#bbb"}) {
 		t.Fatalf("split form: %+v %v", c, err)
 	}
 	if _, err := parseColor("  "); err == nil {
@@ -43,7 +49,7 @@ func fieldIndex(e configEditor, section, label string) int {
 	return -1
 }
 
-func TestEditorRecordKeyAndSaveFlow(t *testing.T) {
+func TestEditorRecordKeyCommitsOnApply(t *testing.T) {
 	e := newConfigEditor(config.Default(), 60, 20)
 	e.cursor = fieldIndex(e, "Keys", config.ActionNew)
 	if e.cursor < 0 {
@@ -55,16 +61,16 @@ func TestEditorRecordKeyAndSaveFlow(t *testing.T) {
 		t.Fatal("enter did not open the key recorder")
 	}
 	e, _, _ = e.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
-	e, _, _ = e.update(tea.KeyMsg{Type: tea.KeyEnter}) // commit
+
+	e, result, _ := e.update(tea.KeyMsg{Type: tea.KeyEnter}) // commit
+	if result != cfgApply {
+		t.Fatalf("commit result = %v, want apply", result)
+	}
 	if e.phase != editNone {
 		t.Fatal("commit did not leave the recorder")
 	}
-
-	_, result, _ := e.update(tea.KeyMsg{Type: tea.KeyCtrlS})
-	if result != cfgSave {
-		t.Fatalf("ctrl+s result = %v, want save", result)
-	}
-	if got := e.config().Keys[config.ActionNew]; len(got) != 1 || got[0] != "x" {
+	if got := e.config().Keys[config.ActionNew]; len(got) != 1 ||
+		got[0] != "x" {
 		t.Fatalf("recorded binding not applied: %+v", got)
 	}
 }
@@ -130,7 +136,10 @@ func TestColorEditorAcceleratesOnHeldKey(t *testing.T) {
 	}
 	gained := e.light[0] - prev
 	if gained <= 12 {
-		t.Fatalf("held key did not accelerate: gained %d over 12 presses", gained)
+		t.Fatalf(
+			"held key did not accelerate: gained %d over 12 presses",
+			gained,
+		)
 	}
 }
 
@@ -172,7 +181,7 @@ func TestConfigActionOpensPanel(t *testing.T) {
 	}
 }
 
-func TestSaveConfigPersistsAndAppliesLive(t *testing.T) {
+func TestApplyConfigPersistsAndAppliesLive(t *testing.T) {
 	defer applyTheme(config.Default().Theme)
 
 	home := t.TempDir()
@@ -183,14 +192,14 @@ func TestSaveConfigPersistsAndAppliesLive(t *testing.T) {
 	cfg.Keys[config.ActionNew] = config.KeyList{"x"}
 
 	m.mode = modeConfig
-	next, _ := m.saveConfig(cfg)
+	next, _ := m.applyConfig(cfg)
 	got := next.(Model)
 
-	if got.mode != modeList {
-		t.Fatal("save did not return to the list")
+	if got.mode != modeConfig {
+		t.Fatal("apply should keep the panel open")
 	}
 	if got.keys.action("x") != config.ActionNew {
-		t.Fatal("save did not apply the new binding live")
+		t.Fatal("apply did not apply the new binding live")
 	}
 	if titleStyle.GetForeground() != lipgloss.Color("#abcdef") {
 		t.Fatal("save did not recolour live")
@@ -219,7 +228,7 @@ func TestEditorViewRendersFields(t *testing.T) {
 	}
 }
 
-func TestSaveConfigRejectsInvalidWithoutClobbering(t *testing.T) {
+func TestApplyConfigRejectsInvalidWithoutClobbering(t *testing.T) {
 	home := t.TempDir()
 	m := editorModel(t, home)
 
@@ -227,13 +236,16 @@ func TestSaveConfigRejectsInvalidWithoutClobbering(t *testing.T) {
 	cfg.Keys[config.ActionNew] = config.KeyList{"k"} // dup with kill
 
 	m.mode = modeConfig
-	next, _ := m.saveConfig(cfg)
+	next, _ := m.applyConfig(cfg)
 	got := next.(Model)
 
 	if got.mode != modeConfig {
-		t.Fatal("invalid save should keep the panel open")
+		t.Fatal("invalid apply should keep the panel open")
+	}
+	if got.editor.err == "" {
+		t.Fatal("invalid apply should surface an error on the panel")
 	}
 	if _, err := config.Load(home); err != nil {
-		t.Fatalf("invalid save wrote a bad file: %v", err)
+		t.Fatalf("invalid apply wrote a bad file: %v", err)
 	}
 }
