@@ -28,9 +28,9 @@ func TestSessionListShowsRuntimeStatus(t *testing.T) {
 
 	m := New(t.TempDir(), reg, ws.ID, config.Default())
 	m.width, m.height = 120, 30
-	m.statuses.obs["work"] = &paneObservation{status: statusWorking}
-	m.statuses.obs["wait"] = &paneObservation{status: statusWaiting}
-	m.statuses.obs["idle"] = &paneObservation{status: statusIdle}
+	m.lastStatus["work"] = statusWorking
+	m.lastStatus["wait"] = statusWaiting
+	m.lastStatus["idle"] = statusIdle
 
 	out := m.View()
 	for _, label := range []string{"working", "waiting", "idle", "exited"} {

@@ -41,6 +41,9 @@ func (o *recordingOps) ops() ops {
 			o.spawnEnv = env
 			return nil
 		},
+		prepareHooks: func(_, _, _ string, env []string) []string {
+			return env
+		},
 	}
 }
 

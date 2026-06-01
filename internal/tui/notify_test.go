@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/joakimcarlsson/wasa/internal/config"
+	"github.com/joakimcarlsson/wasa/internal/hookstatus"
 	"github.com/joakimcarlsson/wasa/internal/registry"
 )
 
@@ -84,16 +85,16 @@ func notifyModel(
 
 func TestNotifyOnWaitingTransitionSuppressesFocused(t *testing.T) {
 	m, be, clk, recs := notifyModel(t)
-	be.panes["t1"] = "$ " // focused session also reaches a prompt
+	be.panes["t1"] = "$ "
 	be.panes["t2"] = "$ "
 
-	m.sweepStatuses() // first observation: both working, no transition
+	m.sweepStatuses()
 	if len(*recs) != 0 {
 		t.Fatalf("notified on first observation: %v", *recs)
 	}
 
 	clk.advance(workingWindow + time.Second)
-	m.sweepStatuses() // both settle to waiting
+	m.sweepStatuses()
 
 	if len(*recs) != 1 {
 		t.Fatalf("want exactly one notification, got %d: %v", len(*recs), *recs)
@@ -110,11 +111,11 @@ func TestNotifyOnExitedTransition(t *testing.T) {
 	m, be, clk, recs := notifyModel(t)
 	be.panes["t2"] = "running output"
 
-	m.sweepStatuses() // s2 working
+	m.sweepStatuses()
 	clk.advance(time.Second)
 
-	be.alive["t2"] = false // tmux session vanishes
-	m.sweepStatuses()      // reconcile marks s2 exited
+	be.alive["t2"] = false
+	m.sweepStatuses()
 
 	if len(*recs) != 1 {
 		t.Fatalf("want one exit notification, got %d: %v", len(*recs), *recs)
@@ -144,22 +145,65 @@ func TestNotifyOffFiresNothing(t *testing.T) {
 	}
 }
 
-func TestNotifyDebouncesFlapping(t *testing.T) {
+func TestFreshHookOverridesScrape(t *testing.T) {
 	m, be, clk, recs := notifyModel(t)
-	be.panes["t2"] = "$ "
+	s2, _ := m.reg.Session("s2")
+	m.lastStatus["s2"] = statusWorking
+	be.panes["t2"] = "compiling project"
 
-	m.sweepStatuses() // working
-	clk.advance(workingWindow + time.Second)
-	m.sweepStatuses() // waiting -> notify (1)
+	if err := hookstatus.Write(m.home, "s2", hookstatus.Record{
+		Status:    hookstatus.StatusWaiting,
+		Event:     "Notification",
+		UpdatedAt: clk.now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
 
-	// Flap: produce output (working), then fall quiet at a prompt again
-	// within the debounce window.
-	clk.advance(time.Second)
-	be.panes["t2"] = "busy output"
-	m.sweepStatuses() // working, not notifiable
-	clk.advance(workingWindow + time.Second)
-	be.panes["t2"] = "$ "
-	m.sweepStatuses() // waiting again, but inside the debounce window
+	m.sweepStatuses()
+
+	if got := m.runtimeStatus(s2); got != statusWaiting {
+		t.Fatalf(
+			"hook did not override scrape: status = %v, want waiting",
+			got.label(),
+		)
+	}
+	if len(*recs) != 1 || !strings.Contains((*recs)[0].body, "feat/s2") {
+		t.Fatalf("fresh waiting hook did not notify: %v", *recs)
+	}
+}
+
+func TestStaleHookFallsBackToScrape(t *testing.T) {
+	m, be, clk, _ := notifyModel(t)
+	s2, _ := m.reg.Session("s2")
+	be.panes["t2"] = "still streaming output"
+
+	if err := hookstatus.Write(m.home, "s2", hookstatus.Record{
+		Status:    hookstatus.StatusWaiting,
+		Event:     "Notification",
+		UpdatedAt: clk.now().Add(-hookstatus.Freshness - time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	m.sweepStatuses()
+
+	if got := m.runtimeStatus(s2); got == statusWaiting {
+		t.Fatal(
+			"a stale hook should be ignored in favour of the pane heuristic",
+		)
+	}
+}
+
+func TestNotifyDebouncesFlapping(t *testing.T) {
+	m, _, _, recs := notifyModel(t)
+	s2, _ := m.reg.Session("s2")
+	m.lastStatus["s2"] = statusWorking
+
+	m.transition(s2, statusWaiting, "")
+	m.transition(s2, statusWorking, "")
+	m.transition(s2, statusWaiting, "")
+	m.transition(s2, statusWorking, "")
+	m.transition(s2, statusWaiting, "")
 
 	if len(*recs) != 1 {
 		t.Fatalf("debounce failed: want 1 notification, got %d: %v",

@@ -118,7 +118,7 @@ func TestStatusTrackerChangeResetsToWorking(t *testing.T) {
 
 	tr.observe("s1", "$ ")
 	clk.advance(workingWindow + time.Second)
-	tr.observe("s1", "$ ") // now waiting
+	tr.observe("s1", "$ ")
 
 	clk.advance(time.Second)
 	cur, prev := tr.observe("s1", "running command output")

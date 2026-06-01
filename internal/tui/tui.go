@@ -23,6 +23,7 @@ import (
 
 	"github.com/joakimcarlsson/wasa/internal/backend"
 	"github.com/joakimcarlsson/wasa/internal/config"
+	"github.com/joakimcarlsson/wasa/internal/hookstatus"
 	"github.com/joakimcarlsson/wasa/internal/launch"
 	"github.com/joakimcarlsson/wasa/internal/registry"
 	"github.com/joakimcarlsson/wasa/internal/worktree"
@@ -88,6 +89,7 @@ type Model struct {
 	statuses     *statusTracker
 	notify       func(title, body string)
 	lastNotifyAt map[string]time.Time
+	lastStatus   map[string]runtimeStatus
 
 	status string
 	err    error
@@ -116,6 +118,7 @@ func New(
 		statuses:     newStatusTracker(time.Now),
 		notify:       makeNotifier(cfg.Notify),
 		lastNotifyAt: make(map[string]time.Time),
+		lastStatus:   make(map[string]runtimeStatus),
 	}
 	m.osHome, _ = os.UserHomeDir()
 	if s, ok := be.(backend.StreamingBackend); ok {
@@ -700,11 +703,12 @@ func (m Model) killCmd(s *registry.Session) tea.Cmd {
 }
 
 func (m Model) deleteCmd(s *registry.Session) tea.Cmd {
-	reg := m.reg
+	reg, home := m.reg, m.home
 	return func() tea.Msg {
 		if err := launch.DeleteSession(reg, s); err != nil {
 			return deletedMsg{err: err}
 		}
+		_ = hookstatus.Remove(home, s.ID)
 		if err := reg.Save(); err != nil {
 			return deletedMsg{err: err}
 		}
@@ -849,15 +853,61 @@ func (m *Model) sweepStatuses() {
 		keep[s.ID] = true
 		if s.Status != registry.StatusRunning {
 			if wasRunning[s.ID] {
-				prev := m.statuses.markExited(s.ID)
-				m.maybeNotify(s, statusExited, prev, focused)
+				m.statuses.markExited(s.ID)
+				m.transition(s, statusExited, focused)
 			}
 			continue
 		}
-		cur, prev := m.statuses.observe(s.ID, m.contentFor(s))
-		m.maybeNotify(s, cur, prev, focused)
+		scraped, _ := m.statuses.observe(s.ID, m.contentFor(s))
+		m.transition(s, m.effectiveStatus(s, scraped), focused)
 	}
 	m.statuses.forget(keep)
+	for id := range m.lastStatus {
+		if !keep[id] {
+			delete(m.lastStatus, id)
+		}
+	}
+}
+
+// effectiveStatus is the status the cockpit trusts for a running session: a
+// fresh hook record when the agent reports one — the authoritative path for a
+// hook-emitting tool like Claude Code — otherwise the pane-content heuristic
+// that is the only signal available for shells and arbitrary programs.
+func (m *Model) effectiveStatus(
+	s *registry.Session, scraped runtimeStatus,
+) runtimeStatus {
+	if rec, ok := hookstatus.Read(m.home, s.ID); ok && rec.Fresh(m.now()) {
+		return hookRuntime(rec.Status)
+	}
+	return scraped
+}
+
+// hookRuntime maps a hook-reported status onto the cockpit's runtime status.
+func hookRuntime(s hookstatus.Status) runtimeStatus {
+	switch s {
+	case hookstatus.StatusWaiting:
+		return statusWaiting
+	case hookstatus.StatusIdle:
+		return statusIdle
+	default:
+		return statusWorking
+	}
+}
+
+// transition records a session's current effective status and fires a
+// notification when it has just changed into a state that needs the user —
+// waiting or exited — for a session that is not focused. The first status seen
+// for a session is recorded without notifying, so a session already waiting
+// when the cockpit opens does not announce itself.
+func (m *Model) transition(
+	s *registry.Session, cur runtimeStatus, focusedID string,
+) {
+	prev, seen := m.lastStatus[s.ID]
+	m.lastStatus[s.ID] = cur
+	if !seen || cur == prev {
+		return
+	}
+	m.maybeNotify(s, cur, focusedID)
 }
 
 // contentFor returns the pane content sweepStatuses derives a session's status
@@ -873,20 +923,17 @@ func (m *Model) contentFor(s *registry.Session) string {
 }
 
 // maybeNotify fires a notification for a session that has just transitioned into
-// waiting or exited. It stays silent in off mode, for the focused session (the
-// user is already looking at it), for a first observation (prev unknown — not a
-// transition), and for a repeat within the debounce window so a flapping session
-// cannot produce a burst.
+// waiting or exited. The caller (transition) has already established that this
+// is a real change; maybeNotify stays silent in off mode, for the focused
+// session (the user is already looking at it), and for a repeat within the
+// debounce window so a flapping session cannot produce a burst.
 func (m *Model) maybeNotify(
-	s *registry.Session, cur, prev runtimeStatus, focusedID string,
+	s *registry.Session, cur runtimeStatus, focusedID string,
 ) {
 	if m.cfg.Notify == config.NotifyOff {
 		return
 	}
 	if cur != statusWaiting && cur != statusExited {
-		return
-	}
-	if cur == prev || prev == statusUnknown {
 		return
 	}
 	if s.ID == focusedID {
@@ -933,7 +980,7 @@ func (m Model) runtimeStatus(s *registry.Session) runtimeStatus {
 	if s.Status != registry.StatusRunning {
 		return statusExited
 	}
-	if st := m.statuses.status(s.ID); st != statusUnknown {
+	if st, ok := m.lastStatus[s.ID]; ok {
 		return st
 	}
 	return statusWorking
