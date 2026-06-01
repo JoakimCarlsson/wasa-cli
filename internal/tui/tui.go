@@ -14,7 +14,6 @@ package tui
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -32,7 +31,7 @@ type mode int
 const (
 	modeList mode = iota
 	modeCreate
-	modeConfirmDelete
+	modeConfirm
 )
 
 // Model is the cockpit's Bubble Tea model. It holds the registry it drives, the
@@ -52,7 +51,7 @@ type Model struct {
 	form    createForm
 	confirm confirmDialog
 
-	deleteTarget *registry.Session
+	confirmCmd tea.Cmd
 
 	width  int
 	height int
@@ -180,8 +179,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.mode {
 	case modeCreate:
 		return m.updateCreate(msg)
-	case modeConfirmDelete:
-		return m.updateConfirmDelete(msg)
+	case modeConfirm:
+		return m.updateConfirm(msg)
 	}
 	return m.updateList(msg)
 }
@@ -216,7 +215,7 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m.attach()
 	case "k":
-		return m.kill()
+		return m.enterConfirmKill()
 	case "d":
 		return m.enterConfirmDelete()
 	}
@@ -241,56 +240,68 @@ func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // enterConfirmDelete opens the delete-confirmation modal for the selected
-// session, capturing it as the delete target so a later list change cannot
-// retarget the delete. With no session selected it is a no-op.
+// session. The delete command captures that session, so a later list change
+// cannot retarget it. With no session selected it is a no-op.
 func (m Model) enterConfirmDelete() (tea.Model, tea.Cmd) {
 	s := m.selectedSession()
 	if s == nil {
 		return m, nil
 	}
-
-	ref := s.Branch
-	if ref == "" {
-		ref = filepath.Base(s.WorkingDir)
-	}
-	title := s.Title
-	if title == "" {
-		title = ref
-	}
-	body := fmt.Sprintf("Delete %q?\nThis cannot be undone.\n\n", title) +
-		dimStyle.Render(
-			fmt.Sprintf("%s %s · %s", branchIcon, ref, s.ProfileName),
-		)
-
-	m.deleteTarget = s
-	m.confirm = newConfirmDialog(
-		"Delete session", body, "Delete", "Cancel", true,
+	title, _ := sessionLabel(s)
+	body := confirmBody(
+		fmt.Sprintf("Delete %q?\nThis cannot be undone.", title), s,
 	)
-	m.mode = modeConfirmDelete
+	return m.enterConfirm(
+		newConfirmDialog("Delete session", body, "Delete", "Cancel", true),
+		m.deleteCmd(s),
+	)
+}
+
+// enterConfirmKill opens the kill-confirmation modal for the selected session.
+// Like the existing instant kill it applies only to a running session; with no
+// session selected or an already-exited one it is a no-op.
+func (m Model) enterConfirmKill() (tea.Model, tea.Cmd) {
+	s := m.selectedSession()
+	if s == nil || s.Status != registry.StatusRunning {
+		return m, nil
+	}
+	title, _ := sessionLabel(s)
+	body := confirmBody(
+		fmt.Sprintf(
+			"Kill %q?\nIt stops but stays in the list as exited.", title,
+		), s,
+	)
+	return m.enterConfirm(
+		newConfirmDialog("Kill session", body, "Kill", "Cancel", true),
+		m.killCmd(s),
+	)
+}
+
+// enterConfirm opens dialog as a modal and stores onConfirm as the command to
+// run if it is accepted.
+func (m Model) enterConfirm(dialog confirmDialog, onConfirm tea.Cmd) (tea.Model, tea.Cmd) {
+	m.confirm = dialog
+	m.confirmCmd = onConfirm
+	m.mode = modeConfirm
 	m.err = nil
 	m.status = ""
 	return m, nil
 }
 
-// updateConfirmDelete routes key input for the delete-confirmation modal.
-// Confirm (y/enter) deletes the captured target; cancel (n/esc/q) returns to the
-// list with no change.
-func (m Model) updateConfirmDelete(msg tea.Msg) (tea.Model, tea.Cmd) {
+// updateConfirm routes key input for the active confirm modal. Accepting it runs
+// the stored command; cancelling returns to the list with no change.
+func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	dialog, result := m.confirm.update(msg)
 	m.confirm = dialog
 	switch result {
 	case confirmYes:
-		s := m.deleteTarget
+		cmd := m.confirmCmd
 		m.mode = modeList
-		m.deleteTarget = nil
-		if s == nil {
-			return m, nil
-		}
-		m.status = "deleting session…"
-		return m, m.deleteCmd(s)
+		m.confirmCmd = nil
+		return m, cmd
 	case confirmNo:
 		m.mode = modeList
-		m.deleteTarget = nil
+		m.confirmCmd = nil
 		return m, nil
 	}
 	return m, nil
@@ -352,17 +363,6 @@ func (m Model) attach() (tea.Model, tea.Cmd) {
 	return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
 		return attachedMsg{sessionID: sessionID, err: err}
 	})
-}
-
-func (m Model) kill() (tea.Model, tea.Cmd) {
-	s := m.selectedSession()
-	if s == nil {
-		return m, nil
-	}
-	if s.Status != registry.StatusRunning {
-		return m, nil
-	}
-	return m, m.killCmd(s)
 }
 
 func (m Model) createCmd(ws *registry.Workspace, params launch.Params) tea.Cmd {
