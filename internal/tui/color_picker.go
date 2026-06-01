@@ -21,6 +21,9 @@ type colorEditor struct {
 	dark    [3]int
 	variant int // 0 = light, 1 = dark
 	channel int // 0 = R, 1 = G, 2 = B
+
+	lastKey string // last key pressed, for repeat acceleration
+	repeat  int    // consecutive presses of lastKey
 }
 
 func newColorEditor(c config.Color) colorEditor {
@@ -28,11 +31,19 @@ func newColorEditor(c config.Color) colorEditor {
 }
 
 func (e colorEditor) update(key tea.KeyMsg) colorEditor {
-	switch key.String() {
+	k := key.String()
+	if k == e.lastKey {
+		e.repeat++
+	} else {
+		e.repeat = 0
+	}
+	e.lastKey = k
+
+	switch k {
 	case "left":
-		e.adjust(-1)
+		e.adjust(-accelStep(e.repeat))
 	case "right":
-		e.adjust(1)
+		e.adjust(accelStep(e.repeat))
 	case "[":
 		e.adjust(-16)
 	case "]":
@@ -45,6 +56,21 @@ func (e colorEditor) update(key tea.KeyMsg) colorEditor {
 		e.channel = (e.channel + 1) % 3
 	}
 	return e
+}
+
+// accelStep grows the adjustment step as a direction key is held: a terminal
+// reports a held key as a stream of repeats, so the longer the streak the larger
+// the step, letting a value sweep its full range quickly while a single tap still
+// nudges by one.
+func accelStep(repeat int) int {
+	switch {
+	case repeat < 3:
+		return 1
+	case repeat < 8:
+		return 5
+	default:
+		return 15
+	}
 }
 
 func (e *colorEditor) adjust(delta int) {
@@ -92,14 +118,17 @@ func (e colorEditor) view(label string) string {
 	cur := *e.active()
 	var rows []string
 	for i, name := range names {
-		label := name
-		if i == e.channel {
+		active := i == e.channel
+		marker := "  "
+		label := dimStyle.Render(name)
+		value := dimStyle.Render(pad(strconv.Itoa(cur[i]), 3))
+		if active {
+			marker = focusedLabelStyle.Render("▸ ")
 			label = focusedLabelStyle.Render(name)
-		} else {
-			label = dimStyle.Render(label)
+			value = focusedLabelStyle.Render(pad(strconv.Itoa(cur[i]), 3))
 		}
 		rows = append(rows, fmt.Sprintf(
-			"%s %s %s", label, channelBar(cur[i]), pad(strconv.Itoa(cur[i]), 3),
+			"%s%s %s %s", marker, label, channelBar(cur[i], active), value,
 		))
 	}
 
@@ -113,11 +142,17 @@ func (e colorEditor) view(label string) string {
 	)
 }
 
-// channelBar renders a 0–255 channel value as a 24-cell filled bar.
-func channelBar(v int) string {
+// channelBar renders a 0–255 channel value as a 24-cell filled bar. The active
+// channel's fill uses the accent so the focused row reads at a glance; inactive
+// rows are dimmed.
+func channelBar(v int, active bool) string {
 	const n = 24
 	filled := v * n / 255
-	return matchStyle.Render(strings.Repeat("█", filled)) +
+	fill := dimStyle
+	if active {
+		fill = matchStyle
+	}
+	return fill.Render(strings.Repeat("█", filled)) +
 		dimStyle.Render(strings.Repeat("░", n-filled))
 }
 

@@ -116,6 +116,35 @@ func TestRecordConflictWarns(t *testing.T) {
 	}
 }
 
+func TestColorEditorAcceleratesOnHeldKey(t *testing.T) {
+	e := newColorEditor(config.Color{Light: "#000000", Dark: "#000000"})
+	right := tea.KeyMsg{Type: tea.KeyRight}
+
+	e = e.update(right) // first press: +1
+	if e.light[0] != 1 {
+		t.Fatalf("first press = %d, want 1", e.light[0])
+	}
+	prev := e.light[0]
+	for range 12 {
+		e = e.update(right)
+	}
+	gained := e.light[0] - prev
+	if gained <= 12 {
+		t.Fatalf("held key did not accelerate: gained %d over 12 presses", gained)
+	}
+}
+
+func TestColorEditorResetsAccelOnDirectionChange(t *testing.T) {
+	e := newColorEditor(config.Color{Light: "#808080", Dark: "#808080"})
+	for range 10 {
+		e = e.update(tea.KeyMsg{Type: tea.KeyRight})
+	}
+	e = e.update(tea.KeyMsg{Type: tea.KeyLeft}) // different key resets streak
+	if e.repeat != 0 {
+		t.Fatalf("streak not reset on direction change: %d", e.repeat)
+	}
+}
+
 func TestColorEditorHexRoundTrip(t *testing.T) {
 	e := newColorEditor(config.Color{Light: "#7d56f4", Dark: "#7d56f4"})
 	if got := e.value(); got != "#7d56f4" {
