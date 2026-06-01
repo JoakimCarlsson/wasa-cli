@@ -96,6 +96,7 @@ func New(
 	currentID string,
 	cfg config.Config,
 ) Model {
+	applyTheme(cfg.Theme)
 	be := backend.Default()
 	m := Model{home: home, reg: reg, tmux: be, cfg: cfg}
 	m.osHome, _ = os.UserHomeDir()
