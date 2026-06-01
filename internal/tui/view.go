@@ -65,10 +65,10 @@ func (m Model) listView() string {
 	list := paneStyle.Width(listW).Height(bodyH).Render(
 		m.paneTitle("sessions") + "\n" + m.sessionList(listW),
 	)
-	preview := paneStyle.Width(previewW).Height(bodyH).Render(
-		m.paneTitle("preview") + "\n" + m.previewBody(previewW, bodyH-1),
+	right := paneStyle.Width(previewW).Height(bodyH).Render(
+		m.paneTabStrip() + "\n" + m.paneBody(previewW, bodyH-1),
 	)
-	body := lipgloss.JoinHorizontal(lipgloss.Top, list, preview)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, list, right)
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -157,6 +157,47 @@ func (m Model) sessionRow(i int, s *registry.Session, w int) string {
 	)
 }
 
+// paneTabStrip renders the right pane's tab labels — Preview, Diff, Terminal —
+// with the active one accented and the rest dimmed. It stands where the single
+// "preview" pane title used to, one line tall, so the body height accounting is
+// unchanged.
+func (m Model) paneTabStrip() string {
+	parts := make([]string, len(paneTabNames))
+	for i, name := range paneTabNames {
+		if paneTab(i) == m.pane {
+			parts[i] = paneTabActiveStyle.Render(name)
+		} else {
+			parts[i] = paneTabInactiveStyle.Render(name)
+		}
+	}
+	sep := menuSepStyle.Render(menuSep)
+	return " " + strings.Join(parts, sep)
+}
+
+// paneBody renders the body of the active right-pane tab into a w×h area.
+func (m Model) paneBody(w, h int) string {
+	switch m.pane {
+	case paneDiff:
+		return m.diffBody(w, h)
+	case paneTerminal:
+		return m.terminalBody(w, h)
+	default:
+		return m.previewBody(w, h)
+	}
+}
+
+// diffBody renders the Diff tab. The diff itself arrives in a later phase; for
+// now it is a placeholder so the tab is navigable.
+func (m Model) diffBody(_, _ int) string {
+	return dimStyle.Render("Diff — not yet implemented.")
+}
+
+// terminalBody renders the Terminal tab. The companion shell arrives in a later
+// phase; for now it is a placeholder so the tab is navigable.
+func (m Model) terminalBody(_, _ int) string {
+	return dimStyle.Render("Terminal — not yet implemented.")
+}
+
 func (m Model) previewBody(w, h int) string {
 	s := m.selectedSession()
 	if s == nil {
@@ -192,6 +233,7 @@ func (m Model) menuBar() string {
 		{m.menuKey(config.ActionKill), "kill"},
 		{m.menuKey(config.ActionDelete), "delete"},
 		{m.menuKey(config.ActionTabNext), "tabs"},
+		{m.menuKey(config.ActionPaneTab), "panes"},
 		{
 			m.menuKey(
 				config.ActionCursorUp,

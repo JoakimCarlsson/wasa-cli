@@ -21,6 +21,9 @@ var (
 	activeTabStyle   lipgloss.Style
 	inactiveTabStyle lipgloss.Style
 
+	paneTabActiveStyle   lipgloss.Style
+	paneTabInactiveStyle lipgloss.Style
+
 	runningDotStyle lipgloss.Style
 	waitingDotStyle lipgloss.Style
 	idleDotStyle    lipgloss.Style
@@ -101,6 +104,9 @@ func applyTheme(t config.Theme) {
 	inactiveTabStyle = lipgloss.NewStyle().
 		Foreground(desc).
 		Padding(0, 2)
+
+	paneTabActiveStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
+	paneTabInactiveStyle = lipgloss.NewStyle().Foreground(desc)
 
 	runningDotStyle = lipgloss.NewStyle().Foreground(running)
 	waitingDotStyle = lipgloss.NewStyle().Foreground(waiting)

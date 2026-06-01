@@ -145,6 +145,7 @@ const (
 	ActionDelete     = "delete"
 	ActionTabNext    = "tab-next"
 	ActionTabPrev    = "tab-prev"
+	ActionPaneTab    = "pane-tab"
 	ActionCursorUp   = "cursor-up"
 	ActionCursorDown = "cursor-down"
 	ActionConfig     = "config"
@@ -172,6 +173,7 @@ var defaultBindings = []binding{
 	{ActionDelete, modeList, KeyList{"d"}},
 	{ActionTabNext, modeList, KeyList{"tab", "right", "]"}},
 	{ActionTabPrev, modeList, KeyList{"shift+tab", "left", "["}},
+	{ActionPaneTab, modeList, KeyList{"ctrl+t"}},
 	{ActionCursorUp, modeList, KeyList{"up"}},
 	{ActionCursorDown, modeList, KeyList{"down"}},
 	{ActionConfig, modeList, KeyList{","}},

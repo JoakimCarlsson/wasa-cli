@@ -42,6 +42,21 @@ const (
 	modeConfig
 )
 
+// paneTab selects which view the right pane shows: the live preview (today's
+// default), a git diff of the session's work, or a companion shell. Only the
+// active tab does per-tick work; the others are idle, so cycling away from
+// Preview tears its stream down and cycling back resumes it.
+type paneTab int
+
+const (
+	panePreview paneTab = iota
+	paneDiff
+	paneTerminal
+)
+
+// paneTabNames is the tab strip's labels in paneTab order.
+var paneTabNames = [...]string{"Preview", "Diff", "Terminal"}
+
 // Model is the cockpit's Bubble Tea model. It holds the registry it drives, the
 // most-recently-used workspaces snapshot, the active workspace (tracked by id so
 // it follows the workspace when an attach or create reorders the tabs), and the
@@ -68,6 +83,7 @@ type Model struct {
 	cursor     int
 
 	mode    mode
+	pane    paneTab
 	form    createForm
 	confirm confirmDialog
 	picker  dirPicker
@@ -305,6 +321,8 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cycleTab(1)
 	case config.ActionTabPrev:
 		m.cycleTab(-1)
+	case config.ActionPaneTab:
+		m.cyclePaneTab(1)
 	case config.ActionCursorUp:
 		if m.cursor > 0 {
 			m.cursor--
@@ -737,8 +755,14 @@ func (m *Model) refresh() tea.Cmd {
 }
 
 // previewTarget is the tmux name the preview should track: the selected
-// session's, or "" when nothing running is selected.
+// session's, or "" when nothing running is selected or the Preview tab is not
+// the active right-pane tab. Gating on the active tab is what keeps the
+// streaming preview's cost off the other tabs — when Diff or Terminal is shown
+// the watcher tears down and no per-tick capture runs for the preview.
 func (m Model) previewTarget() string {
+	if m.pane != panePreview {
+		return ""
+	}
 	s := m.selectedSession()
 	if s == nil || s.Status != registry.StatusRunning {
 		return ""
@@ -814,17 +838,19 @@ func (m *Model) pollOrReconnect() tea.Cmd {
 	return nil
 }
 
-// pollCapture re-captures the selected session with a one-shot Capture. A
-// non-running or absent session clears the buffer. Errors are swallowed: the
-// preview is a convenience, not a source of truth. This is the fallback when no
-// stream is available; on the streaming path it does not run.
+// pollCapture re-captures the preview target with a one-shot Capture. An empty
+// target — no running selection, or the Preview tab not active — clears the
+// buffer and captures nothing, so the fallback poll, like the stream, does no
+// work when another tab is shown. Errors are swallowed: the preview is a
+// convenience, not a source of truth. This is the fallback when no stream is
+// available; on the streaming path it does not run.
 func (m *Model) pollCapture() {
-	s := m.selectedSession()
-	if s == nil || s.Status != registry.StatusRunning {
+	name := m.previewTarget()
+	if name == "" {
 		m.preview = ""
 		return
 	}
-	if out, err := m.tmux.Capture(s.TmuxName); err == nil {
+	if out, err := m.tmux.Capture(name); err == nil {
 		m.preview = out
 	}
 }
@@ -970,6 +996,14 @@ func (m *Model) cycleTab(delta int) {
 	i = (i + delta%n + n) % n
 	m.activeID = m.workspaces[i].ID
 	m.cursor = 0
+}
+
+// cyclePaneTab advances the active right-pane tab by delta, wrapping. The list
+// update that calls it then re-runs ensureWatcher, which tears the preview
+// stream down when the new tab is not Preview and re-establishes it on return.
+func (m *Model) cyclePaneTab(delta int) {
+	n := len(paneTabNames)
+	m.pane = paneTab(((int(m.pane)+delta)%n + n) % n)
 }
 
 func (m Model) tabIndex() int {
