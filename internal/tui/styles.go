@@ -23,6 +23,7 @@ var (
 
 	paneTabActiveStyle   lipgloss.Style
 	paneTabInactiveStyle lipgloss.Style
+	paneWindowStyle      lipgloss.Style
 
 	runningDotStyle lipgloss.Style
 	waitingDotStyle lipgloss.Style
@@ -110,8 +111,20 @@ func applyTheme(t config.Theme) {
 		Foreground(desc).
 		Padding(0, 2)
 
-	paneTabActiveStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
-	paneTabInactiveStyle = lipgloss.NewStyle().Foreground(desc)
+	paneTabInactiveStyle = lipgloss.NewStyle().
+		Border(tabBorderWithBottom("┴", "─", "┴"), true).
+		BorderForeground(accent).
+		Foreground(desc).
+		Align(lipgloss.Center)
+	paneTabActiveStyle = lipgloss.NewStyle().
+		Border(tabBorderWithBottom("┘", " ", "└"), true).
+		BorderForeground(accent).
+		Bold(true).
+		Foreground(accent).
+		Align(lipgloss.Center)
+	paneWindowStyle = lipgloss.NewStyle().
+		BorderForeground(accent).
+		Border(lipgloss.RoundedBorder(), false, true, true, true)
 
 	runningDotStyle = lipgloss.NewStyle().Foreground(running)
 	waitingDotStyle = lipgloss.NewStyle().Foreground(waiting)
@@ -175,6 +188,19 @@ func applyTheme(t config.Theme) {
 	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
 	focusedLabelStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
 	labelStyle = lipgloss.NewStyle().Foreground(desc)
+}
+
+// tabBorderWithBottom is a rounded border with its bottom edge overridden, used
+// for the pane tab boxes: an inactive tab closes its bottom against the window
+// rule with ┴ corners, while the active tab opens its bottom (blank middle, ┘ └
+// corners) so the box flows into the content window beneath it, the way a
+// browser tab connects to its page.
+func tabBorderWithBottom(left, middle, right string) lipgloss.Border {
+	b := lipgloss.RoundedBorder()
+	b.BottomLeft = left
+	b.Bottom = middle
+	b.BottomRight = right
+	return b
 }
 
 const (

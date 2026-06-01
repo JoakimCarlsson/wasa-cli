@@ -357,9 +357,6 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// On the Diff tab let the viewport consume its scroll keys (PageUp/Down and
-	// the ctrl chords); its keymap ignores everything else, so the cockpit list
-	// actions below still fire normally.
 	if m.pane == paneDiff {
 		m.sizeDiffViewport()
 		m.diffVP, _ = m.diffVP.Update(msg)
@@ -1074,7 +1071,7 @@ func newDiffViewport() viewport.Model {
 // mirrors the sizing listView applies to the pane.
 func (m Model) rightPaneSize() (w, h int) {
 	bodyH := max(m.height-chromeRows, 3)
-	return m.width - m.listColWidth() - 4, bodyH - 1
+	return m.width - m.listColWidth() - 4, max(bodyH-(tabRowRows-1), 1)
 }
 
 // sizeDiffViewport sizes the diff viewport to the pane body minus the summary

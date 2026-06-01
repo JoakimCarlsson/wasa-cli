@@ -65,9 +65,7 @@ func (m Model) listView() string {
 	list := paneStyle.Width(listW).Height(bodyH).Render(
 		m.paneTitle("sessions") + "\n" + m.sessionList(listW),
 	)
-	right := paneStyle.Width(previewW).Height(bodyH).Render(
-		m.paneTabStrip() + "\n" + m.paneBody(previewW, bodyH-1),
-	)
+	right := m.tabbedRightPane(previewW, bodyH)
 	body := lipgloss.JoinHorizontal(lipgloss.Top, list, right)
 
 	return lipgloss.JoinVertical(
@@ -157,21 +155,57 @@ func (m Model) sessionRow(i int, s *registry.Session, w int) string {
 	)
 }
 
-// paneTabStrip renders the right pane's tab labels — Preview, Diff, Terminal —
-// with the active one accented and the rest dimmed. It stands where the single
-// "preview" pane title used to, one line tall, so the body height accounting is
-// unchanged.
-func (m Model) paneTabStrip() string {
-	parts := make([]string, len(paneTabNames))
+// tabRowRows is the height the tab row occupies above the content window: the
+// box top border, the label line and the bottom edge that doubles as the
+// window's top border.
+const tabRowRows = 3
+
+// tabbedRightPane renders the right pane as a row of connected tab boxes —
+// Preview, Diff, Terminal — sitting on a content window, in the lipgloss tabs
+// idiom (after claude-squad): the tabs span the pane width, the active tab's
+// bottom border opens into the window beneath it, and the inactive tabs close
+// against the window's top edge. contentW and bodyH are the content width and
+// the full body height the pane must fill so it lines up with the sessions
+// pane.
+func (m Model) tabbedRightPane(contentW, bodyH int) string {
+	outerW := contentW + 2
+	contentH := max(bodyH-(tabRowRows-1), 1)
+
+	n := len(paneTabNames)
+	tabW := outerW / n
+	lastW := outerW - tabW*(n-1)
+
+	tabs := make([]string, n)
 	for i, name := range paneTabNames {
-		if paneTab(i) == m.pane {
-			parts[i] = paneTabActiveStyle.Render(name)
-		} else {
-			parts[i] = paneTabInactiveStyle.Render(name)
+		w := tabW
+		if i == n-1 {
+			w = lastW
 		}
+
+		style := paneTabInactiveStyle
+		if paneTab(i) == m.pane {
+			style = paneTabActiveStyle
+		}
+		border, _, _, _, _ := style.GetBorder()
+		switch {
+		case i == 0 && paneTab(i) == m.pane:
+			border.BottomLeft = "│"
+		case i == 0:
+			border.BottomLeft = "├"
+		case i == n-1 && paneTab(i) == m.pane:
+			border.BottomRight = "│"
+		case i == n-1:
+			border.BottomRight = "┤"
+		}
+		style = style.Border(border)
+		tabs[i] = style.Width(w - style.GetHorizontalFrameSize()).Render(name)
 	}
-	sep := menuSepStyle.Render(menuSep)
-	return " " + strings.Join(parts, sep)
+
+	row := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
+	window := paneWindowStyle.Width(contentW).Height(contentH).Render(
+		m.paneBody(contentW, contentH),
+	)
+	return lipgloss.JoinVertical(lipgloss.Left, row, window)
 }
 
 // paneBody renders the body of the active right-pane tab into a w×h area.
