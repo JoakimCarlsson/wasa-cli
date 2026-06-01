@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/joakimcarlsson/wasa/internal/backend"
+	"github.com/joakimcarlsson/wasa/internal/config"
 	"github.com/joakimcarlsson/wasa/internal/registry"
 )
 
@@ -81,7 +82,7 @@ func streamModel(t *testing.T) (Model, *fakeStream) {
 		Status: registry.StatusRunning, TmuxName: "wasa_s2",
 	})
 
-	m := New(t.TempDir(), reg, ws.ID)
+	m := New(t.TempDir(), reg, ws.ID, config.Default())
 	fs := &fakeStream{}
 	m.tmux = fs
 	m.stream = fs

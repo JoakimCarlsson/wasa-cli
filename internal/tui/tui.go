@@ -22,6 +22,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/joakimcarlsson/wasa/internal/backend"
+	"github.com/joakimcarlsson/wasa/internal/config"
 	"github.com/joakimcarlsson/wasa/internal/launch"
 	"github.com/joakimcarlsson/wasa/internal/registry"
 	"github.com/joakimcarlsson/wasa/internal/worktree"
@@ -57,6 +58,7 @@ type Model struct {
 	reg    *registry.Registry
 	tmux   backend.SessionBackend
 	stream backend.StreamingBackend
+	cfg    config.Config
 
 	workspaces []*registry.Workspace
 	activeID   string
@@ -85,10 +87,17 @@ type Model struct {
 
 // New builds a cockpit model over reg. currentID is the workspace for the
 // repository wasa was launched in; it becomes the initially active tab when
-// present, otherwise the most-recently-used workspace is.
-func New(home string, reg *registry.Registry, currentID string) Model {
+// present, otherwise the most-recently-used workspace is. cfg is the resolved
+// cockpit configuration (theme, keys, layout); pass config.Default for the
+// built-in behaviour.
+func New(
+	home string,
+	reg *registry.Registry,
+	currentID string,
+	cfg config.Config,
+) Model {
 	be := backend.Default()
-	m := Model{home: home, reg: reg, tmux: be}
+	m := Model{home: home, reg: reg, tmux: be, cfg: cfg}
 	m.osHome, _ = os.UserHomeDir()
 	if s, ok := be.(backend.StreamingBackend); ok {
 		m.stream = s
@@ -105,9 +114,16 @@ func New(home string, reg *registry.Registry, currentID string) Model {
 
 // Run launches the cockpit over reg and blocks until the user quits. It uses the
 // alternate screen so the terminal is restored on exit and around every attach.
-func Run(home string, reg *registry.Registry, currentID string) error {
-	_, err := tea.NewProgram(New(home, reg, currentID), tea.WithAltScreen()).
-		Run()
+// cfg is the resolved cockpit configuration.
+func Run(
+	home string,
+	reg *registry.Registry,
+	currentID string,
+	cfg config.Config,
+) error {
+	_, err := tea.NewProgram(
+		New(home, reg, currentID, cfg), tea.WithAltScreen(),
+	).Run()
 	return err
 }
 
