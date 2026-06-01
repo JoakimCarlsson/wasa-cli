@@ -157,8 +157,9 @@ func (c *Client) List() ([]string, error) {
 }
 
 // Capture returns the visible contents of the active pane of the session named
-// name as plain text, for rendering a read-only preview. A session that does
-// not exist yields an empty string rather than an error, so a just-exited
+// name, with the pane's escape sequences preserved (see captureArgs), for
+// rendering a read-only preview that keeps the agent's colors. A session that
+// does not exist yields an empty string rather than an error, so a just-exited
 // session degrades to a blank preview instead of a hard failure.
 func (c *Client) Capture(name string) (string, error) {
 	if err := validateName(name); err != nil {
@@ -215,7 +216,11 @@ func killArgs(name string) []string {
 }
 
 func captureArgs(name string) []string {
-	return []string{"capture-pane", "-p", "-t", name}
+	// -e preserves the pane's escape sequences so the preview keeps the agent's
+	// colors; without it tmux strips all SGR and the capture is flat monochrome.
+	// -p writes to stdout. The render path (internal/tui) is ANSI-aware and
+	// truncates by visible width without slicing these sequences.
+	return []string{"capture-pane", "-e", "-p", "-t", name}
 }
 
 func listArgs() []string {

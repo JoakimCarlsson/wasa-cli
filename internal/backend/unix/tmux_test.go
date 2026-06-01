@@ -78,6 +78,11 @@ func TestTargetArgs(t *testing.T) {
 		{"has", hasArgs("s"), []string{"has-session", "-t", "s"}},
 		{"kill", killArgs("s"), []string{"kill-session", "-t", "s"}},
 		{
+			"capture",
+			captureArgs("s"),
+			[]string{"capture-pane", "-e", "-p", "-t", "s"},
+		},
+		{
 			"list",
 			listArgs(),
 			[]string{"list-sessions", "-F", "#{session_name}"},

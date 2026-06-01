@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 
 	"github.com/joakimcarlsson/wasa/internal/registry"
@@ -129,7 +130,9 @@ func (m Model) previewBody(w, h int) string {
 	if s.Status != registry.StatusRunning {
 		return dimStyle.Render("Session exited — nothing to preview.")
 	}
-	if strings.TrimSpace(m.preview) == "" {
+	// The capture carries the agent's own escape sequences (tmux capture-pane
+	// -e), so emptiness must be judged on the visible text, not the raw bytes.
+	if strings.TrimSpace(ansi.Strip(m.preview)) == "" {
 		return dimStyle.Render("Waiting for output…")
 	}
 
@@ -138,9 +141,13 @@ func (m Model) previewBody(w, h int) string {
 		lines = lines[len(lines)-h:]
 	}
 	for i, ln := range lines {
-		lines[i] = runewidth.Truncate(ln, w, "")
+		// Truncate by visible width without cutting escape sequences, then
+		// reset so an unterminated color can't bleed into the pane border or
+		// the spaces lipgloss pads the line with. The captured content is
+		// already styled, so it is emitted as-is and never re-styled.
+		lines[i] = ansi.Truncate(ln, w, "") + "\x1b[0m"
 	}
-	return previewStyle.Render(strings.Join(lines, "\n"))
+	return strings.Join(lines, "\n")
 }
 
 func (m Model) menuBar() string {

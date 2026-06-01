@@ -50,8 +50,6 @@ var (
 			Background(selBg).
 			Foreground(selFg)
 
-	previewStyle = lipgloss.NewStyle().Foreground(titleCol)
-
 	bannerStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
 	dimStyle    = lipgloss.NewStyle().Foreground(descCol)
 	errorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#de613e"))
