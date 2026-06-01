@@ -23,9 +23,18 @@ func (m Model) View() string {
 	if m.mode == modeCreate {
 		return m.form.view() + "\n" + m.statusLine()
 	}
+
+	base := m.listView()
 	if m.mode == modeConfirmDelete {
-		return m.confirmDeleteView() + "\n" + m.statusLine()
+		return placeOverlay(m.confirm.view(), base)
 	}
+	return base
+}
+
+// listView is the cockpit's normal frame: the workspace tabs, the session list
+// and preview, the menu and the status line. It is also the background a modal
+// floats over, so it is built independently of which mode is active.
+func (m Model) listView() string {
 	if m.width < minWidth || m.height < 8 {
 		return m.compactView()
 	}
@@ -151,36 +160,6 @@ func (m Model) previewBody(w, h int) string {
 		lines[i] = ansi.Truncate(ln, w, "") + "\x1b[0m"
 	}
 	return strings.Join(lines, "\n")
-}
-
-// confirmDeleteView renders the delete-confirmation modal for the captured
-// target, naming it and warning the delete is irreversible.
-func (m Model) confirmDeleteView() string {
-	s := m.deleteTarget
-	if s == nil {
-		return ""
-	}
-
-	ref := s.Branch
-	if ref == "" {
-		ref = filepath.Base(s.WorkingDir)
-	}
-	title := s.Title
-	if title == "" {
-		title = ref
-	}
-
-	var b strings.Builder
-	b.WriteString(titleStyle.Render("Delete session"))
-	b.WriteString("\n\n")
-	fmt.Fprintf(&b, "Delete session %q? This cannot be undone.", title)
-	b.WriteString("\n")
-	b.WriteString(dimStyle.Render(
-		fmt.Sprintf("  %s %s · %s", branchIcon, ref, s.ProfileName),
-	))
-	b.WriteString("\n\n")
-	b.WriteString(dimStyle.Render("enter/y delete · esc/n cancel"))
-	return b.String()
 }
 
 func (m Model) menuBar() string {

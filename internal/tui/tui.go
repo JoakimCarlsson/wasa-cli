@@ -12,7 +12,9 @@
 package tui
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -46,8 +48,9 @@ type Model struct {
 	activeID   string
 	cursor     int
 
-	mode mode
-	form createForm
+	mode    mode
+	form    createForm
+	confirm confirmDialog
 
 	deleteTarget *registry.Session
 
@@ -245,7 +248,24 @@ func (m Model) enterConfirmDelete() (tea.Model, tea.Cmd) {
 	if s == nil {
 		return m, nil
 	}
+
+	ref := s.Branch
+	if ref == "" {
+		ref = filepath.Base(s.WorkingDir)
+	}
+	title := s.Title
+	if title == "" {
+		title = ref
+	}
+	body := fmt.Sprintf("Delete %q?\nThis cannot be undone.\n\n", title) +
+		dimStyle.Render(
+			fmt.Sprintf("%s %s · %s", branchIcon, ref, s.ProfileName),
+		)
+
 	m.deleteTarget = s
+	m.confirm = newConfirmDialog(
+		"Delete session", body, "Delete", "Cancel", true,
+	)
 	m.mode = modeConfirmDelete
 	m.err = nil
 	m.status = ""
@@ -256,12 +276,10 @@ func (m Model) enterConfirmDelete() (tea.Model, tea.Cmd) {
 // Confirm (y/enter) deletes the captured target; cancel (n/esc/q) returns to the
 // list with no change.
 func (m Model) updateConfirmDelete(msg tea.Msg) (tea.Model, tea.Cmd) {
-	key, ok := msg.(tea.KeyMsg)
-	if !ok {
-		return m, nil
-	}
-	switch key.String() {
-	case "y", "enter":
+	dialog, result := m.confirm.update(msg)
+	m.confirm = dialog
+	switch result {
+	case confirmYes:
 		s := m.deleteTarget
 		m.mode = modeList
 		m.deleteTarget = nil
@@ -270,7 +288,7 @@ func (m Model) updateConfirmDelete(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.status = "deleting session…"
 		return m, m.deleteCmd(s)
-	case "n", "esc", "q":
+	case confirmNo:
 		m.mode = modeList
 		m.deleteTarget = nil
 		return m, nil

@@ -52,7 +52,27 @@ var (
 
 	bannerStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
 	dimStyle    = lipgloss.NewStyle().Foreground(descCol)
-	errorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#de613e"))
+	dangerCol   = lipgloss.Color("#de613e")
+	errorStyle  = lipgloss.NewStyle().Foreground(dangerCol)
+
+	modalStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(dangerCol).
+			Padding(1, 2)
+
+	btnBaseStyle     = lipgloss.NewStyle().Padding(0, 3)
+	btnInactiveStyle = btnBaseStyle.
+				Foreground(descCol).
+				Background(lipgloss.Color("236"))
+	btnCancelStyle = btnBaseStyle.
+			Bold(true).
+			Foreground(lipgloss.Color("230")).
+			Background(accent)
+	btnConfirmStyle = btnCancelStyle
+	btnDangerStyle  = btnBaseStyle.
+			Bold(true).
+			Foreground(lipgloss.Color("230")).
+			Background(dangerCol)
 
 	menuKeyStyle = lipgloss.NewStyle().
 			Bold(true).

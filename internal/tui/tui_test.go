@@ -276,7 +276,8 @@ func TestConfirmDeleteRemovesExitedSession(t *testing.T) {
 		t.Fatalf("deleteTarget = %q, want a2", m.deleteTarget.ID)
 	}
 
-	next, cmd := m.updateConfirmDelete(tea.KeyMsg{Type: tea.KeyEnter})
+	// y confirms directly regardless of which button is focused.
+	next, cmd := m.updateConfirmDelete(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
 	m = next.(Model)
 	if m.mode != modeList {
 		t.Fatal("confirm did not return to the list")
@@ -300,6 +301,48 @@ func TestConfirmDeleteRemovesExitedSession(t *testing.T) {
 	}
 	if m.cursor < 0 || m.cursor >= len(m.sessions()) {
 		t.Fatalf("cursor %d out of range after delete", m.cursor)
+	}
+}
+
+func TestConfirmDeleteEnterDefaultsToCancel(t *testing.T) {
+	m, _, _ := testModel(t)
+	next, _ := m.enterConfirmDelete()
+	m = next.(Model)
+
+	// The cancel button starts focused, so a stray enter must not delete.
+	next, cmd := m.updateConfirmDelete(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if m.mode != modeList {
+		t.Fatal("enter did not close the modal")
+	}
+	if cmd != nil {
+		t.Fatal("enter on the default (cancel) focus produced a delete command")
+	}
+	if _, ok := m.reg.Session("a1"); !ok {
+		t.Fatal("enter on the default focus deleted the session")
+	}
+}
+
+func TestConfirmDeleteFocusConfirmThenEnter(t *testing.T) {
+	m, _, _ := testModel(t)
+	a1, _ := m.reg.Session("a1")
+	a1.Status = registry.StatusExited // exited path runs no backend
+
+	next, _ := m.enterConfirmDelete()
+	m = next.(Model)
+
+	// Move focus onto the confirm button, then enter deletes.
+	next, _ = m.updateConfirmDelete(tea.KeyMsg{Type: tea.KeyTab})
+	m = next.(Model)
+	next, cmd := m.updateConfirmDelete(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("enter on the confirm button produced no delete command")
+	}
+	next, _ = m.Update(cmd())
+	m = next.(Model)
+	if _, ok := m.reg.Session("a1"); ok {
+		t.Fatal("tab+enter did not delete the session")
 	}
 }
 
