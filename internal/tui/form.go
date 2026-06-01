@@ -162,6 +162,26 @@ func (f createForm) update(msg tea.Msg) (createForm, formResult, tea.Cmd) {
 	return f, formNone, nil
 }
 
+// setProfiles replaces the profile menu with names, the profiles of the
+// workspace the form's current Directory resolves to. It preserves the user's
+// selection by name when that profile still exists, and otherwise falls back to
+// the default (first) profile, so switching to a directory in a different
+// repository never leaves a profile selected that is invalid there.
+func (f *createForm) setProfiles(names []string) {
+	cur := ""
+	if f.profIdx < len(f.profiles) {
+		cur = f.profiles[f.profIdx]
+	}
+	f.profiles = names
+	f.profIdx = 0
+	for i, n := range names {
+		if n == cur {
+			f.profIdx = i
+			break
+		}
+	}
+}
+
 func (f *createForm) cycleProfile(forward bool) {
 	if len(f.profiles) == 0 {
 		return

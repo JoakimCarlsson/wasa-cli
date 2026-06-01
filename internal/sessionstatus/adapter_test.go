@@ -197,4 +197,3 @@ func TestCodexInstallCreatesOnlyWhenAbsent(t *testing.T) {
 		t.Fatalf("existing config.toml was modified: %s", got)
 	}
 }
-

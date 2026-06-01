@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -9,7 +10,26 @@ import (
 
 	"github.com/joakimcarlsson/wasa/internal/config"
 	"github.com/joakimcarlsson/wasa/internal/registry"
+	"github.com/joakimcarlsson/wasa/internal/repo"
 )
+
+// initGitRepo initializes a throwaway git repository at dir with one empty
+// commit so worktree and remote resolution have something to read.
+func initGitRepo(t *testing.T, dir string) {
+	t.Helper()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	run("init", "-b", "main")
+	run("config", "user.email", "test@example.com")
+	run("config", "user.name", "test")
+	run("commit", "--allow-empty", "-m", "initial")
+}
 
 // testModel builds a model over two workspaces, wsA and wsB, with wsA more
 // recently used so it sorts first. It returns the model and the two workspace
@@ -206,6 +226,81 @@ func TestSubmitEmptyDefaultsToWorkingDir(t *testing.T) {
 	}
 	if got.status == "" {
 		t.Fatal("submit with empty directory did not start creating a session")
+	}
+}
+
+// TestWorktreeWorkspaceTargetsPickedDirRepo is the regression test for the bug:
+// a worktree session must be created against the repository of the chosen
+// Directory, not the active workspace tab. With repoA active and a Directory
+// inside repoB, the resolved workspace must be repoB's — registered if new — and
+// while repoB is still unregistered the form must offer its default profile
+// rather than repoA's profiles.
+func TestWorktreeWorkspaceTargetsPickedDirRepo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available on PATH")
+	}
+
+	repoA, repoB := t.TempDir(), t.TempDir()
+	initGitRepo(t, repoA)
+	initGitRepo(t, repoB)
+
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	pathA, urlA, err := repo.Resolve(repoA)
+	if err != nil {
+		t.Fatalf("resolve repoA: %v", err)
+	}
+	wsA, _ := repo.Register(reg, pathA, urlA)
+
+	m := New(t.TempDir(), reg, wsA.ID, config.Default())
+	if cur := m.currentWorkspace(); cur == nil || cur.ID != wsA.ID {
+		t.Fatal("precondition: repoA is not the active workspace tab")
+	}
+
+	next, _ := m.enterCreate()
+	m = next.(Model)
+	m.form.setDir(repoB)
+
+	if got := m.profilesFor(m.form.branchRepo); len(got) != 1 ||
+		got[0] != registry.DefaultProfileName {
+		t.Fatalf(
+			"profiles for unregistered repoB = %v, want [%s]",
+			got,
+			registry.DefaultProfileName,
+		)
+	}
+
+	target, err := m.worktreeWorkspace()
+	if err != nil {
+		t.Fatalf("worktreeWorkspace: %v", err)
+	}
+
+	pathB, urlB, err := repo.Resolve(repoB)
+	if err != nil {
+		t.Fatalf("resolve repoB: %v", err)
+	}
+	wantID := registry.WorkspaceID(pathB, urlB)
+	if target.ID != wantID {
+		t.Fatalf(
+			"worktree workspace id = %q, want picked repoB id %q",
+			target.ID,
+			wantID,
+		)
+	}
+	if target.ID == wsA.ID {
+		t.Fatal("worktree session targeted active tab repoA, not picked repoB")
+	}
+	if _, ok := reg.Workspace(wantID); !ok {
+		t.Fatal("picked repoB workspace was not registered in the registry")
+	}
+
+	if got := validProfile(target, "repoA-only"); got != "" {
+		t.Fatalf(
+			"validProfile kept a name absent from the target workspace: %q",
+			got,
+		)
 	}
 }
 

@@ -145,7 +145,10 @@ func TestPreviewAttachTargetsAgentSession(t *testing.T) {
 
 	m.attach()
 	if len(fb.attached) != 1 || fb.attached[0] != "wasa_x_s1" {
-		t.Fatalf("preview attach should target the agent session: %v", fb.attached)
+		t.Fatalf(
+			"preview attach should target the agent session: %v",
+			fb.attached,
+		)
 	}
 }
 
