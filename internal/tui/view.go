@@ -188,7 +188,14 @@ func (m Model) menuBar() string {
 		{m.menuKey(config.ActionKill), "kill"},
 		{m.menuKey(config.ActionDelete), "delete"},
 		{m.menuKey(config.ActionTabNext), "tabs"},
-		{m.menuKey(config.ActionCursorUp) + m.menuKey(config.ActionCursorDown), "select"},
+		{
+			m.menuKey(
+				config.ActionCursorUp,
+			) + m.menuKey(
+				config.ActionCursorDown,
+			),
+			"select",
+		},
 		{m.menuKey(config.ActionConfig), "config"},
 		{m.menuKey(config.ActionQuit), "quit"},
 	}

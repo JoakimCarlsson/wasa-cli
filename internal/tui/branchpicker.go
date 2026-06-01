@@ -49,7 +49,9 @@ func newBranchPicker(branches []string, width, height int) branchPicker {
 	return p
 }
 
-func (p branchPicker) update(msg tea.Msg) (branchPicker, dirPickerResult, tea.Cmd) {
+func (p branchPicker) update(
+	msg tea.Msg,
+) (branchPicker, dirPickerResult, tea.Cmd) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return p, pickNone, nil

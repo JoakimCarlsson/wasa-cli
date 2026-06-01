@@ -16,7 +16,9 @@ func TestDefaultThemeIsHistoricalPalette(t *testing.T) {
 	if got := titleStyle.GetForeground(); got != (lipgloss.AdaptiveColor{Light: "#874BFD", Dark: "#7D56F4"}) {
 		t.Errorf("accent: got %v", got)
 	}
-	if got := runningDotStyle.GetForeground(); got != lipgloss.Color("#51bd73") {
+	if got := runningDotStyle.GetForeground(); got != lipgloss.Color(
+		"#51bd73",
+	) {
 		t.Errorf("running dot: got %v", got)
 	}
 	if got := activeTabStyle.GetForeground(); got != lipgloss.Color("230") {
