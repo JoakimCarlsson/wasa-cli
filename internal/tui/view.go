@@ -13,11 +13,10 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/registry"
 )
 
-const (
-	minWidth    = 40
-	listColFrac = 0.34
-	chromeRows  = 6
-)
+// chromeRows is the number of rows the tab bar, menu and status line take from
+// the body height. Unlike the column sizing it is not user-configurable: it
+// tracks the fixed frame the cockpit draws, not a preference.
+const chromeRows = 6
 
 // View implements tea.Model.
 func (m Model) View() string {
@@ -27,7 +26,7 @@ func (m Model) View() string {
 
 	if m.mode == modePick || m.mode == modePickBranch {
 		bg := lipgloss.Place(
-			max(m.width, minWidth), max(m.height-1, 1),
+			max(m.width, m.cfg.Layout.CompactWidth), max(m.height-1, 1),
 			lipgloss.Left, lipgloss.Top, m.form.view(),
 		)
 		overlay := m.picker.view()
@@ -48,14 +47,15 @@ func (m Model) View() string {
 // and preview, the menu and the status line. It is also the background a modal
 // floats over, so it is built independently of which mode is active.
 func (m Model) listView() string {
-	if m.width < minWidth || m.height < 8 {
+	if m.width < m.cfg.Layout.CompactWidth ||
+		m.height < m.cfg.Layout.CompactHeight {
 		return m.compactView()
 	}
 
 	tabs := m.tabBar()
 
 	bodyH := max(m.height-chromeRows, 3)
-	listW := max(int(float64(m.width)*listColFrac), 24)
+	listW := m.listColWidth()
 	previewW := m.width - listW - 4
 
 	list := paneStyle.Width(listW).Height(bodyH).Render(
@@ -72,6 +72,16 @@ func (m Model) listView() string {
 		body,
 		m.menuBar(),
 		m.statusLine(),
+	)
+}
+
+// listColWidth is the width of the session-list column: the configured fraction
+// of the terminal width, floored at the configured minimum so the list stays
+// usable on a narrow terminal.
+func (m Model) listColWidth() int {
+	return max(
+		int(float64(m.width)*m.cfg.Layout.ListColFrac),
+		m.cfg.Layout.MinListWidth,
 	)
 }
 
@@ -209,7 +219,7 @@ func (m Model) compactView() string {
 	parts := []string{
 		m.tabBar(),
 		"",
-		m.sessionList(max(m.width, minWidth)),
+		m.sessionList(max(m.width, m.cfg.Layout.CompactWidth)),
 		m.menuBar(),
 	}
 	if s := m.statusLine(); s != "" {
