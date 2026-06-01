@@ -21,31 +21,57 @@ const (
 	cfgCancel
 )
 
+// fieldKind selects how a setting is edited: a free-text input for numbers, the
+// RGB slider picker for colours, or the press-to-record capture for key bindings.
+type fieldKind int
+
+const (
+	kindText fieldKind = iota
+	kindColor
+	kindKeys
+)
+
+// editPhase is the editor's current sub-state: browsing the field list, or inside
+// one of the per-kind editors for the focused field.
+type editPhase int
+
+const (
+	editNone editPhase = iota
+	editText
+	editColor
+	editKeys
+)
+
 // cfgField is one editable setting in the config panel: a labelled value under a
 // section, with a getter that renders the working value as text and a setter that
-// parses typed text back into the working config (returning a parse error the
-// panel shows inline).
+// parses an edited value back into the working config (returning a parse error the
+// panel shows inline). kind selects which sub-editor opens on it.
 type cfgField struct {
 	section string
 	label   string
+	kind    fieldKind
 	get     func(c config.Config) string
 	set     func(c *config.Config, s string) error
 }
 
 // configEditor is the in-cockpit settings panel. It edits a working copy of the
 // resolved config — theme colours, key bindings and layout — and on save hands
-// that copy back to the cockpit, which persists it and applies it live. Editing
-// is text-based: a colour is "#hex" or "light / dark", a binding is a
-// comma-separated key list, a layout value is a number, matching config.json.
+// that copy back to the cockpit, which persists it and applies it live. Colours
+// are edited with RGB sliders, bindings by recording keypresses, layout values as
+// numbers; every edit funnels back through the same string setters as config.json.
 type configEditor struct {
 	working config.Config
 	fields  []cfgField
 	cursor  int
-	editing bool
-	input   textinput.Model
-	err     string
-	width   int
-	height  int
+
+	phase  editPhase
+	input  textinput.Model
+	color  colorEditor
+	record recordEditor
+
+	err    string
+	width  int
+	height int
 }
 
 func newConfigEditor(cfg config.Config, width, height int) configEditor {
@@ -92,6 +118,7 @@ func configFields() []cfgField {
 		fs = append(fs, cfgField{
 			section: "Theme",
 			label:   c.label,
+			kind:    kindColor,
 			get: func(cfg config.Config) string {
 				return showColor(*ptr(&cfg.Theme))
 			},
@@ -111,6 +138,7 @@ func configFields() []cfgField {
 		fs = append(fs, cfgField{
 			section: "Keys",
 			label:   a,
+			kind:    kindKeys,
 			get: func(cfg config.Config) string {
 				return strings.Join(cfg.Keys[a], ", ")
 			},
@@ -142,6 +170,7 @@ func floatField(label string, ptr func(*config.Layout) *float64) cfgField {
 	return cfgField{
 		section: "Layout",
 		label:   label,
+		kind:    kindText,
 		get: func(cfg config.Config) string {
 			return strconv.FormatFloat(*ptr(&cfg.Layout), 'g', -1, 64)
 		},
@@ -160,6 +189,7 @@ func intField(label string, ptr func(*config.Layout) *int) cfgField {
 	return cfgField{
 		section: "Layout",
 		label:   label,
+		kind:    kindText,
 		get: func(cfg config.Config) string {
 			return strconv.Itoa(*ptr(&cfg.Layout))
 		},
@@ -174,7 +204,7 @@ func intField(label string, ptr func(*config.Layout) *int) cfgField {
 	}
 }
 
-// showColor renders a colour for editing: a single value when the light and dark
+// showColor renders a colour for display: a single value when the light and dark
 // variants match, "light / dark" when they differ.
 func showColor(c config.Color) string {
 	if c.Light == c.Dark {
@@ -183,8 +213,9 @@ func showColor(c config.Color) string {
 	return c.Light + " / " + c.Dark
 }
 
-// parseColor parses an edited colour value. "#hex" (or an ANSI index) sets both
-// variants; "light / dark" sets them independently.
+// parseColor parses a colour value. "#hex" (or an ANSI index) sets both variants;
+// "light / dark" sets them independently. It is the commit path for both the
+// slider editor (which emits hex) and any direct value.
 func parseColor(s string) (config.Color, error) {
 	parts := strings.Split(s, "/")
 	switch len(parts) {
@@ -197,9 +228,7 @@ func parseColor(s string) (config.Color, error) {
 	case 2:
 		l, d := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
 		if l == "" || d == "" {
-			return config.Color{}, fmt.Errorf(
-				`use "#hex" or "light / dark"`,
-			)
+			return config.Color{}, fmt.Errorf(`use "#hex" or "light / dark"`)
 		}
 		return config.Color{Light: l, Dark: d}, nil
 	default:
@@ -207,7 +236,7 @@ func parseColor(s string) (config.Color, error) {
 	}
 }
 
-// parseKeys parses an edited binding: a comma-separated list of key strings.
+// parseKeys parses a binding: a comma-separated list of key strings.
 func parseKeys(s string) (config.KeyList, error) {
 	var keys config.KeyList
 	for k := range strings.SplitSeq(s, ",") {
@@ -222,38 +251,24 @@ func parseKeys(s string) (config.KeyList, error) {
 }
 
 func (e configEditor) update(msg tea.Msg) (configEditor, cfgResult, tea.Cmd) {
+	switch e.phase {
+	case editText:
+		return e.updateText(msg)
+	case editColor:
+		return e.updateColor(msg)
+	case editKeys:
+		return e.updateKeys(msg)
+	}
+	return e.updateList(msg)
+}
+
+// updateList routes input for the field list: navigation, opening the focused
+// field's editor, save and cancel.
+func (e configEditor) updateList(msg tea.Msg) (configEditor, cfgResult, tea.Cmd) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
-		if e.editing {
-			var cmd tea.Cmd
-			e.input, cmd = e.input.Update(msg)
-			return e, cfgNone, cmd
-		}
 		return e, cfgNone, nil
 	}
-
-	if e.editing {
-		switch key.String() {
-		case "enter":
-			if err := e.fields[e.cursor].set(
-				&e.working, e.input.Value(),
-			); err != nil {
-				e.err = err.Error()
-				return e, cfgNone, nil
-			}
-			e.editing = false
-			e.err = ""
-			return e, cfgNone, nil
-		case "esc":
-			e.editing = false
-			e.err = ""
-			return e, cfgNone, nil
-		}
-		var cmd tea.Cmd
-		e.input, cmd = e.input.Update(msg)
-		return e, cfgNone, cmd
-	}
-
 	switch key.String() {
 	case "esc", "q":
 		return e, cfgCancel, nil
@@ -268,15 +283,98 @@ func (e configEditor) update(msg tea.Msg) (configEditor, cfgResult, tea.Cmd) {
 			e.cursor++
 		}
 	case "enter":
+		return e.beginEdit()
+	}
+	return e, cfgNone, nil
+}
+
+// beginEdit opens the sub-editor for the focused field, chosen by its kind.
+func (e configEditor) beginEdit() (configEditor, cfgResult, tea.Cmd) {
+	f := e.fields[e.cursor]
+	e.err = ""
+	switch f.kind {
+	case kindColor:
+		col, _ := parseColor(f.get(e.working))
+		e.color = newColorEditor(col)
+		e.phase = editColor
+		return e, cfgNone, nil
+	case kindKeys:
+		e.record = newRecordEditor(f.label, e.working)
+		e.phase = editKeys
+		return e, cfgNone, nil
+	default:
 		e.input = textinput.New()
 		e.input.CharLimit = 200
-		e.input.SetValue(e.fields[e.cursor].get(e.working))
+		e.input.SetValue(f.get(e.working))
 		e.input.CursorEnd()
 		e.input.Focus()
-		e.editing = true
-		e.err = ""
+		e.phase = editText
 		return e, cfgNone, textinput.Blink
 	}
+}
+
+func (e configEditor) updateText(msg tea.Msg) (configEditor, cfgResult, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.String() {
+		case "enter":
+			return e.commit(e.input.Value())
+		case "esc":
+			e.phase = editNone
+			e.err = ""
+			return e, cfgNone, nil
+		}
+	}
+	var cmd tea.Cmd
+	e.input, cmd = e.input.Update(msg)
+	return e, cfgNone, cmd
+}
+
+func (e configEditor) updateColor(msg tea.Msg) (configEditor, cfgResult, tea.Cmd) {
+	key, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return e, cfgNone, nil
+	}
+	switch key.String() {
+	case "enter":
+		return e.commit(e.color.value())
+	case "esc":
+		e.phase = editNone
+		e.err = ""
+		return e, cfgNone, nil
+	}
+	e.color = e.color.update(key)
+	return e, cfgNone, nil
+}
+
+func (e configEditor) updateKeys(msg tea.Msg) (configEditor, cfgResult, tea.Cmd) {
+	key, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return e, cfgNone, nil
+	}
+	switch key.String() {
+	case "enter":
+		return e.commit(e.record.value())
+	case "esc":
+		e.phase = editNone
+		e.err = ""
+		return e, cfgNone, nil
+	case "backspace", "ctrl+h":
+		e.record = e.record.removeLast()
+		return e, cfgNone, nil
+	}
+	e.record = e.record.add(key.String())
+	return e, cfgNone, nil
+}
+
+// commit parses value into the focused field's setter. A parse error keeps the
+// sub-editor open with the message; success returns to the field list.
+func (e configEditor) commit(value string) (configEditor, cfgResult, tea.Cmd) {
+	if err := e.fields[e.cursor].set(&e.working, value); err != nil {
+		e.err = err.Error()
+		return e, cfgNone, nil
+	}
+	e.phase = editNone
+	e.err = ""
 	return e, cfgNone, nil
 }
 
@@ -285,6 +383,43 @@ func (e configEditor) update(msg tea.Msg) (configEditor, cfgResult, tea.Cmd) {
 func (e configEditor) config() config.Config { return e.working }
 
 func (e configEditor) view() string {
+	var body string
+	switch e.phase {
+	case editColor:
+		body = e.color.view(e.fields[e.cursor].label)
+	case editKeys:
+		body = e.record.view()
+	default:
+		body = e.listBody()
+	}
+
+	parts := []string{titleStyle.Render("Settings"), "", body, "", e.hint()}
+	if e.err != "" {
+		parts = append(parts, errorStyle.Render(e.err))
+	}
+	return pickerStyle.Width(e.width).Render(
+		lipgloss.JoinVertical(lipgloss.Left, parts...),
+	)
+}
+
+func (e configEditor) hint() string {
+	switch e.phase {
+	case editColor:
+		return dimStyle.Render(
+			"←→ adjust · ↑↓ channel · tab light/dark · enter ok · esc cancel",
+		)
+	case editKeys:
+		return dimStyle.Render(
+			"press keys to bind · ⌫ remove · enter ok · esc cancel",
+		)
+	case editText:
+		return dimStyle.Render("enter commit · esc discard")
+	default:
+		return dimStyle.Render("↑↓ move · enter edit · ctrl+s save · esc cancel")
+	}
+}
+
+func (e configEditor) listBody() string {
 	var lines []string
 	cursorLine := 0
 	lastSection := ""
@@ -301,34 +436,32 @@ func (e configEditor) view() string {
 		}
 		lines = append(lines, e.row(i, f))
 	}
-
-	body := strings.Join(window(lines, cursorLine, e.height), "\n")
-
-	hint := dimStyle.Render(
-		"↑↓ move · enter edit · ctrl+s save · esc cancel",
-	)
-	if e.editing {
-		hint = dimStyle.Render("enter commit · esc discard field")
-	}
-	parts := []string{titleStyle.Render("Settings"), "", body, "", hint}
-	if e.err != "" {
-		parts = append(parts, errorStyle.Render(e.err))
-	}
-	return pickerStyle.Width(e.width).Render(
-		lipgloss.JoinVertical(lipgloss.Left, parts...),
-	)
+	return strings.Join(window(lines, cursorLine, e.height), "\n")
 }
 
 func (e configEditor) row(i int, f cfgField) string {
-	label := pad("  "+f.label, 18)
-	if e.editing && i == e.cursor {
+	if e.phase == editText && i == e.cursor {
 		return focusedLabelStyle.Render("> "+f.label) + "  " + e.input.View()
 	}
 	value := f.get(e.working)
-	if i == e.cursor {
-		return selRowTitleStyle.Render(pad("> "+f.label, 18) + "  " + value)
+	if f.kind == kindColor {
+		value = colorSwatch(value) + " " + value
 	}
-	return label + "  " + dimStyle.Render(value)
+	if i == e.cursor {
+		return selRowTitleStyle.Render(pad("> "+f.label, 18)) + "  " + value
+	}
+	return labelStyle.Render(pad("  "+f.label, 18)) + "  " + dimStyle.Render(value)
+}
+
+// colorSwatch renders a small filled block in a colour value, so the field list
+// previews each colour beside its text. A "light / dark" value swatches the light
+// variant.
+func colorSwatch(value string) string {
+	c := strings.TrimSpace(value)
+	if i := strings.Index(c, "/"); i >= 0 {
+		c = strings.TrimSpace(c[:i])
+	}
+	return lipgloss.NewStyle().Background(lipgloss.Color(c)).Render("  ")
 }
 
 // window returns at most h lines centred on the line at focus, so a long field

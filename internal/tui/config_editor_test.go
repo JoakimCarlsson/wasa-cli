@@ -43,21 +43,21 @@ func fieldIndex(e configEditor, section, label string) int {
 	return -1
 }
 
-func TestEditorEditAndSaveFlow(t *testing.T) {
+func TestEditorRecordKeyAndSaveFlow(t *testing.T) {
 	e := newConfigEditor(config.Default(), 60, 20)
 	e.cursor = fieldIndex(e, "Keys", config.ActionNew)
 	if e.cursor < 0 {
 		t.Fatal("new key field not found")
 	}
 
-	e, _, _ = e.update(tea.KeyMsg{Type: tea.KeyEnter}) // start editing
-	if !e.editing {
-		t.Fatal("enter did not start editing")
+	e, _, _ = e.update(tea.KeyMsg{Type: tea.KeyEnter}) // start recording
+	if e.phase != editKeys {
+		t.Fatal("enter did not open the key recorder")
 	}
-	e.input.SetValue("x")
+	e, _, _ = e.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 	e, _, _ = e.update(tea.KeyMsg{Type: tea.KeyEnter}) // commit
-	if e.editing {
-		t.Fatal("commit did not leave edit mode")
+	if e.phase != editNone {
+		t.Fatal("commit did not leave the recorder")
 	}
 
 	_, result, _ := e.update(tea.KeyMsg{Type: tea.KeyCtrlS})
@@ -65,11 +65,34 @@ func TestEditorEditAndSaveFlow(t *testing.T) {
 		t.Fatalf("ctrl+s result = %v, want save", result)
 	}
 	if got := e.config().Keys[config.ActionNew]; len(got) != 1 || got[0] != "x" {
-		t.Fatalf("working config not updated: %+v", got)
+		t.Fatalf("recorded binding not applied: %+v", got)
 	}
 }
 
-func TestEditorInvalidCommitShowsErrorAndKeepsEditing(t *testing.T) {
+func TestEditorColorSliderAdjustsAndCommits(t *testing.T) {
+	e := newConfigEditor(config.Default(), 60, 20)
+	e.cursor = fieldIndex(e, "Theme", "accent")
+
+	e, _, _ = e.update(tea.KeyMsg{Type: tea.KeyEnter}) // open sliders
+	if e.phase != editColor {
+		t.Fatal("enter did not open the colour picker")
+	}
+	before := e.color.value()
+	e, _, _ = e.update(tea.KeyMsg{Type: tea.KeyRight}) // +1 on R
+	if e.color.value() == before {
+		t.Fatal("right arrow did not adjust the channel")
+	}
+
+	e, _, _ = e.update(tea.KeyMsg{Type: tea.KeyEnter}) // commit
+	if e.phase != editNone {
+		t.Fatal("commit did not leave the colour picker")
+	}
+	if got := e.config().Theme.Accent.Light; !strings.HasPrefix(got, "#") {
+		t.Fatalf("commit did not write a hex colour: %q", got)
+	}
+}
+
+func TestEditorInvalidLayoutKeepsEditing(t *testing.T) {
 	e := newConfigEditor(config.Default(), 60, 20)
 	e.cursor = fieldIndex(e, "Layout", "listColFrac")
 
@@ -77,11 +100,26 @@ func TestEditorInvalidCommitShowsErrorAndKeepsEditing(t *testing.T) {
 	e.input.SetValue("not-a-number")
 	e, _, _ = e.update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	if !e.editing {
+	if e.phase != editText {
 		t.Fatal("invalid commit should keep editing")
 	}
 	if e.err == "" {
 		t.Fatal("invalid commit should surface an error")
+	}
+}
+
+func TestRecordConflictWarns(t *testing.T) {
+	r := newRecordEditor(config.ActionNew, config.Default())
+	r = r.add("k") // already bound to kill
+	if r.warn == "" {
+		t.Fatal("recording a bound key did not warn")
+	}
+}
+
+func TestColorEditorHexRoundTrip(t *testing.T) {
+	e := newColorEditor(config.Color{Light: "#7d56f4", Dark: "#7d56f4"})
+	if got := e.value(); got != "#7d56f4" {
+		t.Fatalf("round-trip changed colour: %q", got)
 	}
 }
 
