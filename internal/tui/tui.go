@@ -38,10 +38,17 @@ const (
 // most-recently-used workspaces snapshot, the active workspace (tracked by id so
 // it follows the workspace when an attach or create reorders the tabs), and the
 // list cursor.
+//
+// The live-preview fields track the selected session's output stream: watchName
+// is the session the preview targets (its tmux name, or "" for none); watcher is
+// the live control-mode stream for it, or nil when streaming is unavailable,
+// failed or dropped, in which case the fallback tick polls Capture; watchGen
+// tags the active stream so a previewMsg from a superseded stream is ignored.
 type Model struct {
-	home string
-	reg  *registry.Registry
-	tmux backend.SessionBackend
+	home   string
+	reg    *registry.Registry
+	tmux   backend.SessionBackend
+	stream backend.StreamingBackend
 
 	workspaces []*registry.Workspace
 	activeID   string
@@ -58,6 +65,10 @@ type Model struct {
 
 	preview string
 
+	watcher   backend.Watcher
+	watchName string
+	watchGen  int
+
 	status string
 	err    error
 }
@@ -66,7 +77,11 @@ type Model struct {
 // repository wasa was launched in; it becomes the initially active tab when
 // present, otherwise the most-recently-used workspace is.
 func New(home string, reg *registry.Registry, currentID string) Model {
-	m := Model{home: home, reg: reg, tmux: backend.Default()}
+	be := backend.Default()
+	m := Model{home: home, reg: reg, tmux: be}
+	if s, ok := be.(backend.StreamingBackend); ok {
+		m.stream = s
+	}
 	m.workspaces = reg.ListWorkspaces()
 	switch {
 	case currentID != "" && m.hasWorkspace(currentID):
@@ -85,14 +100,20 @@ func Run(home string, reg *registry.Registry, currentID string) error {
 	return err
 }
 
-// previewInterval is how often the preview pane re-captures the selected
-// session's tmux output. The session list's running/exited status still comes
-// from the registry, never from this capture; this only refreshes the read-only
-// preview body.
+// previewInterval is the cadence of the preview fallback tick. On the streaming
+// (unix/tmux) path the live control-mode connection drives updates and this tick
+// is a near no-op that only reconnects a dropped stream; the old per-tick
+// capture-pane subprocess is gone. On a non-streaming backend (Windows) the tick
+// is still the poll that re-captures the selected session, preserving the prior
+// behaviour. The list's running/exited status always comes from the registry,
+// never from this capture.
 const previewInterval = 750 * time.Millisecond
 
-// Init implements tea.Model.
-func (m Model) Init() tea.Cmd { return tick() }
+// Init implements tea.Model. It fires one immediate tick so the preview opens
+// its stream (or polls) right away rather than after the first interval.
+func (m Model) Init() tea.Cmd {
+	return func() tea.Msg { return tickMsg{} }
+}
 
 type tickMsg struct{}
 
@@ -101,6 +122,25 @@ func tick() tea.Cmd {
 		previewInterval,
 		func(time.Time) tea.Msg { return tickMsg{} },
 	)
+}
+
+// previewMsg carries a fresh pane capture delivered by a control-mode stream.
+// gen identifies the stream that produced it so a message from a superseded or
+// closed stream is ignored; ok is false when that stream's channel closed.
+type previewMsg struct {
+	gen     int
+	content string
+	ok      bool
+}
+
+// waitPreview blocks on the stream's update channel and reports the next
+// capture as a previewMsg tagged with gen. Re-issued after each delivery to keep
+// consuming the stream; never runs on the Update goroutine.
+func waitPreview(gen int, ch <-chan string) tea.Cmd {
+	return func() tea.Msg {
+		content, ok := <-ch
+		return previewMsg{gen: gen, content: content, ok: ok}
+	}
 }
 
 type createdMsg struct {
@@ -125,8 +165,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		m.updatePreview()
-		return m, tick()
+		return m, tea.Batch(tick(), m.pollOrReconnect())
+
+	case previewMsg:
+		return m, m.applyPreview(msg)
 
 	case createdMsg:
 		if msg.err != nil {
@@ -139,8 +181,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.status = "created session in " + msg.session.WorkingDir
 		}
-		m.refresh()
-		return m, nil
+		return m, m.refresh()
 
 	case killedMsg:
 		if msg.err != nil {
@@ -149,8 +190,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err = nil
 		m.status = "killed session"
-		m.refresh()
-		return m, nil
+		return m, m.refresh()
 
 	case deletedMsg:
 		if msg.err != nil {
@@ -159,8 +199,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err = nil
 		m.status = "deleted session"
-		m.refresh()
-		return m, nil
+		return m, m.refresh()
 
 	case attachedMsg:
 		if msg.err != nil {
@@ -172,8 +211,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = err
 			return m, nil
 		}
-		m.refresh()
-		return m, nil
+		return m, m.refresh()
 	}
 
 	switch m.mode {
@@ -193,22 +231,19 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch key.String() {
 	case "q", "ctrl+c":
+		m.closeWatcher()
 		return m, tea.Quit
 	case "right", "tab", "]":
 		m.cycleTab(1)
-		m.updatePreview()
 	case "left", "shift+tab", "[":
 		m.cycleTab(-1)
-		m.updatePreview()
 	case "up":
 		if m.cursor > 0 {
 			m.cursor--
-			m.updatePreview()
 		}
 	case "down":
 		if m.cursor < len(m.sessions())-1 {
 			m.cursor++
-			m.updatePreview()
 		}
 	case "n":
 		return m.enterCreate()
@@ -219,7 +254,7 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "d":
 		return m.enterConfirmDelete()
 	}
-	return m, nil
+	return m, m.ensureWatcher()
 }
 
 func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -407,8 +442,9 @@ func (m Model) deleteCmd(s *registry.Session) tea.Cmd {
 
 // refresh re-reads the most-recently-used workspaces and clamps the cursor. It
 // preserves the active workspace by id, falling back to the first workspace when
-// the active one has gone away.
-func (m *Model) refresh() {
+// the active one has gone away. It returns a command to re-target the preview
+// stream at whatever session ends up selected.
+func (m *Model) refresh() tea.Cmd {
 	m.workspaces = m.reg.ListWorkspaces()
 	if !m.hasWorkspace(m.activeID) {
 		m.activeID = ""
@@ -421,13 +457,92 @@ func (m *Model) refresh() {
 		m.cursor = n - 1
 	}
 	m.cursor = max(m.cursor, 0)
-	m.updatePreview()
+	return m.ensureWatcher()
 }
 
-// updatePreview re-captures the selected session's tmux output into the preview
-// buffer. A non-running or absent session clears the buffer. Capture errors are
-// swallowed: the preview is a convenience, not a source of truth.
-func (m *Model) updatePreview() {
+// previewTarget is the tmux name the preview should track: the selected
+// session's, or "" when nothing running is selected.
+func (m Model) previewTarget() string {
+	s := m.selectedSession()
+	if s == nil || s.Status != registry.StatusRunning {
+		return ""
+	}
+	return s.TmuxName
+}
+
+// ensureWatcher makes the live preview stream track the selected session. When
+// the target changed it tears down the old stream and clears the stale preview;
+// when streaming is available and no stream is live for the target it opens one
+// and returns the command that waits on it. It returns nil when nothing changed,
+// when there is no running target, or when streaming is unavailable or fails —
+// in which cases the fallback tick polls Capture instead. Never blocks on a
+// capture itself.
+func (m *Model) ensureWatcher() tea.Cmd {
+	name := m.previewTarget()
+	if name != m.watchName {
+		m.closeWatcher()
+		m.watchName = name
+		m.preview = ""
+	}
+	if name == "" || m.stream == nil || m.watcher != nil {
+		return nil
+	}
+	w, err := m.stream.Watch(name)
+	if err != nil {
+		return nil
+	}
+	m.watcher = w
+	m.watchGen++
+	return waitPreview(m.watchGen, w.Updates())
+}
+
+// closeWatcher tears down any live stream and invalidates in-flight previewMsgs
+// by bumping the generation, so a late delivery from the closed stream is
+// dropped rather than applied.
+func (m *Model) closeWatcher() {
+	if m.watcher != nil {
+		_ = m.watcher.Close()
+		m.watcher = nil
+	}
+	m.watchGen++
+}
+
+// applyPreview handles a previewMsg from a stream. It ignores deliveries from a
+// superseded stream, drops to the fallback poll when the stream closed, and
+// otherwise stores the capture and re-arms the wait on the same stream.
+func (m *Model) applyPreview(msg previewMsg) tea.Cmd {
+	if msg.gen != m.watchGen || m.watcher == nil {
+		return nil
+	}
+	if !msg.ok {
+		m.closeWatcher()
+		return nil
+	}
+	m.preview = msg.content
+	return waitPreview(msg.gen, m.watcher.Updates())
+}
+
+// pollOrReconnect runs on the fallback tick. With a live stream it does nothing
+// (the stream delivers updates and runs its own safety captures). Otherwise it
+// tries to (re)establish a stream for the selected session, and failing that
+// falls back to a one-shot Capture poll — the only path on a non-streaming
+// backend (Windows) and the recovery path after a dropped connection.
+func (m *Model) pollOrReconnect() tea.Cmd {
+	if m.watcher != nil {
+		return nil
+	}
+	if cmd := m.ensureWatcher(); cmd != nil {
+		return cmd
+	}
+	m.pollCapture()
+	return nil
+}
+
+// pollCapture re-captures the selected session with a one-shot Capture. A
+// non-running or absent session clears the buffer. Errors are swallowed: the
+// preview is a convenience, not a source of truth. This is the fallback when no
+// stream is available; on the streaming path it does not run.
+func (m *Model) pollCapture() {
 	s := m.selectedSession()
 	if s == nil || s.Status != registry.StatusRunning {
 		m.preview = ""

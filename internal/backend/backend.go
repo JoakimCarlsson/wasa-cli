@@ -46,3 +46,29 @@ type SessionBackend interface {
 	// Kill terminates the session named name.
 	Kill(name string) error
 }
+
+// StreamingBackend is the optional capability a SessionBackend may implement to
+// deliver live, event-driven preview updates over a single persistent
+// connection instead of re-capturing the pane on a fixed poll. The TUI prefers
+// Watch when a backend provides it and falls back to the one-shot Capture poll
+// otherwise, so a backend that does not implement this interface (the Windows
+// ConPTY backend) keeps previewing exactly as before.
+type StreamingBackend interface {
+	// Watch opens a live subscription to the named session's pane content and
+	// returns a Watcher streaming it. The caller owns the returned Watcher and
+	// must Close it when the session stops being previewed. An error means the
+	// stream could not be opened; the caller should fall back to Capture.
+	Watch(name string) (Watcher, error)
+}
+
+// Watcher is a live subscription to a session's pane content. Updates yields a
+// fresh full-pane capture, with escape sequences preserved (like Capture),
+// whenever the pane changes; it never repeats a byte-identical capture, so an
+// idle session produces no values. The channel is closed when the watch ends —
+// because Close was called or the underlying connection dropped — which a
+// consumer can use to fall back to polling. Close tears the subscription down
+// and is safe to call more than once.
+type Watcher interface {
+	Updates() <-chan string
+	Close() error
+}
