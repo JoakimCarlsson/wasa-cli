@@ -60,6 +60,13 @@ var (
 			BorderForeground(dangerCol).
 			Padding(1, 2)
 
+	pickerStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(accent).
+			Padding(1, 2)
+
+	matchStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
+
 	btnBaseStyle     = lipgloss.NewStyle().Padding(0, 3)
 	btnInactiveStyle = btnBaseStyle.
 				Foreground(descCol).

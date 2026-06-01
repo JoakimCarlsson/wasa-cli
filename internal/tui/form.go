@@ -28,6 +28,7 @@ const (
 	formNone formResult = iota
 	formSubmit
 	formCancel
+	formPickDir
 )
 
 // createForm collects the inputs for a new session. The two session shapes share
@@ -48,16 +49,15 @@ type createForm struct {
 	err      string
 }
 
-func newCreateForm(profiles []string, defaultDir string) createForm {
+func newCreateForm(profiles []string) createForm {
 	branch := textinput.New()
 	branch.Placeholder = "empty for a plain session"
 	branch.CharLimit = 200
 	branch.Focus()
 
 	dir := textinput.New()
-	dir.Placeholder = "working directory"
+	dir.Placeholder = "ctrl+f to browse, or empty for here"
 	dir.CharLimit = 4096
-	dir.SetValue(defaultDir)
 
 	title := textinput.New()
 	title.Placeholder = "optional title"
@@ -83,14 +83,9 @@ func (f createForm) update(msg tea.Msg) (createForm, formResult, tea.Cmd) {
 		switch key.String() {
 		case "esc":
 			return f, formCancel, nil
+		case "ctrl+f":
+			return f, formPickDir, nil
 		case "enter":
-			branch := strings.TrimSpace(f.inputs[fieldBranch].Value())
-			dir := strings.TrimSpace(f.inputs[fieldDir].Value())
-			if branch == "" && dir == "" {
-				f.err = "enter a branch for a worktree session " +
-					"or a directory for a plain session"
-				return f, formNone, nil
-			}
 			return f, formSubmit, nil
 		case "tab", "down":
 			f.focusNext()
@@ -142,6 +137,19 @@ func (f *createForm) cycleProgram(forward bool) {
 		f.progIdx = (f.progIdx - 1 + len(f.programs)) % len(f.programs)
 	}
 	f.inputs[fieldProgram].SetValue(f.programs[f.progIdx])
+}
+
+// dir is the Directory field's current value, trimmed. It seeds the directory
+// browser's starting point when the picker is opened.
+func (f createForm) dir() string {
+	return strings.TrimSpace(f.inputs[fieldDir].Value())
+}
+
+// setDir writes a path chosen in the directory picker into the Directory field
+// and moves focus to it, so the picked value is visible and editable on return.
+func (f *createForm) setDir(path string) {
+	f.inputs[fieldDir].SetValue(path)
+	f.setFocus(fieldDir)
 }
 
 func (f *createForm) focusNext() { f.setFocus((f.focus + 1) % fieldCount) }
@@ -210,7 +218,8 @@ func (f createForm) view() string {
 		b.WriteString("\n\n")
 	}
 	b.WriteString(dimStyle.Render(
-		"tab/↑↓ move · ←/→ choose program/profile · enter create · esc cancel",
+		"tab/↑↓ move · ←/→ choose program/profile · " +
+			"ctrl+f find dir · enter create · esc cancel",
 	))
 	return b.String()
 }

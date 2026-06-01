@@ -14,6 +14,8 @@ package tui
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -32,12 +34,15 @@ const (
 	modeList mode = iota
 	modeCreate
 	modeConfirm
+	modePick
 )
 
 // Model is the cockpit's Bubble Tea model. It holds the registry it drives, the
 // most-recently-used workspaces snapshot, the active workspace (tracked by id so
 // it follows the workspace when an attach or create reorders the tabs), and the
-// list cursor.
+// list cursor. home is $WASA_HOME, the data directory sessions are launched
+// against; osHome is the user's home directory, used only to root and abbreviate
+// the directory browser — the two are distinct and must not be conflated.
 //
 // The live-preview fields track the selected session's output stream: watchName
 // is the session the preview targets (its tmux name, or "" for none); watcher is
@@ -46,6 +51,7 @@ const (
 // tags the active stream so a previewMsg from a superseded stream is ignored.
 type Model struct {
 	home   string
+	osHome string
 	reg    *registry.Registry
 	tmux   backend.SessionBackend
 	stream backend.StreamingBackend
@@ -57,6 +63,7 @@ type Model struct {
 	mode    mode
 	form    createForm
 	confirm confirmDialog
+	picker  dirPicker
 
 	confirmCmd tea.Cmd
 
@@ -79,6 +86,7 @@ type Model struct {
 func New(home string, reg *registry.Registry, currentID string) Model {
 	be := backend.Default()
 	m := Model{home: home, reg: reg, tmux: be}
+	m.osHome, _ = os.UserHomeDir()
 	if s, ok := be.(backend.StreamingBackend); ok {
 		m.stream = s
 	}
@@ -212,6 +220,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.refresh()
+
+	case filterTickMsg:
+		if m.mode == modePick {
+			return m, m.picker.tickFilter(msg.gen)
+		}
+		return m, nil
+
+	case filterResultMsg:
+		if m.mode == modePick {
+			m.picker.applyFilterResult(msg)
+		}
+		return m, nil
 	}
 
 	switch m.mode {
@@ -219,6 +239,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateCreate(msg)
 	case modeConfirm:
 		return m.updateConfirm(msg)
+	case modePick:
+		return m.updatePick(msg)
 	}
 	return m.updateList(msg)
 }
@@ -264,14 +286,116 @@ func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case formCancel:
 		m.mode = modeList
 		return m, nil
+	case formPickDir:
+		return m.enterPick()
 	case formSubmit:
 		ws := m.currentWorkspace()
 		params := m.form.params()
+		if params.Branch == "" && params.WorkingDir == "" {
+			if cwd, err := os.Getwd(); err == nil {
+				params.WorkingDir = cwd
+			}
+		}
 		m.mode = modeList
 		m.status = "creating session…"
 		return m, m.createCmd(ws, params)
 	}
 	return m, cmd
+}
+
+// enterPick opens the directory tree browser over the create form. It roots the
+// tree at the parent of whatever the Directory field currently holds — so the
+// browser opens among that directory's siblings with the cursor on it — falling
+// back to $HOME, then the working directory, when the field is empty or names no
+// real directory.
+func (m Model) enterPick() (tea.Model, tea.Cmd) {
+	sel := m.form.dir()
+	rootPath := m.osHome
+	if sel != "" {
+		if fi, err := os.Stat(sel); err == nil && fi.IsDir() {
+			rootPath = filepath.Dir(sel)
+		}
+	}
+	if rootPath == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			rootPath = cwd
+		}
+	}
+	m.picker = newDirPicker(
+		rootPath, sel, m.osHome, m.recentDirs(),
+		m.pickerWidth(), m.pickerHeight(),
+	)
+	m.mode = modePick
+	return m, textinput.Blink
+}
+
+// recentDirs gathers the most-recently-used directories for the picker's recent
+// pane: each workspace's repository (by last use) and each session's working
+// directory (by creation), merged newest-first, deduplicated and capped.
+func (m Model) recentDirs() []recentDir {
+	type item struct {
+		path string
+		at   time.Time
+	}
+	var items []item
+	for _, w := range m.workspaces {
+		if w.RepoPath != "" {
+			items = append(items, item{w.RepoPath, w.LastUsedAt})
+		}
+	}
+	for _, s := range m.reg.ListSessions() {
+		if s.WorkingDir != "" {
+			items = append(items, item{s.WorkingDir, s.CreatedAt})
+		}
+	}
+	slices.SortStableFunc(items, func(a, b item) int {
+		return b.at.Compare(a.at)
+	})
+
+	seen := make(map[string]bool)
+	var out []recentDir
+	for _, it := range items {
+		p := filepath.Clean(it.path)
+		if p == "" || p == "." || seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, recentDir{path: p, display: homeRel(p, m.osHome)})
+		if len(out) >= maxRecents {
+			break
+		}
+	}
+	return out
+}
+
+// updatePick routes input for the open directory browser. Choosing a directory
+// writes it into the form's Directory field and returns to the form; cancelling
+// returns to the form unchanged.
+func (m Model) updatePick(msg tea.Msg) (tea.Model, tea.Cmd) {
+	picker, result, cmd := m.picker.update(msg)
+	m.picker = picker
+	switch result {
+	case pickCancel:
+		m.mode = modeCreate
+		return m, textinput.Blink
+	case pickChoose:
+		m.form.setDir(picker.chosen)
+		m.mode = modeCreate
+		return m, textinput.Blink
+	}
+	return m, cmd
+}
+
+// pickerWidth sizes the browser box to the terminal, clamped to a comfortable
+// range so it neither overflows a narrow window nor sprawls on a wide one.
+func (m Model) pickerWidth() int {
+	return min(max(m.width-8, 48), 96)
+}
+
+// pickerHeight is how many tree rows the browser may show, bounded by the
+// terminal height and the picker's own row cap.
+func (m Model) pickerHeight() int {
+	return min(max(m.height-8, 3), pickerRows)
 }
 
 // enterConfirmDelete opens the delete-confirmation modal for the selected
@@ -314,7 +438,10 @@ func (m Model) enterConfirmKill() (tea.Model, tea.Cmd) {
 
 // enterConfirm opens dialog as a modal and stores onConfirm as the command to
 // run if it is accepted.
-func (m Model) enterConfirm(dialog confirmDialog, onConfirm tea.Cmd) (tea.Model, tea.Cmd) {
+func (m Model) enterConfirm(
+	dialog confirmDialog,
+	onConfirm tea.Cmd,
+) (tea.Model, tea.Cmd) {
 	m.confirm = dialog
 	m.confirmCmd = onConfirm
 	m.mode = modeConfirm
@@ -343,29 +470,24 @@ func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // enterCreate opens the create form. With a current workspace the form is seeded
-// with that workspace's profiles and its repository as the default working
-// directory; with no workspace — wasa launched outside any git repository — the
-// form opens with no profiles and the current directory as the default, so a
-// plain session can be created anywhere. ws being nil is the no-repo path, not
-// an error.
+// with that workspace's profiles; with no workspace — wasa launched outside any
+// git repository — it opens with no profiles. The Directory field always starts
+// empty rather than pre-filled with a path, so it never looks like a remembered
+// value; an empty directory on submit means a plain session in the current
+// working directory, and the directory browser (ctrl+f) fills it otherwise. ws
+// being nil is the no-repo path, not an error.
 func (m Model) enterCreate() (tea.Model, tea.Cmd) {
 	ws := m.currentWorkspace()
 
-	var (
-		names      []string
-		defaultDir string
-	)
+	var names []string
 	if ws != nil {
 		names = make([]string, len(ws.Profiles))
 		for i, p := range ws.Profiles {
 			names[i] = p.Name
 		}
-		defaultDir = ws.RepoPath
-	} else if cwd, err := os.Getwd(); err == nil {
-		defaultDir = cwd
 	}
 
-	m.form = newCreateForm(names, defaultDir)
+	m.form = newCreateForm(names)
 	m.mode = modeCreate
 	m.err = nil
 	m.status = ""

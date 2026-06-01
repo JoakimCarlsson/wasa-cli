@@ -31,7 +31,10 @@ type confirmDialog struct {
 	danger      bool // style the title and confirm button as destructive
 }
 
-func newConfirmDialog(title, body, confirmText, cancelText string, danger bool) confirmDialog {
+func newConfirmDialog(
+	title, body, confirmText, cancelText string,
+	danger bool,
+) confirmDialog {
 	return confirmDialog{
 		title:       title,
 		body:        body,

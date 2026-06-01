@@ -107,7 +107,9 @@ func TestApplyPreviewStoresContentAndReArms(t *testing.T) {
 	m, _ := streamModel(t)
 	m.ensureWatcher()
 
-	cmd := m.applyPreview(previewMsg{gen: m.watchGen, content: "live", ok: true})
+	cmd := m.applyPreview(
+		previewMsg{gen: m.watchGen, content: "live", ok: true},
+	)
 	if m.preview != "live" {
 		t.Fatalf("preview = %q, want %q", m.preview, "live")
 	}
@@ -196,7 +198,9 @@ func TestWatchFailureFallsBackToPoll(t *testing.T) {
 		t.Fatal("a watcher was retained after Watch failed")
 	}
 	if rc := m.pollOrReconnect(); rc != nil {
-		t.Fatal("pollOrReconnect returned a stream command after a failed Watch")
+		t.Fatal(
+			"pollOrReconnect returned a stream command after a failed Watch",
+		)
 	}
 	if fs.captures == 0 {
 		t.Fatal("fallback poll did not call Capture")

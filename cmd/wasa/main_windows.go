@@ -12,6 +12,9 @@ import (
 )
 
 func main() {
-	fmt.Fprintln(os.Stderr, "wasa runs on Linux and macOS. On Windows, install WSL2 with tmux and run wasa inside your WSL distribution.")
+	fmt.Fprintln(
+		os.Stderr,
+		"wasa runs on Linux and macOS. On Windows, install WSL2 with tmux and run wasa inside your WSL distribution.",
+	)
 	os.Exit(1)
 }

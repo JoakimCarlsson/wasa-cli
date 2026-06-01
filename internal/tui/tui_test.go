@@ -177,10 +177,34 @@ func TestEnterCreateWithNoWorkspaceOpensPlainForm(t *testing.T) {
 			params.Branch,
 		)
 	}
-	if params.WorkingDir == "" {
-		t.Fatal(
-			"plain session has no working directory; want the current directory",
+	if params.WorkingDir != "" {
+		t.Fatalf(
+			"directory field should start empty, got %q",
+			params.WorkingDir,
 		)
+	}
+}
+
+// TestSubmitEmptyDefaultsToWorkingDir checks that submitting the create form
+// with an empty directory and no branch falls back to a plain session in the
+// current working directory rather than failing.
+func TestSubmitEmptyDefaultsToWorkingDir(t *testing.T) {
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	m := New(t.TempDir(), reg, "")
+
+	next, _ := m.enterCreate()
+	m = next.(Model)
+
+	next, _ = m.updateCreate(tea.KeyMsg{Type: tea.KeyEnter})
+	got := next.(Model)
+	if got.mode != modeList {
+		t.Fatalf("submit left mode = %v, want modeList", got.mode)
+	}
+	if got.status == "" {
+		t.Fatal("submit with empty directory did not start creating a session")
 	}
 }
 
@@ -274,7 +298,9 @@ func TestConfirmDeleteRemovesExitedSession(t *testing.T) {
 	m = next.(Model)
 
 	// y confirms directly regardless of which button is focused.
-	next, cmd := m.updateConfirm(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	next, cmd := m.updateConfirm(
+		tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")},
+	)
 	m = next.(Model)
 	if m.mode != modeList {
 		t.Fatal("confirm did not return to the list")

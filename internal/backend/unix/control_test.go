@@ -144,7 +144,10 @@ func TestWatchStreamsLiveOutput(t *testing.T) {
 		}
 	}
 	if elapsed := time.Since(start); elapsed > 700*time.Millisecond {
-		t.Fatalf("first capture took %v, slower than the old 750ms poll", elapsed)
+		t.Fatalf(
+			"first capture took %v, slower than the old 750ms poll",
+			elapsed,
+		)
 	}
 	if !strings.Contains(got, "\x1b[31m") {
 		t.Fatalf("streamed capture dropped the color escape: %q", got)
@@ -154,6 +157,10 @@ func TestWatchStreamsLiveOutput(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 	if has, err := c.Has(name); err != nil || !has {
-		t.Fatalf("session gone after closing the watch (has=%v err=%v)", has, err)
+		t.Fatalf(
+			"session gone after closing the watch (has=%v err=%v)",
+			has,
+			err,
+		)
 	}
 }
