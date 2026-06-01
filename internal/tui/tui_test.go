@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/joakimcarlsson/wasa/internal/config"
 	"github.com/joakimcarlsson/wasa/internal/registry"
 )
 
@@ -36,19 +37,19 @@ func testModel(t *testing.T) (Model, string, string) {
 	wsA.LastUsedAt = time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
 	wsB.LastUsedAt = time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
 
-	return New(t.TempDir(), reg, wsA.ID), wsA.ID, wsB.ID
+	return New(t.TempDir(), reg, wsA.ID, config.Default()), wsA.ID, wsB.ID
 }
 
 func TestNewActivatesCurrentWorkspace(t *testing.T) {
 	m, _, wsB := testModel(t)
 
 	reg := m.reg
-	m2 := New(t.TempDir(), reg, wsB)
+	m2 := New(t.TempDir(), reg, wsB, config.Default())
 	if m2.activeID != wsB {
 		t.Fatalf("activeID = %q, want current workspace %q", m2.activeID, wsB)
 	}
 
-	m3 := New(t.TempDir(), reg, "")
+	m3 := New(t.TempDir(), reg, "", config.Default())
 	if m3.activeID != m.workspaces[0].ID {
 		t.Fatalf(
 			"activeID = %q, want MRU first %q",
@@ -153,7 +154,7 @@ func TestEnterCreateWithNoWorkspaceOpensPlainForm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	m := New(t.TempDir(), reg, "")
+	m := New(t.TempDir(), reg, "", config.Default())
 	if m.currentWorkspace() != nil {
 		t.Fatal("precondition: expected no current workspace")
 	}
@@ -193,7 +194,7 @@ func TestSubmitEmptyDefaultsToWorkingDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	m := New(t.TempDir(), reg, "")
+	m := New(t.TempDir(), reg, "", config.Default())
 
 	next, _ := m.enterCreate()
 	m = next.(Model)
@@ -251,7 +252,7 @@ func TestEnterConfirmDeleteNoSelectionIsNoop(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
-	m := New(t.TempDir(), reg, ws.ID)
+	m := New(t.TempDir(), reg, ws.ID, config.Default())
 
 	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
 	got := next.(Model)
@@ -403,7 +404,7 @@ func TestEmptyRegistryShowsBanner(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 
-	m := New(t.TempDir(), reg, "")
+	m := New(t.TempDir(), reg, "", config.Default())
 	if m.activeID != "" {
 		t.Fatalf("activeID = %q, want empty with no workspaces", m.activeID)
 	}
@@ -435,7 +436,7 @@ func TestPreviewPreservesColor(t *testing.T) {
 		Status: registry.StatusRunning,
 	})
 
-	m := New(t.TempDir(), reg, ws.ID)
+	m := New(t.TempDir(), reg, ws.ID, config.Default())
 	m.width, m.height = 100, 30
 	m.preview = "\x1b[38;2;255;0;0mRED" +
 		strings.Repeat("x", 200) + "\x1b[0m"
@@ -453,7 +454,7 @@ func TestSelectedSessionEmpty(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
-	m := New(t.TempDir(), reg, ws.ID)
+	m := New(t.TempDir(), reg, ws.ID, config.Default())
 
 	if m.selectedSession() != nil {
 		t.Fatal("selectedSession non-nil with no sessions")

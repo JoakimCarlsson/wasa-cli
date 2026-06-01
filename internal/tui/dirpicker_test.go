@@ -26,7 +26,11 @@ func pickerTree(t *testing.T) string {
 	mustMkdir(t, filepath.Join(root, "beta"))
 	mustMkdir(t, filepath.Join(root, ".hidden"))
 	mustMkdir(t, filepath.Join(root, "node_modules"))
-	if err := os.WriteFile(filepath.Join(root, "file.txt"), nil, 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(root, "file.txt"),
+		nil,
+		0o644,
+	); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	return root
@@ -56,7 +60,11 @@ func TestNewDirPickerListsTopLevelSkippingNoise(t *testing.T) {
 		filepath.Join(root, "beta"),
 	}
 	if len(got) != len(want) {
-		t.Fatalf("visible = %v, want %v (hidden/cache/files skipped)", got, want)
+		t.Fatalf(
+			"visible = %v, want %v (hidden/cache/files skipped)",
+			got,
+			want,
+		)
 	}
 	for i := range want {
 		if got[i] != want[i] {
@@ -124,7 +132,11 @@ func TestDirPickerExpandRevealsChildren(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("expanding alpha did not reveal %q; visible = %v", want, visiblePaths(p))
+		t.Fatalf(
+			"expanding alpha did not reveal %q; visible = %v",
+			want,
+			visiblePaths(p),
+		)
 	}
 }
 
@@ -138,7 +150,11 @@ func TestDirPickerCollapse(t *testing.T) {
 	p, _, _ = p.update(keyRight()) // collapse
 
 	if len(p.visible) >= expanded {
-		t.Errorf("collapse did not shrink visible (%d -> %d)", expanded, len(p.visible))
+		t.Errorf(
+			"collapse did not shrink visible (%d -> %d)",
+			expanded,
+			len(p.visible),
+		)
 	}
 }
 
@@ -168,7 +184,11 @@ func TestDirPickerAscendRoot(t *testing.T) {
 		t.Fatalf("root = %q, want %q", p.root.path, root)
 	}
 	if p.visible[p.cursor].node.path != child {
-		t.Errorf("cursor on %q, want former root %q", p.visible[p.cursor].node.path, child)
+		t.Errorf(
+			"cursor on %q, want former root %q",
+			p.visible[p.cursor].node.path,
+			child,
+		)
 	}
 }
 
@@ -193,7 +213,11 @@ func TestDirPickerFilterFindsNested(t *testing.T) {
 		}
 	}
 	if hit == nil {
-		t.Fatalf("filter did not surface %q; visible = %v", nested, visiblePaths(p))
+		t.Fatalf(
+			"filter did not surface %q; visible = %v",
+			nested,
+			visiblePaths(p),
+		)
 	}
 	if !hit.matched {
 		t.Errorf("%q should be marked as a fuzzy match", nested)

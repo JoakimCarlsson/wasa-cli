@@ -6,6 +6,7 @@ import (
 
 	"github.com/mattn/go-isatty"
 
+	"github.com/joakimcarlsson/wasa/internal/config"
 	"github.com/joakimcarlsson/wasa/internal/tui"
 )
 
@@ -20,11 +21,16 @@ func runCockpit() error {
 		return err
 	}
 
+	cfg, err := config.Load(wasaHome())
+	if err != nil {
+		return err
+	}
+
 	currentID := ""
 	if current != nil {
 		currentID = current.ID
 	}
-	return tui.Run(wasaHome(), reg, currentID)
+	return tui.Run(wasaHome(), reg, currentID, cfg)
 }
 
 // interactive reports whether w is a terminal the cockpit can take over. It

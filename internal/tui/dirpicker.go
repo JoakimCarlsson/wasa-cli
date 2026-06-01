@@ -134,7 +134,11 @@ type dirPicker struct {
 // empty filter. When selectPath names one of the root's children the cursor
 // starts on it. recents seeds the recent pane; with none the picker shows the
 // tree alone.
-func newDirPicker(rootPath, selectPath, home string, recents []recentDir, width, height int) dirPicker {
+func newDirPicker(
+	rootPath, selectPath, home string,
+	recents []recentDir,
+	width, height int,
+) dirPicker {
 	q := textinput.New()
 	q.Prompt = "> "
 	q.Placeholder = "type to fuzzy-filter"
@@ -458,7 +462,10 @@ func (p dirPicker) view() string {
 // recents, sized to fit inner cells across.
 func (p dirPicker) bodyView(inner, rows int) string {
 	if len(p.recents) == 0 {
-		return strings.Join(fitColumn(p.treeLines(inner, rows), inner, rows), "\n")
+		return strings.Join(
+			fitColumn(p.treeLines(inner, rows), inner, rows),
+			"\n",
+		)
 	}
 
 	recentW := min(34, inner/2)

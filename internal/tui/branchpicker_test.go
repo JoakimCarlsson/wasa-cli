@@ -12,12 +12,19 @@ func TestBranchPickerEmptyQueryKeepsOrder(t *testing.T) {
 		t.Fatalf("got %d matches, want 3", len(p.matches))
 	}
 	if p.matches[0].name != "main" {
-		t.Errorf("first match = %q, want incoming order (main)", p.matches[0].name)
+		t.Errorf(
+			"first match = %q, want incoming order (main)",
+			p.matches[0].name,
+		)
 	}
 }
 
 func TestBranchPickerFilters(t *testing.T) {
-	p := newBranchPicker([]string{"main", "feature/login", "feature/logout"}, 60, 14)
+	p := newBranchPicker(
+		[]string{"main", "feature/login", "feature/logout"},
+		60,
+		14,
+	)
 
 	p, _, _ = p.update(keyRunes("logi"))
 

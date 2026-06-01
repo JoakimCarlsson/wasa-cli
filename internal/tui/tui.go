@@ -22,6 +22,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/joakimcarlsson/wasa/internal/backend"
+	"github.com/joakimcarlsson/wasa/internal/config"
 	"github.com/joakimcarlsson/wasa/internal/launch"
 	"github.com/joakimcarlsson/wasa/internal/registry"
 	"github.com/joakimcarlsson/wasa/internal/worktree"
@@ -37,6 +38,7 @@ const (
 	modeConfirm
 	modePick
 	modePickBranch
+	modeConfig
 )
 
 // Model is the cockpit's Bubble Tea model. It holds the registry it drives, the
@@ -57,6 +59,8 @@ type Model struct {
 	reg    *registry.Registry
 	tmux   backend.SessionBackend
 	stream backend.StreamingBackend
+	cfg    config.Config
+	keys   keymap
 
 	workspaces []*registry.Workspace
 	activeID   string
@@ -67,6 +71,7 @@ type Model struct {
 	confirm confirmDialog
 	picker  dirPicker
 	branch  branchPicker
+	editor  configEditor
 
 	confirmCmd tea.Cmd
 
@@ -85,10 +90,24 @@ type Model struct {
 
 // New builds a cockpit model over reg. currentID is the workspace for the
 // repository wasa was launched in; it becomes the initially active tab when
-// present, otherwise the most-recently-used workspace is.
-func New(home string, reg *registry.Registry, currentID string) Model {
+// present, otherwise the most-recently-used workspace is. cfg is the resolved
+// cockpit configuration (theme, keys, layout); pass config.Default for the
+// built-in behaviour.
+func New(
+	home string,
+	reg *registry.Registry,
+	currentID string,
+	cfg config.Config,
+) Model {
+	applyTheme(cfg.Theme)
 	be := backend.Default()
-	m := Model{home: home, reg: reg, tmux: be}
+	m := Model{
+		home: home,
+		reg:  reg,
+		tmux: be,
+		cfg:  cfg,
+		keys: newKeymap(cfg.Keys),
+	}
 	m.osHome, _ = os.UserHomeDir()
 	if s, ok := be.(backend.StreamingBackend); ok {
 		m.stream = s
@@ -105,9 +124,16 @@ func New(home string, reg *registry.Registry, currentID string) Model {
 
 // Run launches the cockpit over reg and blocks until the user quits. It uses the
 // alternate screen so the terminal is restored on exit and around every attach.
-func Run(home string, reg *registry.Registry, currentID string) error {
-	_, err := tea.NewProgram(New(home, reg, currentID), tea.WithAltScreen()).
-		Run()
+// cfg is the resolved cockpit configuration.
+func Run(
+	home string,
+	reg *registry.Registry,
+	currentID string,
+	cfg config.Config,
+) error {
+	_, err := tea.NewProgram(
+		New(home, reg, currentID, cfg), tea.WithAltScreen(),
+	).Run()
 	return err
 }
 
@@ -246,6 +272,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updatePick(msg)
 	case modePickBranch:
 		return m.updateBranchPick(msg)
+	case modeConfig:
+		return m.updateConfig(msg)
 	}
 	return m.updateList(msg)
 }
@@ -256,30 +284,32 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	switch key.String() {
-	case "q", "ctrl+c":
+	switch m.keys.action(key.String()) {
+	case config.ActionQuit:
 		m.closeWatcher()
 		return m, tea.Quit
-	case "right", "tab", "]":
+	case config.ActionTabNext:
 		m.cycleTab(1)
-	case "left", "shift+tab", "[":
+	case config.ActionTabPrev:
 		m.cycleTab(-1)
-	case "up":
+	case config.ActionCursorUp:
 		if m.cursor > 0 {
 			m.cursor--
 		}
-	case "down":
+	case config.ActionCursorDown:
 		if m.cursor < len(m.sessions())-1 {
 			m.cursor++
 		}
-	case "n":
+	case config.ActionNew:
 		return m.enterCreate()
-	case "enter":
+	case config.ActionAttach:
 		return m.attach()
-	case "k":
+	case config.ActionKill:
 		return m.enterConfirmKill()
-	case "d":
+	case config.ActionDelete:
 		return m.enterConfirmDelete()
+	case config.ActionConfig:
+		return m.enterConfig()
 	}
 	return m, m.ensureWatcher()
 }
@@ -519,6 +549,60 @@ func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+// enterConfig opens the in-cockpit settings panel over the session list, seeded
+// with a working copy of the current config. Saving (ctrl+s) persists and applies
+// it live; cancelling (esc) discards the edits.
+func (m Model) enterConfig() (tea.Model, tea.Cmd) {
+	m.editor = newConfigEditor(m.cfg, m.pickerWidth(), m.configRows())
+	m.mode = modeConfig
+	m.err = nil
+	m.status = ""
+	return m, textinput.Blink
+}
+
+// updateConfig routes input for the open settings panel. Each committed field
+// (cfgApply) is validated, persisted and applied to the running cockpit in place,
+// so an edit takes effect and survives a restart with no separate save step; a
+// commit that fails validation keeps the panel open with the error. Closing
+// (cfgClose) returns to the list — by then every committed edit is already saved.
+func (m Model) updateConfig(msg tea.Msg) (tea.Model, tea.Cmd) {
+	editor, result, cmd := m.editor.update(msg)
+	m.editor = editor
+	switch result {
+	case cfgApply:
+		return m.applyConfig(editor.config())
+	case cfgClose:
+		m.mode = modeList
+		return m, m.ensureWatcher()
+	}
+	return m, cmd
+}
+
+// applyConfig persists cfg to $WASA_HOME and applies it to the running cockpit:
+// the theme is re-applied, the keymap rebuilt, and the layout is picked up at the
+// next render. The panel stays open so editing continues. A persist that fails
+// validation or the write leaves the edits in place and shows the error on the
+// panel rather than writing a bad file.
+func (m Model) applyConfig(cfg config.Config) (tea.Model, tea.Cmd) {
+	if err := config.Save(m.home, cfg); err != nil {
+		m.editor.err = err.Error()
+		return m, nil
+	}
+	cfg.Path = config.Path(m.home)
+	m.cfg = cfg
+	applyTheme(cfg.Theme)
+	m.keys = newKeymap(cfg.Keys)
+	m.err = nil
+	m.status = "config saved"
+	return m, nil
+}
+
+// configRows is how many rows the settings panel may show; the editor scrolls its
+// field list within this height.
+func (m Model) configRows() int {
+	return max(m.height-8, 5)
 }
 
 // enterCreate opens the create form. With a current workspace the form is seeded
