@@ -40,6 +40,9 @@ func (m Model) View() string {
 	if m.mode == modeConfirm {
 		return placeOverlay(m.confirm.view(), base)
 	}
+	if m.mode == modeConfig {
+		return placeOverlay(m.editor.view(), base)
+	}
 	return base
 }
 
@@ -186,6 +189,7 @@ func (m Model) menuBar() string {
 		{m.menuKey(config.ActionDelete), "delete"},
 		{m.menuKey(config.ActionTabNext), "tabs"},
 		{m.menuKey(config.ActionCursorUp) + m.menuKey(config.ActionCursorDown), "select"},
+		{m.menuKey(config.ActionConfig), "config"},
 		{m.menuKey(config.ActionQuit), "quit"},
 	}
 	parts := make([]string, len(items))

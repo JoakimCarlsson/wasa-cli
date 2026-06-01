@@ -38,6 +38,7 @@ const (
 	modeConfirm
 	modePick
 	modePickBranch
+	modeConfig
 )
 
 // Model is the cockpit's Bubble Tea model. It holds the registry it drives, the
@@ -70,6 +71,7 @@ type Model struct {
 	confirm confirmDialog
 	picker  dirPicker
 	branch  branchPicker
+	editor  configEditor
 
 	confirmCmd tea.Cmd
 
@@ -264,6 +266,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updatePick(msg)
 	case modePickBranch:
 		return m.updateBranchPick(msg)
+	case modeConfig:
+		return m.updateConfig(msg)
 	}
 	return m.updateList(msg)
 }
@@ -298,6 +302,8 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.enterConfirmKill()
 	case config.ActionDelete:
 		return m.enterConfirmDelete()
+	case config.ActionConfig:
+		return m.enterConfig()
 	}
 	return m, m.ensureWatcher()
 }
@@ -537,6 +543,58 @@ func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+// enterConfig opens the in-cockpit settings panel over the session list, seeded
+// with a working copy of the current config. Saving (ctrl+s) persists and applies
+// it live; cancelling (esc) discards the edits.
+func (m Model) enterConfig() (tea.Model, tea.Cmd) {
+	m.editor = newConfigEditor(m.cfg, m.pickerWidth(), m.configRows())
+	m.mode = modeConfig
+	m.err = nil
+	m.status = ""
+	return m, textinput.Blink
+}
+
+// updateConfig routes input for the open settings panel. Saving validates,
+// persists and re-applies the config in place; a save that fails validation keeps
+// the panel open with the error. Cancelling returns to the list unchanged.
+func (m Model) updateConfig(msg tea.Msg) (tea.Model, tea.Cmd) {
+	editor, result, cmd := m.editor.update(msg)
+	m.editor = editor
+	switch result {
+	case cfgSave:
+		return m.saveConfig(editor.config())
+	case cfgCancel:
+		m.mode = modeList
+		return m, m.ensureWatcher()
+	}
+	return m, cmd
+}
+
+// saveConfig persists cfg to $WASA_HOME and applies it to the running cockpit:
+// the theme is re-applied, the keymap rebuilt, and the layout is picked up at the
+// next render. A persist that fails validation or the write leaves the panel open
+// with the error so the edits are not lost.
+func (m Model) saveConfig(cfg config.Config) (tea.Model, tea.Cmd) {
+	if err := config.Save(m.home, cfg); err != nil {
+		m.editor.err = err.Error()
+		return m, nil
+	}
+	cfg.Path = config.Path(m.home)
+	m.cfg = cfg
+	applyTheme(cfg.Theme)
+	m.keys = newKeymap(cfg.Keys)
+	m.mode = modeList
+	m.err = nil
+	m.status = "config saved"
+	return m, m.ensureWatcher()
+}
+
+// configRows is how many rows the settings panel may show; the editor scrolls its
+// field list within this height.
+func (m Model) configRows() int {
+	return max(m.height-8, 5)
 }
 
 // enterCreate opens the create form. With a current workspace the form is seeded

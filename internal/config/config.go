@@ -130,6 +130,7 @@ const (
 	ActionTabPrev    = "tab-prev"
 	ActionCursorUp   = "cursor-up"
 	ActionCursorDown = "cursor-down"
+	ActionConfig     = "config"
 	ActionQuit       = "quit"
 )
 
@@ -156,6 +157,7 @@ var defaultBindings = []binding{
 	{ActionTabPrev, modeList, KeyList{"shift+tab", "left", "["}},
 	{ActionCursorUp, modeList, KeyList{"up"}},
 	{ActionCursorDown, modeList, KeyList{"down"}},
+	{ActionConfig, modeList, KeyList{","}},
 	{ActionQuit, modeList, KeyList{"q", "ctrl+c"}},
 }
 
@@ -287,6 +289,52 @@ func (l Layout) validate() error {
 	return nil
 }
 
+// Save validates c and writes it to config.json under dir. It writes to a
+// temporary file in the same directory and renames it into place so a partial
+// write never corrupts an existing config. A config that fails validation is
+// rejected before any write, so the on-disk file is always loadable.
+func Save(dir string, c Config) error {
+	if err := c.validate(); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+
+	tmp, err := os.CreateTemp(dir, fileName+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return os.Rename(tmpName, Path(dir))
+}
+
+// Path returns the config file location under a given $WASA_HOME dir.
+func Path(dir string) string { return filepath.Join(dir, fileName) }
+
+// Actions returns the cockpit action names in their canonical order, for a UI
+// that enumerates the bindable actions (such as the in-cockpit config editor).
+func Actions() []string {
+	out := make([]string, len(defaultBindings))
+	for i, b := range defaultBindings {
+		out[i] = b.action
+	}
+	return out
+}
+
 func sortedActions(k Keys) []string {
 	out := make([]string, 0, len(k))
 	for a := range k {
@@ -296,10 +344,4 @@ func sortedActions(k Keys) []string {
 	return out
 }
 
-func validActions() []string {
-	out := make([]string, len(defaultBindings))
-	for i, b := range defaultBindings {
-		out[i] = b.action
-	}
-	return out
-}
+func validActions() []string { return Actions() }
