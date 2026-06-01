@@ -1,3 +1,5 @@
+//go:build !windows
+
 // Command wasa is a terminal cockpit for working with multiple AI coding
 // agents across multiple repositories at once.
 package main

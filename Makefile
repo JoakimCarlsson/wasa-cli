@@ -2,15 +2,9 @@
 
 GOPATH_FWD := $(subst \,/,$(shell go env GOPATH))
 
-ifeq ($(OS),Windows_NT)
-    GOLANGCI := cmd /c "set GOTOOLCHAIN=local&& golangci-lint run ./..."
-    BIN := bin/wasa.exe
-    RUN := .\bin\wasa.exe
-else
-    GOLANGCI := GOTOOLCHAIN=local $(GOPATH_FWD)/bin/golangci-lint run ./...
-    BIN := bin/wasa
-    RUN := ./bin/wasa
-endif
+GOLANGCI := GOTOOLCHAIN=local $(GOPATH_FWD)/bin/golangci-lint run ./...
+BIN := bin/wasa
+RUN := ./bin/wasa
 
 install:
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
@@ -31,10 +25,6 @@ build:
 run: build
 	$(RUN)
 
-ifeq ($(OS),Windows_NT)
-env: build
-	@powershell -NoProfile -Command "$$d=(Resolve-Path '$(CURDIR)/bin').Path; $$shadow='$(GOPATH_FWD)/bin/wasa.exe'; if (Test-Path $$shadow) { Remove-Item $$shadow -Force; Write-Host ('Removed stale shadow build: ' + $$shadow) }; $$u=[Environment]::GetEnvironmentVariable('Path','User'); $$parts=@($$u -split ';' | Where-Object { $$_ -ne '' -and $$_ -ne $$d }); [Environment]::SetEnvironmentVariable('Path', ((@($$d)+$$parts) -join ';'), 'User'); Write-Host ('Fresh wasa at ' + $$d + ' is now first on your user PATH.'); $$others=Get-Command wasa -All -ErrorAction SilentlyContinue | Where-Object { $$_.Source -and (Split-Path $$_.Source) -ne $$d }; foreach ($$o in $$others) { Write-Host ('WARNING: another wasa may shadow this build, delete it: ' + $$o.Source) }; Write-Host 'Open a NEW terminal, then run: wasa'"
-else
 env: build
 	@dir="$(CURDIR)/bin"; \
 	shadow="$(GOPATH_FWD)/bin/wasa"; \
@@ -52,4 +42,3 @@ env: build
 	  echo "WARNING: another wasa may shadow this build, delete it: $$other"; \
 	fi; \
 	echo "Fresh wasa is first on PATH for sh, bash and zsh. Open a NEW terminal, then run: wasa"
-endif

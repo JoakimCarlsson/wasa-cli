@@ -44,7 +44,6 @@ jobs:
         os:
           - ubuntu-latest
           - macos-latest
-          - windows-latest
     env:
       GOTOOLCHAIN: local
     steps:
