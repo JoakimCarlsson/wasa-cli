@@ -65,16 +65,25 @@ type Workspace struct {
 	CreatedAt  time.Time `json:"createdAt"`
 }
 
-// Session is one running agent in one worktree on one branch, owned by a
-// workspace.
+// Session is one running agent, owned by a workspace. It comes in two shapes,
+// distinguished by whether Branch and WorktreePath are set:
+//
+//   - A worktree session runs in a git worktree created on Branch under
+//     $WASA_HOME; Branch and WorktreePath are both set and the agent runs in
+//     WorktreePath.
+//   - A plain session runs the program directly in WorkingDir with no branch and
+//     no worktree; Branch and WorktreePath are empty. WorkspaceID is empty when
+//     the session was launched outside any registered repository, in which case
+//     it carries no profile and no profile environment.
 type Session struct {
 	ID           string    `json:"id"`
-	WorkspaceID  string    `json:"workspaceID"`
-	ProfileName  string    `json:"profileName"`
+	WorkspaceID  string    `json:"workspaceID,omitempty"`
+	ProfileName  string    `json:"profileName,omitempty"`
 	Title        string    `json:"title"`
 	Program      string    `json:"program"`
-	Branch       string    `json:"branch"`
-	WorktreePath string    `json:"worktreePath"`
+	Branch       string    `json:"branch,omitempty"`
+	WorktreePath string    `json:"worktreePath,omitempty"`
+	WorkingDir   string    `json:"workingDir,omitempty"`
 	TmuxName     string    `json:"tmuxName"`
 	Status       string    `json:"status"`
 	CreatedAt    time.Time `json:"createdAt"`

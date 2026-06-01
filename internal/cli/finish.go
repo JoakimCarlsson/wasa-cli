@@ -73,9 +73,22 @@ func runFinish(args []string) error {
 		return err
 	}
 
-	ws, ok := reg.Workspace(s.WorkspaceID)
-	if !ok {
-		return fmt.Errorf("session %s has no workspace in the registry", s.ID)
+	var ws *registry.Workspace
+	if s.WorkspaceID != "" {
+		w, ok := reg.Workspace(s.WorkspaceID)
+		if !ok {
+			return fmt.Errorf(
+				"session %s has no workspace in the registry",
+				s.ID,
+			)
+		}
+		ws = w
+	}
+	if ws == nil && (s.WorktreePath != "" || s.Branch != "") {
+		return fmt.Errorf(
+			"session %s has a worktree or branch but no workspace to remove it against",
+			s.ID,
+		)
 	}
 
 	ops := newFinishOps(ws)
@@ -102,15 +115,18 @@ func runFinish(args []string) error {
 	return nil
 }
 
-// newFinishOps builds the concrete teardown operations bound to ws's repository:
-// the default session backend and a worktree Manager rooted at the workspace's
-// repo so worktree removal and branch deletion run against the right git
-// repository regardless of the working directory.
+// newFinishOps builds the concrete teardown operations. The session backend is
+// always present so tmux is stopped; the worktree Manager is rooted at ws's
+// repository so worktree removal and branch deletion run against the right git
+// repository regardless of the working directory. ws is nil for a plain session
+// launched outside any repository — it has neither worktree nor branch, so no
+// worktree Manager is built and finish.Session stops only its tmux.
 func newFinishOps(ws *registry.Workspace) finish.Ops {
-	return finishOps{
-		tmux: backend.Default(),
-		wt:   worktree.New(ws.RepoPath, wasaHome(), ws.ID),
+	o := finishOps{tmux: backend.Default()}
+	if ws != nil {
+		o.wt = worktree.New(ws.RepoPath, wasaHome(), ws.ID)
 	}
+	return o
 }
 
 type finishOps struct {

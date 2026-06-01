@@ -63,12 +63,23 @@ Run `wasa --help` for the full list, and `wasa <command>` for per-command usage.
 
 ### Example: create and attach to a session
 
-From inside a git repository, create a session on a new branch (wasa creates the
-worktree for it) and then attach to it:
+A session is fundamentally a program running in a working directory. By default
+`session new` launches a **plain session** in the current directory — no branch,
+no worktree — so you can point an agent at any folder, even one that is not a git
+repository:
 
 ```sh
-# Create a session on the "feature/login" branch. wasa picks the sole agent
-# detected on your PATH, or pass --program to choose one explicitly.
+# Plain session in the current directory (or pass --dir <path>). wasa picks the
+# sole agent detected on your PATH, or pass --program to choose one explicitly.
+wasa session new --title "scratch chat"
+```
+
+Pass `--branch` to opt into a **worktree session**: from inside a git repository,
+wasa creates the branch and a dedicated worktree for it so several agents can work
+the same repo in parallel without clobbering each other:
+
+```sh
+# Worktree session on the "feature/login" branch.
 wasa session new --branch feature/login --title "login flow"
 
 # List sessions to see ids, titles, branches and status.

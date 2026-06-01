@@ -126,7 +126,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.err = nil
-		m.status = "created session on " + msg.session.Branch
+		if msg.session.Branch != "" {
+			m.status = "created session on " + msg.session.Branch
+		} else {
+			m.status = "created session in " + msg.session.WorkingDir
+		}
 		m.refresh()
 		return m, nil
 
@@ -225,7 +229,7 @@ func (m Model) enterCreate() (tea.Model, tea.Cmd) {
 	for i, p := range ws.Profiles {
 		names[i] = p.Name
 	}
-	m.form = newCreateForm(names)
+	m.form = newCreateForm(names, ws.RepoPath)
 	m.mode = modeCreate
 	m.err = nil
 	m.status = ""

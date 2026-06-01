@@ -174,3 +174,41 @@ func TestSessionNilSession(t *testing.T) {
 		t.Fatal("Session returned nil error for a nil session")
 	}
 }
+
+// TestSessionPlainTearsDownTmuxOnly asserts that tearing down a plain session —
+// one with no branch and no worktree — stops only its tmux: it removes no
+// worktree and deletes no branch, because the empty-path and empty-branch guards
+// skip both. A plain session launched outside any repository (empty workspace)
+// behaves identically.
+func TestSessionPlainTearsDownTmuxOnly(t *testing.T) {
+	ops := &recordingOps{alive: true}
+
+	plain := &registry.Session{
+		ID:         "plain1",
+		WorkingDir: "/some/dir",
+		TmuxName:   "wasa__plain1",
+	}
+
+	res, err := Session(ops, plain, false)
+	if err != nil {
+		t.Fatalf("Session: %v", err)
+	}
+
+	want := []string{"TmuxAlive:wasa__plain1", "KillTmux:wasa__plain1"}
+	if !slices.Equal(ops.calls, want) {
+		t.Fatalf(
+			"call sequence = %v, want only the tmux teardown %v",
+			ops.calls,
+			want,
+		)
+	}
+	if !res.KilledTmux {
+		t.Fatal("KilledTmux false for a live plain session")
+	}
+	if res.RemovedWorktree {
+		t.Fatal("RemovedWorktree true for a worktree-less plain session")
+	}
+	if res.DeletedBranch {
+		t.Fatal("DeletedBranch true for a branchless plain session")
+	}
+}

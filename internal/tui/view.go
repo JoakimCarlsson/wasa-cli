@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -101,13 +102,17 @@ func (m Model) sessionRow(i int, s *registry.Session, w int) string {
 		titleS, descS = selRowTitleStyle, selRowDescStyle
 	}
 
+	ref := s.Branch
+	if ref == "" {
+		ref = filepath.Base(s.WorkingDir)
+	}
 	title := s.Title
 	if title == "" {
-		title = s.Branch
+		title = ref
 	}
 	prefix := fmt.Sprintf(" %d ", i+1)
 	head := fmt.Sprintf("%s%s %s", prefix, statusDot(s.Status), title)
-	sub := fmt.Sprintf("   %s %s · %s", branchIcon, s.Branch, s.ProfileName)
+	sub := fmt.Sprintf("   %s %s · %s", branchIcon, ref, s.ProfileName)
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,

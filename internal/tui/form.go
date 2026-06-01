@@ -14,6 +14,7 @@ import (
 // is not a text input; the rest are.
 const (
 	fieldBranch = iota
+	fieldDir
 	fieldTitle
 	fieldProgram
 	fieldProfile
@@ -29,11 +30,13 @@ const (
 	formCancel
 )
 
-// createForm collects the inputs for a new session: branch, optional title,
-// program, and a profile chosen from the workspace's profiles with the default
-// (first) preselected. The program field shows every agent detected on PATH
-// plus a bare-shell entry as a visible menu; ←/→ move the selection and typing
-// overrides it with any program name outside the known set.
+// createForm collects the inputs for a new session. The two session shapes share
+// one form: leaving Branch empty creates a plain session that runs in the
+// Directory field; entering a branch opts into a worktree session created on it.
+// Title and program are optional, and a profile is chosen from the workspace's
+// profiles with the default (first) preselected. The program field shows every
+// agent detected on PATH plus a bare-shell entry as a visible menu; ←/→ move the
+// selection and typing overrides it with any program name outside the known set.
 type createForm struct {
 	inputs   []textinput.Model
 	profiles []string
@@ -45,11 +48,16 @@ type createForm struct {
 	err      string
 }
 
-func newCreateForm(profiles []string) createForm {
+func newCreateForm(profiles []string, defaultDir string) createForm {
 	branch := textinput.New()
-	branch.Placeholder = "feature/my-branch"
+	branch.Placeholder = "empty for a plain session"
 	branch.CharLimit = 200
 	branch.Focus()
+
+	dir := textinput.New()
+	dir.Placeholder = "working directory"
+	dir.CharLimit = 4096
+	dir.SetValue(defaultDir)
 
 	title := textinput.New()
 	title.Placeholder = "optional title"
@@ -63,7 +71,7 @@ func newCreateForm(profiles []string) createForm {
 	program.SetValue(programs[0])
 
 	return createForm{
-		inputs:   []textinput.Model{branch, title, program},
+		inputs:   []textinput.Model{branch, dir, title, program},
 		profiles: profiles,
 		programs: programs,
 		shell:    shell,
@@ -76,8 +84,11 @@ func (f createForm) update(msg tea.Msg) (createForm, formResult, tea.Cmd) {
 		case "esc":
 			return f, formCancel, nil
 		case "enter":
-			if strings.TrimSpace(f.inputs[fieldBranch].Value()) == "" {
-				f.err = "branch is required"
+			branch := strings.TrimSpace(f.inputs[fieldBranch].Value())
+			dir := strings.TrimSpace(f.inputs[fieldDir].Value())
+			if branch == "" && dir == "" {
+				f.err = "enter a branch for a worktree session " +
+					"or a directory for a plain session"
 				return f, formNone, nil
 			}
 			return f, formSubmit, nil
@@ -148,17 +159,27 @@ func (f *createForm) setFocus(i int) {
 	}
 }
 
+// params reads the form into launch.Params. A non-empty branch selects a
+// worktree session and the directory field is ignored; an empty branch selects a
+// plain session run in the directory field.
 func (f createForm) params() launch.Params {
 	prof := ""
 	if f.profIdx < len(f.profiles) {
 		prof = f.profiles[f.profIdx]
 	}
-	return launch.Params{
-		Branch:  strings.TrimSpace(f.inputs[fieldBranch].Value()),
+	p := launch.Params{
 		Title:   strings.TrimSpace(f.inputs[fieldTitle].Value()),
 		Program: strings.TrimSpace(f.inputs[fieldProgram].Value()),
 		Profile: prof,
 	}
+	if branch := strings.TrimSpace(
+		f.inputs[fieldBranch].Value(),
+	); branch != "" {
+		p.Branch = branch
+	} else {
+		p.WorkingDir = strings.TrimSpace(f.inputs[fieldDir].Value())
+	}
+	return p
 }
 
 func (f createForm) view() string {
@@ -166,7 +187,7 @@ func (f createForm) view() string {
 	b.WriteString(titleStyle.Render("New session"))
 	b.WriteString("\n\n")
 
-	labels := []string{"Branch", "Title"}
+	labels := []string{"Branch", "Directory", "Title"}
 	for i := fieldBranch; i <= fieldTitle; i++ {
 		b.WriteString(f.label(labels[i], i))
 		b.WriteString("\n")
