@@ -27,6 +27,7 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/config"
 	"github.com/joakimcarlsson/wasa/internal/launch"
 	"github.com/joakimcarlsson/wasa/internal/registry"
+	"github.com/joakimcarlsson/wasa/internal/repo"
 	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
 	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
@@ -412,8 +413,12 @@ func (m *Model) afterListChange() tea.Cmd {
 }
 
 func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
+	prevBranchRepo := m.form.branchRepo
 	form, result, cmd := m.form.update(msg)
 	m.form = form
+	if m.form.branchRepo != prevBranchRepo {
+		m.form.setProfiles(m.profilesFor(m.form.branchRepo))
+	}
 	switch result {
 	case formCancel:
 		m.mode = modeList
@@ -423,18 +428,103 @@ func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case formPickBranch:
 		return m.enterBranchPick()
 	case formSubmit:
-		ws := m.currentWorkspace()
-		params := m.form.params()
-		if params.Branch == "" && params.WorkingDir == "" {
-			if cwd, err := os.Getwd(); err == nil {
-				params.WorkingDir = cwd
-			}
-		}
-		m.mode = modeList
-		m.status = "creating session…"
-		return m, m.createCmd(ws, params)
+		return m.submitCreate()
 	}
 	return m, cmd
+}
+
+// submitCreate turns the create form into a session. A worktree session is
+// created against the repository of the chosen Directory — not the active tab —
+// so the branch listed in the form and the worktree it creates belong to the
+// same repository; its workspace is registered (and reg persisted) when not yet
+// known, and the profile is constrained to that workspace's profiles. A plain
+// session keeps running in the chosen directory under the active workspace,
+// defaulting to the current working directory when no directory was given.
+func (m Model) submitCreate() (tea.Model, tea.Cmd) {
+	ws := m.currentWorkspace()
+	params := m.form.params()
+	if params.Branch != "" {
+		target, err := m.worktreeWorkspace()
+		if err != nil {
+			m.err = err
+			m.mode = modeList
+			return m, nil
+		}
+		ws = target
+		params.Profile = validProfile(ws, params.Profile)
+	} else if params.WorkingDir == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			params.WorkingDir = cwd
+		}
+	}
+	m.mode = modeList
+	m.status = "creating session…"
+	return m, m.createCmd(ws, params)
+}
+
+// worktreeWorkspace resolves the workspace a worktree session must be created
+// against: the repository of the chosen Directory, derived from the same
+// branchRepo the Branch field already resolved. It registers that repository's
+// workspace when it is not yet known so the session lands in the picked repo
+// even when wasa was launched elsewhere; createCmd persists reg afterwards.
+func (m Model) worktreeWorkspace() (*registry.Workspace, error) {
+	repoPath, remoteURL, err := repo.Resolve(m.form.branchRepo)
+	if err != nil {
+		return nil, err
+	}
+	ws, _ := repo.Register(m.reg, repoPath, remoteURL)
+	return ws, nil
+}
+
+// profilesFor returns the profile names the create form should offer for a
+// directory whose repository toplevel is branchRepo. An empty branchRepo (plain
+// session, or a non-repo directory) keeps the active workspace's profiles. A
+// directory inside an already-registered repository offers that workspace's
+// profiles; one inside an unregistered repository offers the single default
+// profile a fresh workspace would be created with, so the selection stays valid
+// for the workspace the worktree lands in.
+func (m Model) profilesFor(branchRepo string) []string {
+	if branchRepo == "" {
+		return profileNames(m.currentWorkspace())
+	}
+	repoPath, remoteURL, err := repo.Resolve(branchRepo)
+	if err != nil {
+		return profileNames(m.currentWorkspace())
+	}
+	if ws, ok := m.reg.Workspace(
+		registry.WorkspaceID(repoPath, remoteURL),
+	); ok {
+		return profileNames(ws)
+	}
+	return []string{registry.DefaultProfileName}
+}
+
+// profileNames lists ws's profile names, or nil when ws is nil (wasa launched
+// outside any repository).
+func profileNames(ws *registry.Workspace) []string {
+	if ws == nil {
+		return nil
+	}
+	names := make([]string, len(ws.Profiles))
+	for i, p := range ws.Profiles {
+		names[i] = p.Name
+	}
+	return names
+}
+
+// validProfile constrains a chosen profile name to ws: it returns name when ws
+// has a profile by that name, and otherwise "" so the workspace default is used
+// rather than sending an unknown name that SelectProfile would reject.
+func validProfile(ws *registry.Workspace, name string) string {
+	if name == "" || ws == nil {
+		return ""
+	}
+	for _, p := range ws.Profiles {
+		if p.Name == name {
+			return name
+		}
+	}
+	return ""
 }
 
 // enterPick opens the directory tree browser over the create form. It roots the
@@ -514,6 +604,7 @@ func (m Model) updatePick(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, textinput.Blink
 	case pickChoose:
 		m.form.setDir(picker.chosen)
+		m.form.setProfiles(m.profilesFor(m.form.branchRepo))
 		m.mode = modeCreate
 		return m, textinput.Blink
 	}
@@ -1102,7 +1193,10 @@ func (m *Model) ensureDiffCmd() tea.Cmd {
 	ws, ok := m.reg.Workspace(s.WorkspaceID)
 	if !ok {
 		return func() tea.Msg {
-			return diffMsg{sessionID: sid, err: fmt.Errorf("workspace not found")}
+			return diffMsg{
+				sessionID: sid,
+				err:       fmt.Errorf("workspace not found"),
+			}
 		}
 	}
 	repo, home, wsID := ws.RepoPath, m.home, s.WorkspaceID

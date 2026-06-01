@@ -189,7 +189,9 @@ type DiffResult struct {
 // session's working changes.
 func (m *Manager) Diff(worktreePath, baseCommit string) (DiffResult, error) {
 	if worktreePath == "" || baseCommit == "" {
-		return DiffResult{}, errors.New("worktree path and base commit required")
+		return DiffResult{}, errors.New(
+			"worktree path and base commit required",
+		)
 	}
 
 	if _, err := m.gitAt(worktreePath, "add", "-N", "."); err != nil {
