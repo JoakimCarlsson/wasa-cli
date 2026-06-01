@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
@@ -173,40 +174,35 @@ func renderCapture(content string, w, h int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (m Model) menuBar() string {
-	items := [][2]string{
-		{m.menuKey(config.ActionNew), "new"},
-		{m.menuKey(config.ActionAttach), "attach"},
-		{m.menuKey(config.ActionKill), "kill"},
-		{m.menuKey(config.ActionDelete), "delete"},
-		{m.menuKey(config.ActionTabNext), "tabs"},
-		{m.menuKey(config.ActionPaneTab), "panes"},
-		{
-			m.menuKey(
-				config.ActionCursorUp,
-			) + m.menuKey(
-				config.ActionCursorDown,
-			),
-			"select",
-		},
-		{m.menuKey(config.ActionConfig), "config"},
-		{m.menuKey(config.ActionQuit), "quit"},
-	}
-	parts := make([]string, len(items))
-	for i, it := range items {
-		parts[i] = m.theme.menuKeyStyle.Render(
-			it[0],
-		) + " " + m.theme.menuDescStyle.Render(
-			it[1],
-		)
-	}
-	return " " + strings.Join(parts, m.theme.menuSepStyle.Render(menuSep))
+// newMenuHelp builds the cockpit's key/help bar from a theme's menu styles.
+func newMenuHelp(th Theme) component.Help {
+	return component.NewHelp(
+		th.menuKeyStyle, th.menuDescStyle, th.menuSepStyle, menuSep,
+	)
 }
 
-// menuKey is the glyph the menu bar shows for an action: the effective primary
-// binding, so a remapped key is reflected in the hint.
-func (m Model) menuKey(action string) string {
-	return keyLabel(m.keys.primary(action))
+func (m Model) menuBar() string {
+	bind := func(action, desc string) key.Binding {
+		k := m.keys.primary(action)
+		return key.NewBinding(key.WithKeys(k), key.WithHelp(keyLabel(k), desc))
+	}
+	up := m.keys.primary(config.ActionCursorUp)
+	down := m.keys.primary(config.ActionCursorDown)
+	binds := []key.Binding{
+		bind(config.ActionNew, "new"),
+		bind(config.ActionAttach, "attach"),
+		bind(config.ActionKill, "kill"),
+		bind(config.ActionDelete, "delete"),
+		bind(config.ActionTabNext, "tabs"),
+		bind(config.ActionPaneTab, "panes"),
+		key.NewBinding(
+			key.WithKeys(up, down),
+			key.WithHelp(keyLabel(up)+keyLabel(down), "select"),
+		),
+		bind(config.ActionConfig, "config"),
+		bind(config.ActionQuit, "quit"),
+	}
+	return " " + m.help.View(binds)
 }
 
 func (m Model) statusLine() string {

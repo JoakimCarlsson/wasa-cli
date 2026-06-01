@@ -27,6 +27,7 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/registry"
 	"github.com/joakimcarlsson/wasa/internal/repo"
 	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
+	"github.com/joakimcarlsson/wasa/internal/tui/component"
 	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
@@ -60,6 +61,7 @@ type Model struct {
 	tmux   backend.SessionBackend
 	cfg    config.Config
 	theme  Theme
+	help   component.Help
 	keys   keymap
 
 	workspaces []*registry.Workspace
@@ -105,12 +107,14 @@ func New(
 	if s, ok := be.(backend.StreamingBackend); ok {
 		stream = s
 	}
+	th := newTheme(cfg.Theme)
 	m := Model{
 		home:         home,
 		reg:          reg,
 		tmux:         be,
 		cfg:          cfg,
-		theme:        newTheme(cfg.Theme),
+		theme:        th,
+		help:         newMenuHelp(th),
 		keys:         newKeymap(cfg.Keys),
 		tabs:         newTabbedPane(be, stream),
 		now:          time.Now,
@@ -696,6 +700,7 @@ func (m Model) applyConfig(cfg config.Config) (tea.Model, tea.Cmd) {
 	cfg.Path = config.Path(m.home)
 	m.cfg = cfg
 	m.theme = newTheme(cfg.Theme)
+	m.help = newMenuHelp(m.theme)
 	m.keys = newKeymap(cfg.Keys)
 	m.notify = makeNotifier(cfg.Notify)
 	m.err = nil
