@@ -18,11 +18,13 @@ package launch
 
 import (
 	"errors"
+	"os"
 
 	"github.com/joakimcarlsson/wasa/internal/backend"
 	"github.com/joakimcarlsson/wasa/internal/hook"
 	"github.com/joakimcarlsson/wasa/internal/profile"
 	"github.com/joakimcarlsson/wasa/internal/registry"
+	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
 	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
@@ -47,6 +49,10 @@ type ops struct {
 	addWorktree func(repoPath, home, workspace, branch string) (string, error)
 	runHook     func(h hook.Hook) error
 	spawn       func(name, dir string, env []string, program string) error
+	// prepareHooks augments the spawn environment for a session and, for a
+	// hook-emitting agent, installs the lifecycle hook that makes it report
+	// status to wasa. It returns the environment the program is spawned with.
+	prepareHooks func(home, sessionID, program string, env []string) []string
 }
 
 func defaultOps() ops {
@@ -60,7 +66,31 @@ func defaultOps() ops {
 		spawn: func(name, dir string, env []string, program string) error {
 			return backend.Default().SpawnEnv(name, dir, env, program)
 		},
+		prepareHooks: prepareHooks,
 	}
+}
+
+// prepareHooks adds the WASA_SESSION and WASA_HOME variables every session needs
+// for `wasa hook-handler` to identify itself, then — for a hook-emitting agent —
+// installs wasa's lifecycle hook into that agent's configuration so it reports
+// status to the cockpit. Installation is best-effort: any failure is swallowed
+// and the session still launches, falling back to the pane heuristic. The
+// returned slice is the environment the program is spawned with.
+func prepareHooks(home, sessionID, program string, env []string) []string {
+	env = append(env,
+		hook.EnvSession+"="+sessionID,
+		"WASA_HOME="+home,
+	)
+	adapter, ok := sessionstatus.For(program)
+	if !ok {
+		return env
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return env
+	}
+	_ = adapter.Install(env, exe+" hook-handler --tool "+adapter.Name())
+	return env
 }
 
 // CreateSession runs the full create flow and registers the resulting session
@@ -108,7 +138,7 @@ func createSession(
 	if p.Branch != "" {
 		return createWorktreeSession(o, home, reg, ws, prof, env, program, p)
 	}
-	return createPlainSession(o, reg, ws, prof, env, program, p)
+	return createPlainSession(o, home, reg, ws, prof, env, program, p)
 }
 
 // createWorktreeSession adds a branch + worktree, runs the post-worktree hook
@@ -146,7 +176,8 @@ func createWorktreeSession(
 	}
 
 	tmuxName := registry.TmuxName(ws.ID, sessionID)
-	if err := o.spawn(tmuxName, worktreePath, env, program); err != nil {
+	spawnEnv := o.prepareHooks(home, sessionID, program, env)
+	if err := o.spawn(tmuxName, worktreePath, spawnEnv, program); err != nil {
 		return nil, err
 	}
 
@@ -170,6 +201,7 @@ func createWorktreeSession(
 // are empty and WorkspaceID is left blank.
 func createPlainSession(
 	o ops,
+	home string,
 	reg *registry.Registry,
 	ws *registry.Workspace,
 	prof registry.Profile,
@@ -185,7 +217,8 @@ func createPlainSession(
 
 	sessionID := registry.NewSessionID()
 	tmuxName := registry.TmuxName(workspaceID, sessionID)
-	if err := o.spawn(tmuxName, p.WorkingDir, env, program); err != nil {
+	spawnEnv := o.prepareHooks(home, sessionID, program, env)
+	if err := o.spawn(tmuxName, p.WorkingDir, spawnEnv, program); err != nil {
 		return nil, err
 	}
 

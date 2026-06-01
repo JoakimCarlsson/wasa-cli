@@ -25,6 +25,7 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/config"
 	"github.com/joakimcarlsson/wasa/internal/launch"
 	"github.com/joakimcarlsson/wasa/internal/registry"
+	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
 	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
@@ -84,6 +85,12 @@ type Model struct {
 	watchName string
 	watchGen  int
 
+	now          func() time.Time
+	statuses     *sessionstatus.Tracker
+	notify       func(title, body string)
+	lastNotifyAt map[string]time.Time
+	lastStatus   map[string]sessionstatus.Status
+
 	status string
 	err    error
 }
@@ -102,11 +109,16 @@ func New(
 	applyTheme(cfg.Theme)
 	be := backend.Default()
 	m := Model{
-		home: home,
-		reg:  reg,
-		tmux: be,
-		cfg:  cfg,
-		keys: newKeymap(cfg.Keys),
+		home:         home,
+		reg:          reg,
+		tmux:         be,
+		cfg:          cfg,
+		keys:         newKeymap(cfg.Keys),
+		now:          time.Now,
+		statuses:     sessionstatus.NewTracker(time.Now),
+		notify:       makeNotifier(cfg.Notify),
+		lastNotifyAt: make(map[string]time.Time),
+		lastStatus:   make(map[string]sessionstatus.Status),
 	}
 	m.osHome, _ = os.UserHomeDir()
 	if s, ok := be.(backend.StreamingBackend); ok {
@@ -202,6 +214,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
+		m.sweepStatuses()
 		return m, tea.Batch(tick(), m.pollOrReconnect())
 
 	case previewMsg:
@@ -597,6 +610,7 @@ func (m Model) applyConfig(cfg config.Config) (tea.Model, tea.Cmd) {
 	m.cfg = cfg
 	applyTheme(cfg.Theme)
 	m.keys = newKeymap(cfg.Keys)
+	m.notify = makeNotifier(cfg.Notify)
 	m.err = nil
 	m.status = "config saved"
 	return m, nil
@@ -689,11 +703,12 @@ func (m Model) killCmd(s *registry.Session) tea.Cmd {
 }
 
 func (m Model) deleteCmd(s *registry.Session) tea.Cmd {
-	reg := m.reg
+	reg, home := m.reg, m.home
 	return func() tea.Msg {
 		if err := launch.DeleteSession(reg, s); err != nil {
 			return deletedMsg{err: err}
 		}
+		_ = sessionstatus.Remove(home, s.ID)
 		if err := reg.Save(); err != nil {
 			return deletedMsg{err: err}
 		}
@@ -812,6 +827,138 @@ func (m *Model) pollCapture() {
 	if out, err := m.tmux.Capture(s.TmuxName); err == nil {
 		m.preview = out
 	}
+}
+
+// sweepStatuses refreshes the derived runtime status of every running session
+// and fires a notification when a non-focused session transitions into a state
+// that needs the user — waiting for input — or finishes — exited. Liveness comes
+// from a tmux reconcile, the source of truth, which is persisted; the
+// working/waiting/idle split is layered on top from each session's live pane
+// content and is never persisted, so a mis-derivation can only mislabel a dot,
+// never corrupt the registry. It runs on the preview tick.
+func (m *Model) sweepStatuses() {
+	wasRunning := make(map[string]bool)
+	for _, s := range m.reg.ListSessions() {
+		if s.Status == registry.StatusRunning {
+			wasRunning[s.ID] = true
+		}
+	}
+	if m.reg.Reconcile(m.tmux.Has) {
+		_ = m.reg.Save()
+	}
+
+	focused := m.focusedSessionID()
+	keep := make(map[string]bool)
+	for _, s := range m.reg.ListSessions() {
+		keep[s.ID] = true
+		if s.Status != registry.StatusRunning {
+			if wasRunning[s.ID] {
+				m.transition(s, sessionstatus.Exited, focused)
+			}
+			continue
+		}
+		scraped := m.statuses.Observe(s.ID, m.contentFor(s))
+		eff := sessionstatus.Derive(m.home, s.ID, scraped, m.now())
+		m.transition(s, eff, focused)
+	}
+	m.statuses.Forget(keep)
+	for id := range m.lastStatus {
+		if !keep[id] {
+			delete(m.lastStatus, id)
+		}
+	}
+}
+
+// transition records a session's current effective status and fires a
+// notification when it has just changed into a state that needs the user —
+// waiting or exited — for a session that is not focused. The first status seen
+// for a session is recorded without notifying, so a session already waiting
+// when the cockpit opens does not announce itself.
+func (m *Model) transition(
+	s *registry.Session, cur sessionstatus.Status, focusedID string,
+) {
+	prev, seen := m.lastStatus[s.ID]
+	m.lastStatus[s.ID] = cur
+	if !seen || cur == prev {
+		return
+	}
+	m.maybeNotify(s, cur, focusedID)
+}
+
+// contentFor returns the pane content sweepStatuses derives a session's status
+// from. The focused session is already streamed into m.preview, so its live
+// capture is reused rather than re-captured; every other running session is
+// captured one-shot. A capture error yields empty content, which reads as idle.
+func (m *Model) contentFor(s *registry.Session) string {
+	if s.TmuxName == m.watchName && m.watcher != nil {
+		return m.preview
+	}
+	out, _ := m.tmux.Capture(s.TmuxName)
+	return out
+}
+
+// maybeNotify fires a notification for a session that has just transitioned into
+// waiting or exited. The caller (transition) has already established that this
+// is a real change; maybeNotify stays silent in off mode, for the focused
+// session (the user is already looking at it), and for a repeat within the
+// debounce window so a flapping session cannot produce a burst.
+func (m *Model) maybeNotify(
+	s *registry.Session, cur sessionstatus.Status, focusedID string,
+) {
+	if m.cfg.Notify == config.NotifyOff {
+		return
+	}
+	if cur != sessionstatus.Waiting && cur != sessionstatus.Exited {
+		return
+	}
+	if s.ID == focusedID {
+		return
+	}
+	now := m.now()
+	if last, ok := m.lastNotifyAt[s.ID]; ok && now.Sub(last) < notifyDebounce {
+		return
+	}
+	m.lastNotifyAt[s.ID] = now
+	title, _ := sessionLabel(s)
+	m.notify(notifyTitle(cur), notifyBody(title, cur))
+}
+
+func notifyTitle(s sessionstatus.Status) string {
+	if s == sessionstatus.Exited {
+		return "wasa: session exited"
+	}
+	return "wasa: session waiting"
+}
+
+func notifyBody(title string, s sessionstatus.Status) string {
+	if s == sessionstatus.Exited {
+		return title + " has exited"
+	}
+	return title + " is waiting for input"
+}
+
+// focusedSessionID is the session the user is currently looking at — the
+// selected, previewed one — or "" when none is selected. Notifications are
+// suppressed for it.
+func (m Model) focusedSessionID() string {
+	if s := m.selectedSession(); s != nil {
+		return s.ID
+	}
+	return ""
+}
+
+// runtimeStatus is the status the list renders for a session: exited when the
+// registry says so (the persisted source of truth), otherwise the derived
+// runtime status, falling back to working for a running session not yet
+// observed.
+func (m Model) runtimeStatus(s *registry.Session) sessionstatus.Status {
+	if s.Status != registry.StatusRunning {
+		return sessionstatus.Exited
+	}
+	if st, ok := m.lastStatus[s.ID]; ok {
+		return st
+	}
+	return sessionstatus.Working
 }
 
 func (m *Model) cycleTab(delta int) {

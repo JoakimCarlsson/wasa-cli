@@ -22,6 +22,8 @@ var (
 	inactiveTabStyle lipgloss.Style
 
 	runningDotStyle lipgloss.Style
+	waitingDotStyle lipgloss.Style
+	idleDotStyle    lipgloss.Style
 	exitedDotStyle  lipgloss.Style
 
 	rowTitleStyle lipgloss.Style
@@ -70,6 +72,8 @@ func themeColor(c config.Color) lipgloss.TerminalColor {
 func applyTheme(t config.Theme) {
 	accent := themeColor(t.Accent)
 	running := themeColor(t.Running)
+	waiting := themeColor(t.Waiting)
+	idle := themeColor(t.Idle)
 	exited := themeColor(t.Exited)
 	title := themeColor(t.Title)
 	desc := themeColor(t.Desc)
@@ -99,6 +103,8 @@ func applyTheme(t config.Theme) {
 		Padding(0, 2)
 
 	runningDotStyle = lipgloss.NewStyle().Foreground(running)
+	waitingDotStyle = lipgloss.NewStyle().Foreground(waiting)
+	idleDotStyle = lipgloss.NewStyle().Foreground(idle)
 	exitedDotStyle = lipgloss.NewStyle().Foreground(exited)
 
 	rowTitleStyle = lipgloss.NewStyle().Foreground(title)
@@ -158,6 +164,8 @@ func applyTheme(t config.Theme) {
 const (
 	branchIcon  = "Ꮧ"
 	runningIcon = "●"
+	waitingIcon = "◆"
+	idleIcon    = "○"
 	exitedIcon  = "●"
 	menuSep     = " • "
 )
