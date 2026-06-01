@@ -25,6 +25,10 @@ build:
 run: build
 	$(RUN)
 
+ifeq ($(OS),Windows_NT)
+env:
+	wsl -d Ubuntu -- bash -lc "cd $$(wslpath '$(CURDIR)') && make env"
+else
 env: build
 	@dir="$(CURDIR)/bin"; \
 	shadow="$(GOPATH_FWD)/bin/wasa"; \
@@ -42,3 +46,4 @@ env: build
 	  echo "WARNING: another wasa may shadow this build, delete it: $$other"; \
 	fi; \
 	echo "Fresh wasa is first on PATH for sh, bash and zsh. Open a NEW terminal, then run: wasa"
+endif
