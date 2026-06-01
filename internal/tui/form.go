@@ -10,11 +10,13 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/launch"
 )
 
-// Create-form fields, in tab order. The profile selector is the last field and
-// is not a text input; the rest are.
+// Create-form fields, in tab order: the directory comes first and the branch
+// sits under it, since picking where a session runs is the common case and a
+// branch (a worktree session) is the opt-in. The profile selector is the last
+// field and is not a text input; the rest are.
 const (
-	fieldBranch = iota
-	fieldDir
+	fieldDir = iota
+	fieldBranch
 	fieldTitle
 	fieldProgram
 	fieldProfile
@@ -29,17 +31,23 @@ const (
 	formSubmit
 	formCancel
 	formPickDir
+	formPickBranch
 )
 
 // createForm collects the inputs for a new session. The two session shapes share
 // one form: leaving Branch empty creates a plain session that runs in the
 // Directory field; entering a branch opts into a worktree session created on it.
-// Title and program are optional, and a profile is chosen from the workspace's
-// profiles with the default (first) preselected. The program field shows every
-// agent detected on PATH plus a bare-shell entry as a visible menu; ←/→ move the
-// selection and typing overrides it with any program name outside the known set.
+// The Branch field is only meaningful when the cockpit is operating inside a
+// registered repository, since a worktree is created against that repository; so
+// it is enabled only when repoPath is set, and disabled (skipped in tab order
+// and shown dimmed) otherwise. Title and program are optional, and a profile is
+// chosen from the workspace's profiles with the default (first) preselected. The
+// program field shows every agent detected on PATH plus a bare-shell entry as a
+// visible menu; ←/→ move the selection and typing overrides it with any program
+// name outside the known set.
 type createForm struct {
 	inputs   []textinput.Model
+	repoPath string
 	profiles []string
 	profIdx  int
 	programs []string
@@ -49,15 +57,15 @@ type createForm struct {
 	err      string
 }
 
-func newCreateForm(profiles []string) createForm {
-	branch := textinput.New()
-	branch.Placeholder = "empty for a plain session"
-	branch.CharLimit = 200
-	branch.Focus()
-
+func newCreateForm(profiles []string, repoPath string) createForm {
 	dir := textinput.New()
 	dir.Placeholder = "ctrl+f to browse, or empty for here"
 	dir.CharLimit = 4096
+	dir.Focus()
+
+	branch := textinput.New()
+	branch.Placeholder = "ctrl+f to pick a branch (worktree session)"
+	branch.CharLimit = 200
 
 	title := textinput.New()
 	title.Placeholder = "optional title"
@@ -71,7 +79,8 @@ func newCreateForm(profiles []string) createForm {
 	program.SetValue(programs[0])
 
 	return createForm{
-		inputs:   []textinput.Model{branch, dir, title, program},
+		inputs:   []textinput.Model{dir, branch, title, program},
+		repoPath: repoPath,
 		profiles: profiles,
 		programs: programs,
 		shell:    shell,
@@ -84,7 +93,15 @@ func (f createForm) update(msg tea.Msg) (createForm, formResult, tea.Cmd) {
 		case "esc":
 			return f, formCancel, nil
 		case "ctrl+f":
-			return f, formPickDir, nil
+			switch f.focus {
+			case fieldDir:
+				return f, formPickDir, nil
+			case fieldBranch:
+				if f.branchEnabled() {
+					return f, formPickBranch, nil
+				}
+			}
+			return f, formNone, nil
 		case "enter":
 			return f, formSubmit, nil
 		case "tab", "down":
@@ -152,9 +169,36 @@ func (f *createForm) setDir(path string) {
 	f.setFocus(fieldDir)
 }
 
-func (f *createForm) focusNext() { f.setFocus((f.focus + 1) % fieldCount) }
+// setBranch writes a branch chosen or typed in the branch picker into the Branch
+// field and moves focus to it.
+func (f *createForm) setBranch(branch string) {
+	f.inputs[fieldBranch].SetValue(branch)
+	f.setFocus(fieldBranch)
+}
 
-func (f *createForm) focusPrev() { f.setFocus((f.focus - 1 + fieldCount) % fieldCount) }
+// branchEnabled reports whether the Branch field is usable: only when the
+// cockpit is inside a registered repository, since a worktree session is created
+// against that repository's path.
+func (f createForm) branchEnabled() bool {
+	return f.repoPath != ""
+}
+
+func (f *createForm) focusNext() { f.setFocus(f.stepFocus(1)) }
+
+func (f *createForm) focusPrev() { f.setFocus(f.stepFocus(-1)) }
+
+// stepFocus returns the next focusable field in the given direction, skipping
+// the Branch field when it is disabled so tab never lands on a dead input.
+func (f createForm) stepFocus(dir int) int {
+	i := f.focus
+	for range fieldCount {
+		i = (i + dir + fieldCount) % fieldCount
+		if i != fieldBranch || f.branchEnabled() {
+			return i
+		}
+	}
+	return f.focus
+}
 
 func (f *createForm) setFocus(i int) {
 	f.focus = i
@@ -180,9 +224,11 @@ func (f createForm) params() launch.Params {
 		Program: strings.TrimSpace(f.inputs[fieldProgram].Value()),
 		Profile: prof,
 	}
-	if branch := strings.TrimSpace(
-		f.inputs[fieldBranch].Value(),
-	); branch != "" {
+	branch := ""
+	if f.branchEnabled() {
+		branch = strings.TrimSpace(f.inputs[fieldBranch].Value())
+	}
+	if branch != "" {
 		p.Branch = branch
 	} else {
 		p.WorkingDir = strings.TrimSpace(f.inputs[fieldDir].Value())
@@ -195,11 +241,15 @@ func (f createForm) view() string {
 	b.WriteString(titleStyle.Render("New session"))
 	b.WriteString("\n\n")
 
-	labels := []string{"Branch", "Directory", "Title"}
-	for i := fieldBranch; i <= fieldTitle; i++ {
+	labels := []string{"Directory", "Branch", "Title"}
+	for i := fieldDir; i <= fieldTitle; i++ {
 		b.WriteString(f.label(labels[i], i))
 		b.WriteString("\n")
-		b.WriteString(f.inputs[i].View())
+		if i == fieldBranch && !f.branchEnabled() {
+			b.WriteString(dimStyle.Render("  (only inside a git repository)"))
+		} else {
+			b.WriteString(f.inputs[i].View())
+		}
 		b.WriteString("\n\n")
 	}
 
@@ -219,7 +269,7 @@ func (f createForm) view() string {
 	}
 	b.WriteString(dimStyle.Render(
 		"tab/↑↓ move · ←/→ choose program/profile · " +
-			"ctrl+f find dir · enter create · esc cancel",
+			"ctrl+f browse dir/branch · enter create · esc cancel",
 	))
 	return b.String()
 }

@@ -123,6 +123,28 @@ func (m *Manager) Remove(target string, force bool) error {
 	return err
 }
 
+// Branches lists the repository's local branch names, most-recently-committed
+// first, so a picker can present the branches a session is most likely to want.
+// A repository with no commits yet has no branches and returns an empty slice.
+func (m *Manager) Branches() ([]string, error) {
+	out, err := m.git(
+		"for-each-ref",
+		"--sort=-committerdate",
+		"--format=%(refname:short)",
+		"refs/heads",
+	)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for line := range strings.SplitSeq(string(out), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			names = append(names, line)
+		}
+	}
+	return names, nil
+}
+
 // DeleteBranch deletes the local branch. When force is false git refuses to
 // delete a branch whose commits are not merged into its upstream or HEAD (git
 // branch -d); force deletes it regardless (git branch -D), discarding any

@@ -24,6 +24,7 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/backend"
 	"github.com/joakimcarlsson/wasa/internal/launch"
 	"github.com/joakimcarlsson/wasa/internal/registry"
+	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
 // mode is the model's interaction mode: browsing the session list or filling in
@@ -35,6 +36,7 @@ const (
 	modeCreate
 	modeConfirm
 	modePick
+	modePickBranch
 )
 
 // Model is the cockpit's Bubble Tea model. It holds the registry it drives, the
@@ -64,6 +66,7 @@ type Model struct {
 	form    createForm
 	confirm confirmDialog
 	picker  dirPicker
+	branch  branchPicker
 
 	confirmCmd tea.Cmd
 
@@ -241,6 +244,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateConfirm(msg)
 	case modePick:
 		return m.updatePick(msg)
+	case modePickBranch:
+		return m.updateBranchPick(msg)
 	}
 	return m.updateList(msg)
 }
@@ -288,6 +293,8 @@ func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case formPickDir:
 		return m.enterPick()
+	case formPickBranch:
+		return m.enterBranchPick()
 	case formSubmit:
 		ws := m.currentWorkspace()
 		params := m.form.params()
@@ -386,6 +393,51 @@ func (m Model) updatePick(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// enterBranchPick opens the branch picker over the create form, listing the
+// current workspace repository's branches. With no workspace it is a no-op — the
+// form disables the Branch field there, so this should not be reached, but it
+// guards the path rather than assuming it.
+func (m Model) enterBranchPick() (tea.Model, tea.Cmd) {
+	ws := m.currentWorkspace()
+	if ws == nil {
+		return m, nil
+	}
+	m.branch = newBranchPicker(
+		repoBranches(ws.RepoPath), m.pickerWidth(), m.pickerHeight(),
+	)
+	m.mode = modePickBranch
+	return m, textinput.Blink
+}
+
+// updateBranchPick routes input for the open branch picker. Choosing or typing a
+// branch writes it into the form's Branch field and returns to the form;
+// cancelling returns unchanged.
+func (m Model) updateBranchPick(msg tea.Msg) (tea.Model, tea.Cmd) {
+	picker, result, cmd := m.branch.update(msg)
+	m.branch = picker
+	switch result {
+	case pickCancel:
+		m.mode = modeCreate
+		return m, textinput.Blink
+	case pickChoose:
+		m.form.setBranch(picker.chosen)
+		m.mode = modeCreate
+		return m, textinput.Blink
+	}
+	return m, cmd
+}
+
+// repoBranches lists the local branches of the repository at repoPath, newest
+// first, for the branch picker. Errors are swallowed to an empty list: the
+// picker still lets a new branch name be typed.
+func repoBranches(repoPath string) []string {
+	branches, err := worktree.New(repoPath, "", "").Branches()
+	if err != nil {
+		return nil
+	}
+	return branches
+}
+
 // pickerWidth sizes the browser box to the terminal, clamped to a comfortable
 // range so it neither overflows a narrow window nor sprawls on a wide one.
 func (m Model) pickerWidth() int {
@@ -479,15 +531,19 @@ func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) enterCreate() (tea.Model, tea.Cmd) {
 	ws := m.currentWorkspace()
 
-	var names []string
+	var (
+		names    []string
+		repoPath string
+	)
 	if ws != nil {
 		names = make([]string, len(ws.Profiles))
 		for i, p := range ws.Profiles {
 			names[i] = p.Name
 		}
+		repoPath = ws.RepoPath
 	}
 
-	m.form = newCreateForm(names)
+	m.form = newCreateForm(names, repoPath)
 	m.mode = modeCreate
 	m.err = nil
 	m.status = ""

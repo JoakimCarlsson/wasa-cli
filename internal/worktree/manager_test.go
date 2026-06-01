@@ -91,6 +91,41 @@ func containsBranch(list []Worktree, branch string) bool {
 	return false
 }
 
+func TestBranches(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available on PATH")
+	}
+
+	repo := t.TempDir()
+	initRepo(t, repo)
+
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	run("branch", "feature/a")
+	run("branch", "feature/b")
+
+	branches, err := New(repo, t.TempDir(), "demo").Branches()
+	if err != nil {
+		t.Fatalf("Branches: %v", err)
+	}
+
+	want := map[string]bool{"main": true, "feature/a": true, "feature/b": true}
+	if len(branches) != len(want) {
+		t.Fatalf("Branches = %v, want the three local branches", branches)
+	}
+	for _, b := range branches {
+		if !want[b] {
+			t.Errorf("unexpected branch %q in %v", b, branches)
+		}
+	}
+}
+
 func initRepo(t *testing.T, dir string) {
 	t.Helper()
 

@@ -24,12 +24,16 @@ func (m Model) View() string {
 		return m.form.view() + "\n" + m.statusLine()
 	}
 
-	if m.mode == modePick {
+	if m.mode == modePick || m.mode == modePickBranch {
 		bg := lipgloss.Place(
 			max(m.width, minWidth), max(m.height-1, 1),
 			lipgloss.Left, lipgloss.Top, m.form.view(),
 		)
-		return placeOverlay(m.picker.view(), bg) + "\n" + m.statusLine()
+		overlay := m.picker.view()
+		if m.mode == modePickBranch {
+			overlay = m.branch.view()
+		}
+		return placeOverlay(overlay, bg) + "\n" + m.statusLine()
 	}
 
 	base := m.listView()
