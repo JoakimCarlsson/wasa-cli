@@ -27,7 +27,10 @@ func TestFormBranchDisabledWithoutRepo(t *testing.T) {
 		t.Errorf("disabled branch leaked into params: %q", p.Branch)
 	}
 	if p.WorkingDir != "/tmp/here" {
-		t.Errorf("WorkingDir = %q, want the plain-session directory", p.WorkingDir)
+		t.Errorf(
+			"WorkingDir = %q, want the plain-session directory",
+			p.WorkingDir,
+		)
 	}
 }
 
@@ -41,7 +44,11 @@ func TestFormBranchEnabledWithRepo(t *testing.T) {
 
 	f.focusNext() // Directory -> Branch
 	if f.focus != fieldBranch {
-		t.Fatalf("focus = %d after tab, want Branch field %d", f.focus, fieldBranch)
+		t.Fatalf(
+			"focus = %d after tab, want Branch field %d",
+			f.focus,
+			fieldBranch,
+		)
 	}
 
 	f.inputs[fieldBranch].SetValue("feature/x")

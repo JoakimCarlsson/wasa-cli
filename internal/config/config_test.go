@@ -30,7 +30,11 @@ func TestLoadAbsentFileYieldsDefaults(t *testing.T) {
 	want := Default()
 	want.Path = filepath.Join(dir, fileName)
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("absent file did not resolve to defaults\n got: %+v\nwant: %+v", got, want)
+		t.Fatalf(
+			"absent file did not resolve to defaults\n got: %+v\nwant: %+v",
+			got,
+			want,
+		)
 	}
 }
 
@@ -63,7 +67,11 @@ func TestLoadPartialAdaptiveColorKeepsOtherVariant(t *testing.T) {
 	def := Default()
 	want := Color{Light: def.Theme.Accent.Light, Dark: "#123456"}
 	if got.Theme.Accent != want {
-		t.Errorf("partial adaptive colour: got %+v want %+v", got.Theme.Accent, want)
+		t.Errorf(
+			"partial adaptive colour: got %+v want %+v",
+			got.Theme.Accent,
+			want,
+		)
 	}
 }
 
@@ -103,7 +111,10 @@ func TestLoadPartialLayoutKeepsDefaults(t *testing.T) {
 		t.Errorf("listColFrac not overridden: %v", got.Layout.ListColFrac)
 	}
 	if got.Layout.MinListWidth != Default().Layout.MinListWidth {
-		t.Errorf("unspecified layout value changed: %v", got.Layout.MinListWidth)
+		t.Errorf(
+			"unspecified layout value changed: %v",
+			got.Layout.MinListWidth,
+		)
 	}
 }
 

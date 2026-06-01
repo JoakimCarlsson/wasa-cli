@@ -101,7 +101,13 @@ func New(
 ) Model {
 	applyTheme(cfg.Theme)
 	be := backend.Default()
-	m := Model{home: home, reg: reg, tmux: be, cfg: cfg, keys: newKeymap(cfg.Keys)}
+	m := Model{
+		home: home,
+		reg:  reg,
+		tmux: be,
+		cfg:  cfg,
+		keys: newKeymap(cfg.Keys),
+	}
 	m.osHome, _ = os.UserHomeDir()
 	if s, ok := be.(backend.StreamingBackend); ok {
 		m.stream = s
