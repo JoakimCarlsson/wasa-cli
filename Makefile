@@ -33,17 +33,23 @@ run: build
 
 ifeq ($(OS),Windows_NT)
 env: build
-	@powershell -NoProfile -Command "$$d=(Resolve-Path '$(CURDIR)/bin').Path; $$u=[Environment]::GetEnvironmentVariable('Path','User'); if (($$u -split ';') -notcontains $$d) { [Environment]::SetEnvironmentVariable('Path', ($$u.TrimEnd(';') + ';' + $$d), 'User'); Write-Host ('Added ' + $$d + ' to your user PATH.') } else { Write-Host ('Already on PATH: ' + $$d) }; Write-Host 'Open a NEW terminal, then run: wasa'"
+	@powershell -NoProfile -Command "$$d=(Resolve-Path '$(CURDIR)/bin').Path; $$shadow='$(GOPATH_FWD)/bin/wasa.exe'; if (Test-Path $$shadow) { Remove-Item $$shadow -Force; Write-Host ('Removed stale shadow build: ' + $$shadow) }; $$u=[Environment]::GetEnvironmentVariable('Path','User'); $$parts=@($$u -split ';' | Where-Object { $$_ -ne '' -and $$_ -ne $$d }); [Environment]::SetEnvironmentVariable('Path', ((@($$d)+$$parts) -join ';'), 'User'); Write-Host ('Fresh wasa at ' + $$d + ' is now first on your user PATH.'); $$others=Get-Command wasa -All -ErrorAction SilentlyContinue | Where-Object { $$_.Source -and (Split-Path $$_.Source) -ne $$d }; foreach ($$o in $$others) { Write-Host ('WARNING: another wasa may shadow this build, delete it: ' + $$o.Source) }; Write-Host 'Open a NEW terminal, then run: wasa'"
 else
 env: build
 	@dir="$(CURDIR)/bin"; \
+	shadow="$(GOPATH_FWD)/bin/wasa"; \
+	if [ -f "$$shadow" ]; then rm -f "$$shadow"; echo "Removed stale shadow build: $$shadow"; fi; \
 	for f in "$$HOME/.profile" "$$HOME/.bashrc" "$$HOME/.zshrc"; do \
-	  if grep -qsF "$$dir" "$$f" 2>/dev/null; then \
-	    echo "Already in $$f"; \
+	  if grep -qsF "wasa-env:$$dir" "$$f" 2>/dev/null; then \
+	    echo "Already prepended in $$f"; \
 	  else \
-	    printf 'export PATH="$$PATH:%s"\n' "$$dir" >> "$$f"; \
-	    echo "Added to $$f"; \
+	    printf '\n# wasa-env:%s\nexport PATH="%s:$$PATH"\n' "$$dir" "$$dir" >> "$$f"; \
+	    echo "Prepended to $$f"; \
 	  fi; \
 	done; \
-	echo "wasa is on PATH for sh, bash and zsh. Open a NEW terminal, then run: wasa"
+	other="$$(command -v wasa 2>/dev/null || true)"; \
+	if [ -n "$$other" ] && [ "$$other" != "$$dir/wasa" ]; then \
+	  echo "WARNING: another wasa may shadow this build, delete it: $$other"; \
+	fi; \
+	echo "Fresh wasa is first on PATH for sh, bash and zsh. Open a NEW terminal, then run: wasa"
 endif
