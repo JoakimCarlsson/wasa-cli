@@ -47,10 +47,3 @@ func TestRunSessionUnknownSubcommand(t *testing.T) {
 		t.Fatalf("runSession err = %v, want unknown-subcommand error", err)
 	}
 }
-
-func TestSessionNewRequiresBranch(t *testing.T) {
-	err := sessionNew([]string{"--profile", "work"})
-	if err == nil || !strings.Contains(err.Error(), "--branch") {
-		t.Fatalf("sessionNew without --branch err = %v, want branch usage", err)
-	}
-}

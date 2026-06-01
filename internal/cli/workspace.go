@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
@@ -209,12 +210,9 @@ func runSession(args []string) error {
 	}
 }
 
-const sessionNewUsage = "usage: wasa session new --branch <branch> " +
-	"[--profile <name>] [--program <program>] [--title <title>]"
-
 func sessionNew(args []string) error {
 	fs := newFlagSet("wasa session new")
-	var profileName, program, branch, title string
+	var profileName, program, branch, title, dir string
 	fs.StringVar(
 		&profileName,
 		"profile",
@@ -231,14 +229,17 @@ func sessionNew(args []string) error {
 		&branch,
 		"branch",
 		"",
-		"branch to create the worktree on (required)",
+		"branch to create a worktree on; omit for a plain session in --dir",
+	)
+	fs.StringVar(
+		&dir,
+		"dir",
+		"",
+		"working directory for a plain session (default: current directory)",
 	)
 	fs.StringVar(&title, "title", "", "human-readable session title")
 	if err := fs.Parse(args); err != nil {
 		return err
-	}
-	if branch == "" {
-		return errors.New(sessionNewUsage)
 	}
 	if program == "" {
 		resolved, err := resolveProgram()
@@ -252,16 +253,37 @@ func sessionNew(args []string) error {
 	if err != nil {
 		return err
 	}
-	if current == nil {
-		return errors.New("not a git repository")
+
+	var (
+		ws     *registry.Workspace
+		params launch.Params
+	)
+	if branch != "" {
+		if current == nil {
+			return errors.New("not a git repository")
+		}
+		ws = current
+		params = launch.Params{
+			Branch:  branch,
+			Title:   title,
+			Program: program,
+			Profile: profileName,
+		}
+	} else {
+		workdir, derr := resolvePlainDir(dir)
+		if derr != nil {
+			return derr
+		}
+		ws = workspaceForDir(reg, workdir)
+		params = launch.Params{
+			Title:      title,
+			Program:    program,
+			Profile:    profileName,
+			WorkingDir: workdir,
+		}
 	}
 
-	s, err := launch.CreateSession(wasaHome(), reg, current, launch.Params{
-		Branch:  branch,
-		Title:   title,
-		Program: program,
-		Profile: profileName,
-	})
+	s, err := launch.CreateSession(wasaHome(), reg, ws, params)
 	if err != nil {
 		return err
 	}
@@ -271,6 +293,42 @@ func sessionNew(args []string) error {
 
 	fmt.Fprintln(os.Stdout, s.TmuxName)
 	return nil
+}
+
+// resolvePlainDir resolves the working directory for a plain session. An empty
+// dir defaults to the current directory; an explicit dir must exist and be a
+// directory, and is returned as an absolute path.
+func resolvePlainDir(dir string) (string, error) {
+	if dir == "" {
+		return os.Getwd()
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("%s is not a directory", dir)
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	return abs, nil
+}
+
+// workspaceForDir returns the registered workspace whose repository contains
+// dir, registering it on first use, or nil when dir is not inside a git
+// repository. It mirrors openRegistry's in-repo auto-registration but for an
+// explicit directory, so a plain session launched inside a known repository
+// still attaches to its workspace (and profile environment) while one launched
+// outside any repository runs with no workspace at all.
+func workspaceForDir(reg *registry.Registry, dir string) *registry.Workspace {
+	repoPath, remoteURL, err := resolveRepo(dir)
+	if err != nil {
+		return nil
+	}
+	ws, _ := registerRepo(reg, repoPath, remoteURL)
+	return ws
 }
 
 // resolveProgram picks the program for a session new invocation that omitted
