@@ -39,6 +39,11 @@ var (
 	dimStyle    lipgloss.Style
 	errorStyle  lipgloss.Style
 
+	diffAddStyle  lipgloss.Style
+	diffDelStyle  lipgloss.Style
+	diffHunkStyle lipgloss.Style
+	diffMetaStyle lipgloss.Style
+
 	modalStyle  lipgloss.Style
 	pickerStyle lipgloss.Style
 	matchStyle  lipgloss.Style
@@ -127,6 +132,11 @@ func applyTheme(t config.Theme) {
 	bannerStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
 	dimStyle = lipgloss.NewStyle().Foreground(desc)
 	errorStyle = lipgloss.NewStyle().Foreground(danger)
+
+	diffAddStyle = lipgloss.NewStyle().Foreground(running)
+	diffDelStyle = lipgloss.NewStyle().Foreground(danger)
+	diffHunkStyle = lipgloss.NewStyle().Foreground(accent)
+	diffMetaStyle = lipgloss.NewStyle().Foreground(desc)
 
 	modalStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).

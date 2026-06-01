@@ -186,10 +186,76 @@ func (m Model) paneBody(w, h int) string {
 	}
 }
 
-// diffBody renders the Diff tab. The diff itself arrives in a later phase; for
-// now it is a placeholder so the tab is navigable.
-func (m Model) diffBody(_, _ int) string {
-	return dimStyle.Render("Diff — not yet implemented.")
+// diffBody renders the Diff tab: a colorized git diff of the selected worktree
+// session against its recorded base commit, in a scrollable viewport under an
+// additions/deletions summary line. A plain (non-worktree) session shows an
+// explanatory state rather than an error; a worktree with no changes shows an
+// empty state; and the diff is shown only once it has been computed for the
+// current selection.
+func (m Model) diffBody(w, h int) string {
+	s := m.selectedSession()
+	if s == nil {
+		return dimStyle.Render("No session selected.")
+	}
+	if s.Branch == "" || s.WorktreePath == "" || s.BaseCommit == "" {
+		return dimStyle.Render("Diff is only available for worktree sessions.")
+	}
+	if m.diffSID != s.ID {
+		return dimStyle.Render("Loading diff…")
+	}
+	if m.diffErr != nil {
+		return errorStyle.Render("diff error: " + m.diffErr.Error())
+	}
+	if strings.TrimSpace(m.diffText) == "" {
+		return dimStyle.Render("No changes.")
+	}
+
+	vp := m.diffVP
+	vp.Width = max(w, 1)
+	vp.Height = max(h-1, 1)
+	return diffSummaryLine(m.diffAdded, m.diffRemoved) + "\n" + vp.View()
+}
+
+// diffSummaryLine renders the "N additions(+) / M deletions(-)" header above the
+// diff, the additions in the add colour and the deletions in the delete colour.
+func diffSummaryLine(added, removed int) string {
+	return diffAddStyle.Render(fmt.Sprintf("%d additions(+)", added)) +
+		dimStyle.Render(" / ") +
+		diffDelStyle.Render(fmt.Sprintf("%d deletions(-)", removed))
+}
+
+// colorizeDiff styles a plain unified diff line by line: hunk headers in the
+// accent, additions green and deletions red, and the file/metadata lines dimmed.
+// The context lines are left unstyled. git emits the diff without colour, so the
+// cockpit colours it itself to match the theme.
+func colorizeDiff(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		lines[i] = styleDiffLine(line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func styleDiffLine(line string) string {
+	switch {
+	case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
+		return diffMetaStyle.Render(line)
+	case strings.HasPrefix(line, "@@"):
+		return diffHunkStyle.Render(line)
+	case strings.HasPrefix(line, "+"):
+		return diffAddStyle.Render(line)
+	case strings.HasPrefix(line, "-"):
+		return diffDelStyle.Render(line)
+	case strings.HasPrefix(line, "diff "),
+		strings.HasPrefix(line, "index "),
+		strings.HasPrefix(line, "new file"),
+		strings.HasPrefix(line, "deleted file"),
+		strings.HasPrefix(line, "rename "),
+		strings.HasPrefix(line, "similarity "):
+		return diffMetaStyle.Render(line)
+	default:
+		return line
+	}
 }
 
 // terminalBody renders the Terminal tab: a capture of the selected session's

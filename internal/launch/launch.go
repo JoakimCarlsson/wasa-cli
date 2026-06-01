@@ -46,9 +46,13 @@ type Params struct {
 // hook process. defaultOps binds them to the production worktree, hook and
 // backend implementations.
 type ops struct {
-	addWorktree func(repoPath, home, workspace, branch string) (string, error)
-	runHook     func(h hook.Hook) error
-	spawn       func(name, dir string, env []string, program string) error
+	// addWorktree adds the branch's worktree and returns its path along with the
+	// repository HEAD it branched from, captured for later diffing.
+	addWorktree func(
+		repoPath, home, workspace, branch string,
+	) (path, baseCommit string, err error)
+	runHook func(h hook.Hook) error
+	spawn   func(name, dir string, env []string, program string) error
 	// prepareHooks augments the spawn environment for a session and, for a
 	// hook-emitting agent, installs the lifecycle hook that makes it report
 	// status to wasa. It returns the environment the program is spawned with.
@@ -57,8 +61,19 @@ type ops struct {
 
 func defaultOps() ops {
 	return ops{
-		addWorktree: func(repoPath, home, workspace, branch string) (string, error) {
-			return worktree.New(repoPath, home, workspace).Add(branch)
+		addWorktree: func(
+			repoPath, home, workspace, branch string,
+		) (string, string, error) {
+			m := worktree.New(repoPath, home, workspace)
+			base, err := m.HeadSHA()
+			if err != nil {
+				return "", "", err
+			}
+			path, err := m.Add(branch)
+			if err != nil {
+				return "", "", err
+			}
+			return path, base, nil
 		},
 		runHook: func(h hook.Hook) error {
 			return hook.Run(hook.ShellRunner{}, h)
@@ -158,7 +173,9 @@ func createWorktreeSession(
 		return nil, errors.New("a worktree session requires a workspace")
 	}
 
-	worktreePath, err := o.addWorktree(ws.RepoPath, home, ws.ID, p.Branch)
+	worktreePath, baseCommit, err := o.addWorktree(
+		ws.RepoPath, home, ws.ID, p.Branch,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -189,6 +206,7 @@ func createWorktreeSession(
 		Program:      program,
 		Branch:       p.Branch,
 		WorktreePath: worktreePath,
+		BaseCommit:   baseCommit,
 		TmuxName:     tmuxName,
 	}
 	reg.AddSession(s)

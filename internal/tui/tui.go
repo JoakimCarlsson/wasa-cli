@@ -18,7 +18,9 @@ import (
 	"slices"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/joakimcarlsson/wasa/internal/backend"
@@ -105,6 +107,13 @@ type Model struct {
 	termContent string
 	terms       map[string]bool
 
+	diffVP      viewport.Model
+	diffSID     string
+	diffText    string
+	diffAdded   int
+	diffRemoved int
+	diffErr     error
+
 	now          func() time.Time
 	statuses     *sessionstatus.Tracker
 	notify       func(title, body string)
@@ -142,6 +151,7 @@ func New(
 		terms:        make(map[string]bool),
 	}
 	m.osHome, _ = os.UserHomeDir()
+	m.diffVP = newDiffViewport()
 	if s, ok := be.(backend.StreamingBackend); ok {
 		m.stream = s
 	}
@@ -223,6 +233,18 @@ type termMsg struct {
 	err     error
 }
 
+// diffMsg carries the computed diff of a worktree session against its base
+// commit. sessionID tags the session it was computed for, so a diff that
+// arrives after the selection moved is dropped rather than shown under the wrong
+// session. An empty text with no err is a clean worktree (no changes).
+type diffMsg struct {
+	sessionID string
+	text      string
+	added     int
+	removed   int
+	err       error
+}
+
 type createdMsg struct {
 	session *registry.Session
 	err     error
@@ -242,6 +264,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.sizeDiffViewport()
 		return m, nil
 
 	case tickMsg:
@@ -253,6 +276,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case termMsg:
 		return m, m.applyTerm(msg)
+
+	case diffMsg:
+		return m, m.applyDiff(msg)
 
 	case createdMsg:
 		if msg.err != nil {
@@ -331,6 +357,14 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// On the Diff tab let the viewport consume its scroll keys (PageUp/Down and
+	// the ctrl chords); its keymap ignores everything else, so the cockpit list
+	// actions below still fire normally.
+	if m.pane == paneDiff {
+		m.sizeDiffViewport()
+		m.diffVP, _ = m.diffVP.Update(msg)
+	}
+
 	switch m.keys.action(key.String()) {
 	case config.ActionQuit:
 		m.closeWatcher()
@@ -371,8 +405,11 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 // shows the shell without waiting for the next tick.
 func (m *Model) afterListChange() tea.Cmd {
 	cmd := m.ensureWatcher()
-	if m.pane == paneTerminal {
+	switch m.pane {
+	case paneTerminal:
 		cmd = tea.Batch(cmd, m.ensureTermCmd())
+	case paneDiff:
+		cmd = tea.Batch(cmd, m.ensureDiffCmd())
 	}
 	return cmd
 }
@@ -1015,6 +1052,91 @@ func (m *Model) closeTerms() {
 // session, so the two never collide.
 func companionName(s *registry.Session) string {
 	return s.TmuxName + "_term"
+}
+
+// newDiffViewport builds the Diff tab's scrollable viewport with a keymap that
+// avoids the cockpit list bindings: it scrolls with PageUp/PageDown and the
+// ctrl+f/ctrl+b/ctrl+u/ctrl+d chords and leaves the bare arrow keys to the list
+// so up/down keep moving the session cursor (which re-targets the diff).
+func newDiffViewport() viewport.Model {
+	vp := viewport.New(0, 0)
+	vp.KeyMap = viewport.KeyMap{
+		PageDown:     key.NewBinding(key.WithKeys("pgdown", "ctrl+f")),
+		PageUp:       key.NewBinding(key.WithKeys("pgup", "ctrl+b")),
+		HalfPageDown: key.NewBinding(key.WithKeys("ctrl+d")),
+		HalfPageUp:   key.NewBinding(key.WithKeys("ctrl+u")),
+	}
+	return vp
+}
+
+// rightPaneSize is the inner width and height of the right pane's body, below
+// the tab strip — the area the Preview, Diff and Terminal tabs render into. It
+// mirrors the sizing listView applies to the pane.
+func (m Model) rightPaneSize() (w, h int) {
+	bodyH := max(m.height-chromeRows, 3)
+	return m.width - m.listColWidth() - 4, bodyH - 1
+}
+
+// sizeDiffViewport sizes the diff viewport to the pane body minus the summary
+// line, so its paging math and render match what diffBody draws. It runs on
+// resize and whenever a diff is loaded, never per tick.
+func (m *Model) sizeDiffViewport() {
+	w, h := m.rightPaneSize()
+	m.diffVP.Width = max(w, 1)
+	m.diffVP.Height = max(h-1, 1)
+}
+
+// ensureDiffCmd returns a command that computes the selected worktree session's
+// diff against its recorded base commit, when that diff is not already loaded.
+// It is a no-op (nil) when the diff for the selection is already shown, so it
+// fires only on a selection change or a switch to the Diff tab, never per tick.
+// A plain (non-worktree) session loads an empty diff; diffBody renders the
+// explanatory state for it from the session's own fields.
+func (m *Model) ensureDiffCmd() tea.Cmd {
+	s := m.selectedSession()
+	if s == nil || m.diffSID == s.ID {
+		return nil
+	}
+	sid := s.ID
+	branch, wt, base := s.Branch, s.WorktreePath, s.BaseCommit
+	if branch == "" || wt == "" || base == "" {
+		return func() tea.Msg { return diffMsg{sessionID: sid} }
+	}
+	ws, ok := m.reg.Workspace(s.WorkspaceID)
+	if !ok {
+		return func() tea.Msg {
+			return diffMsg{sessionID: sid, err: fmt.Errorf("workspace not found")}
+		}
+	}
+	repo, home, wsID := ws.RepoPath, m.home, s.WorkspaceID
+	return func() tea.Msg {
+		res, err := worktree.New(repo, home, wsID).Diff(wt, base)
+		if err != nil {
+			return diffMsg{sessionID: sid, err: err}
+		}
+		return diffMsg{
+			sessionID: sid, text: res.Text,
+			added: res.Added, removed: res.Removed,
+		}
+	}
+}
+
+// applyDiff stores a computed diff for rendering, dropping a delivery whose
+// session is no longer selected so a slow diff cannot overwrite the body after
+// the cursor moved. It loads the colorized content into the viewport and scrolls
+// it back to the top for the new session.
+func (m *Model) applyDiff(msg diffMsg) tea.Cmd {
+	if s := m.selectedSession(); s == nil || s.ID != msg.sessionID {
+		return nil
+	}
+	m.diffSID = msg.sessionID
+	m.diffErr = msg.err
+	m.diffText = msg.text
+	m.diffAdded, m.diffRemoved = msg.added, msg.removed
+	m.sizeDiffViewport()
+	m.diffVP.SetContent(colorizeDiff(msg.text))
+	m.diffVP.SetYOffset(0)
+	return nil
 }
 
 // sweepStatuses refreshes the derived runtime status of every running session

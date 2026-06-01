@@ -75,6 +75,11 @@ type Workspace struct {
 //     no worktree; Branch and WorktreePath are empty. WorkspaceID is empty when
 //     the session was launched outside any registered repository, in which case
 //     it carries no profile and no profile environment.
+//
+// BaseCommit is the repository HEAD a worktree session branched from, captured
+// at creation so the cockpit can diff the worktree against it. It is optional:
+// plain sessions never set it and a registry written before it existed loads
+// with it empty.
 type Session struct {
 	ID           string    `json:"id"`
 	WorkspaceID  string    `json:"workspaceID,omitempty"`
@@ -84,6 +89,7 @@ type Session struct {
 	Branch       string    `json:"branch,omitempty"`
 	WorktreePath string    `json:"worktreePath,omitempty"`
 	WorkingDir   string    `json:"workingDir,omitempty"`
+	BaseCommit   string    `json:"baseCommit,omitempty"`
 	TmuxName     string    `json:"tmuxName"`
 	Status       string    `json:"status"`
 	CreatedAt    time.Time `json:"createdAt"`
