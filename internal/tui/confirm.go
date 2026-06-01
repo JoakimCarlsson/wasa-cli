@@ -72,7 +72,7 @@ func (d confirmDialog) view() string {
 
 	buttons := d.buttons()
 	if w := lipgloss.Width(top); lipgloss.Width(buttons) < w {
-		buttons = lipgloss.PlaceHorizontal(w, lipgloss.Right, buttons)
+		buttons = lipgloss.PlaceHorizontal(w, lipgloss.Center, buttons)
 	}
 	return modalStyle.Render(top + "\n\n" + buttons)
 }
