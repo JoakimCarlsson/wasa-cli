@@ -59,6 +59,7 @@ type Model struct {
 	tmux   backend.SessionBackend
 	stream backend.StreamingBackend
 	cfg    config.Config
+	keys   keymap
 
 	workspaces []*registry.Workspace
 	activeID   string
@@ -98,7 +99,7 @@ func New(
 ) Model {
 	applyTheme(cfg.Theme)
 	be := backend.Default()
-	m := Model{home: home, reg: reg, tmux: be, cfg: cfg}
+	m := Model{home: home, reg: reg, tmux: be, cfg: cfg, keys: newKeymap(cfg.Keys)}
 	m.osHome, _ = os.UserHomeDir()
 	if s, ok := be.(backend.StreamingBackend); ok {
 		m.stream = s
@@ -273,29 +274,29 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	switch key.String() {
-	case "q", "ctrl+c":
+	switch m.keys.action(key.String()) {
+	case config.ActionQuit:
 		m.closeWatcher()
 		return m, tea.Quit
-	case "right", "tab", "]":
+	case config.ActionTabNext:
 		m.cycleTab(1)
-	case "left", "shift+tab", "[":
+	case config.ActionTabPrev:
 		m.cycleTab(-1)
-	case "up":
+	case config.ActionCursorUp:
 		if m.cursor > 0 {
 			m.cursor--
 		}
-	case "down":
+	case config.ActionCursorDown:
 		if m.cursor < len(m.sessions())-1 {
 			m.cursor++
 		}
-	case "n":
+	case config.ActionNew:
 		return m.enterCreate()
-	case "enter":
+	case config.ActionAttach:
 		return m.attach()
-	case "k":
+	case config.ActionKill:
 		return m.enterConfirmKill()
-	case "d":
+	case config.ActionDelete:
 		return m.enterConfirmDelete()
 	}
 	return m, m.ensureWatcher()

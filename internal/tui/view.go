@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 
+	"github.com/joakimcarlsson/wasa/internal/config"
 	"github.com/joakimcarlsson/wasa/internal/registry"
 )
 
@@ -169,13 +170,13 @@ func (m Model) previewBody(w, h int) string {
 
 func (m Model) menuBar() string {
 	items := [][2]string{
-		{"n", "new"},
-		{"↵", "attach"},
-		{"k", "kill"},
-		{"d", "delete"},
-		{"⇥", "tabs"},
-		{"↑↓", "select"},
-		{"q", "quit"},
+		{m.menuKey(config.ActionNew), "new"},
+		{m.menuKey(config.ActionAttach), "attach"},
+		{m.menuKey(config.ActionKill), "kill"},
+		{m.menuKey(config.ActionDelete), "delete"},
+		{m.menuKey(config.ActionTabNext), "tabs"},
+		{m.menuKey(config.ActionCursorUp) + m.menuKey(config.ActionCursorDown), "select"},
+		{m.menuKey(config.ActionQuit), "quit"},
 	}
 	parts := make([]string, len(items))
 	for i, it := range items {
@@ -186,6 +187,12 @@ func (m Model) menuBar() string {
 		)
 	}
 	return " " + strings.Join(parts, menuSepStyle.Render(menuSep))
+}
+
+// menuKey is the glyph the menu bar shows for an action: the effective primary
+// binding, so a remapped key is reflected in the hint.
+func (m Model) menuKey(action string) string {
+	return keyLabel(m.keys.primary(action))
 }
 
 func (m Model) statusLine() string {
