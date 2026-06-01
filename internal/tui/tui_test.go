@@ -208,6 +208,101 @@ func TestListCursorNavigation(t *testing.T) {
 	}
 }
 
+func TestEnterConfirmDeleteCapturesSelection(t *testing.T) {
+	m, _, _ := testModel(t)
+
+	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	got := next.(Model)
+	if got.mode != modeConfirmDelete {
+		t.Fatal("d did not open the confirm-delete modal")
+	}
+	if got.deleteTarget == nil || got.deleteTarget.ID != "a1" {
+		t.Fatalf("deleteTarget = %v, want the selected session a1", got.deleteTarget)
+	}
+}
+
+func TestEnterConfirmDeleteNoSelectionIsNoop(t *testing.T) {
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	m := New(t.TempDir(), reg, ws.ID)
+
+	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	got := next.(Model)
+	if got.mode != modeList {
+		t.Fatal("d opened a modal with no session selected")
+	}
+	if got.deleteTarget != nil {
+		t.Fatal("deleteTarget set with no session selected")
+	}
+}
+
+func TestConfirmDeleteCancelLeavesSessionUnchanged(t *testing.T) {
+	m, _, _ := testModel(t)
+	next, _ := m.enterConfirmDelete()
+	m = next.(Model)
+
+	for _, key := range []tea.KeyMsg{
+		{Type: tea.KeyEsc},
+		{Type: tea.KeyRunes, Runes: []rune("n")},
+		{Type: tea.KeyRunes, Runes: []rune("q")},
+	} {
+		next, _ := m.updateConfirmDelete(key)
+		got := next.(Model)
+		if got.mode != modeList {
+			t.Fatalf("cancel key %v did not return to the list", key)
+		}
+		if got.deleteTarget != nil {
+			t.Fatalf("cancel key %v left a delete target", key)
+		}
+	}
+	if _, ok := m.reg.Session("a1"); !ok {
+		t.Fatal("cancel removed the session record")
+	}
+}
+
+func TestConfirmDeleteRemovesExitedSession(t *testing.T) {
+	m, _, _ := testModel(t)
+	m.cursor = 1 // select a2; a1 stays so the cursor has a neighbour to land on
+
+	a2, _ := m.reg.Session("a2")
+	a2.Status = registry.StatusExited // exited path runs no backend
+
+	next, _ := m.enterConfirmDelete()
+	m = next.(Model)
+	if m.deleteTarget.ID != "a2" {
+		t.Fatalf("deleteTarget = %q, want a2", m.deleteTarget.ID)
+	}
+
+	next, cmd := m.updateConfirmDelete(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if m.mode != modeList {
+		t.Fatal("confirm did not return to the list")
+	}
+	if cmd == nil {
+		t.Fatal("confirm produced no delete command")
+	}
+
+	// The exited-session path runs no backend; the command removes the record
+	// and Saves. Feeding its result back into Update refreshes and clamps.
+	next, _ = m.Update(cmd())
+	m = next.(Model)
+	if m.err != nil {
+		t.Fatalf("delete reported error: %v", m.err)
+	}
+	if _, ok := m.reg.Session("a2"); ok {
+		t.Fatal("delete left the session record in the registry")
+	}
+	if got := len(m.sessions()); got != 1 {
+		t.Fatalf("wsA sessions after delete = %d, want 1", got)
+	}
+	if m.cursor < 0 || m.cursor >= len(m.sessions()) {
+		t.Fatalf("cursor %d out of range after delete", m.cursor)
+	}
+}
+
 func TestEmptyRegistryShowsBanner(t *testing.T) {
 	reg, err := registry.Open(t.TempDir())
 	if err != nil {

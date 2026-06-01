@@ -30,6 +30,7 @@ type mode int
 const (
 	modeList mode = iota
 	modeCreate
+	modeConfirmDelete
 )
 
 // Model is the cockpit's Bubble Tea model. It holds the registry it drives, the
@@ -47,6 +48,8 @@ type Model struct {
 
 	mode mode
 	form createForm
+
+	deleteTarget *registry.Session
 
 	width  int
 	height int
@@ -105,6 +108,8 @@ type createdMsg struct {
 
 type killedMsg struct{ err error }
 
+type deletedMsg struct{ err error }
+
 type attachedMsg struct {
 	sessionID string
 	err       error
@@ -145,6 +150,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		return m, nil
 
+	case deletedMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		m.err = nil
+		m.status = "deleted session"
+		m.refresh()
+		return m, nil
+
 	case attachedMsg:
 		if msg.err != nil {
 			m.err = msg.err
@@ -159,8 +174,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if m.mode == modeCreate {
+	switch m.mode {
+	case modeCreate:
 		return m.updateCreate(msg)
+	case modeConfirmDelete:
+		return m.updateConfirmDelete(msg)
 	}
 	return m.updateList(msg)
 }
@@ -196,6 +214,8 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.attach()
 	case "k":
 		return m.kill()
+	case "d":
+		return m.enterConfirmDelete()
 	}
 	return m, nil
 }
@@ -215,6 +235,47 @@ func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.createCmd(ws, params)
 	}
 	return m, cmd
+}
+
+// enterConfirmDelete opens the delete-confirmation modal for the selected
+// session, capturing it as the delete target so a later list change cannot
+// retarget the delete. With no session selected it is a no-op.
+func (m Model) enterConfirmDelete() (tea.Model, tea.Cmd) {
+	s := m.selectedSession()
+	if s == nil {
+		return m, nil
+	}
+	m.deleteTarget = s
+	m.mode = modeConfirmDelete
+	m.err = nil
+	m.status = ""
+	return m, nil
+}
+
+// updateConfirmDelete routes key input for the delete-confirmation modal.
+// Confirm (y/enter) deletes the captured target; cancel (n/esc/q) returns to the
+// list with no change.
+func (m Model) updateConfirmDelete(msg tea.Msg) (tea.Model, tea.Cmd) {
+	key, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	switch key.String() {
+	case "y", "enter":
+		s := m.deleteTarget
+		m.mode = modeList
+		m.deleteTarget = nil
+		if s == nil {
+			return m, nil
+		}
+		m.status = "deleting session…"
+		return m, m.deleteCmd(s)
+	case "n", "esc", "q":
+		m.mode = modeList
+		m.deleteTarget = nil
+		return m, nil
+	}
+	return m, nil
 }
 
 // enterCreate opens the create form. With a current workspace the form is seeded
@@ -310,6 +371,19 @@ func (m Model) killCmd(s *registry.Session) tea.Cmd {
 			return killedMsg{err: err}
 		}
 		return killedMsg{}
+	}
+}
+
+func (m Model) deleteCmd(s *registry.Session) tea.Cmd {
+	reg := m.reg
+	return func() tea.Msg {
+		if err := launch.DeleteSession(reg, s); err != nil {
+			return deletedMsg{err: err}
+		}
+		if err := reg.Save(); err != nil {
+			return deletedMsg{err: err}
+		}
+		return deletedMsg{}
 	}
 }
 
