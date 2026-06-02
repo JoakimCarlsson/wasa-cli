@@ -1,6 +1,10 @@
 package component
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/joakimcarlsson/wasa/internal/tui/theme"
+)
 
 // TabStrip renders a row of connected tab boxes spanning totalWidth, in the
 // lipgloss tabs idiom (after claude-squad): the active tab's bottom border opens
@@ -8,7 +12,7 @@ import "github.com/charmbracelet/lipgloss"
 // close against the window's top edge, and the first and last tabs square off
 // their outer bottom corners so the row meets the window's side rules. The
 // labels are drawn in active-tab order; active is the index of the open tab.
-func TabStrip(t Theme, labels []string, active, totalWidth int) string {
+func TabStrip(t theme.Theme, labels []string, active, totalWidth int) string {
 	n := len(labels)
 	tabW := totalWidth / n
 	lastW := totalWidth - tabW*(n-1)

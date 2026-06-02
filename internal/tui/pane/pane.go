@@ -5,7 +5,7 @@
 // messages back to the owning machine, and dispatches the active tab's Body for
 // rendering. A pane never reaches back into the root, so there is no import
 // cycle; panes depend only on the backend seam, the worktree helper and the
-// shared component layer (for component.Theme).
+// shared theme layer (for theme.Theme).
 package pane
 
 import (

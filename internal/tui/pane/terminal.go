@@ -9,7 +9,7 @@ import (
 
 	"github.com/joakimcarlsson/wasa/internal/backend"
 	"github.com/joakimcarlsson/wasa/internal/launch"
-	"github.com/joakimcarlsson/wasa/internal/tui/component"
+	"github.com/joakimcarlsson/wasa/internal/tui/theme"
 )
 
 // TermMsg carries the result of ensuring and capturing a session's companion
@@ -140,7 +140,7 @@ func (t Terminal) Tracking(name string) bool {
 // shell. With no session selected it says so. Until the first capture for the
 // current selection arrives it shows a starting hint, so a stale capture from a
 // previously selected session is never shown as if it were this one's.
-func (t Terminal) Body(theme component.Theme, sess TermSession, w, h int) string {
+func (t Terminal) Body(theme theme.Theme, sess TermSession, w, h int) string {
 	if !sess.Selected {
 		return theme.DimStyle.Render("No session selected.")
 	}

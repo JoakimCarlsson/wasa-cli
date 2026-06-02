@@ -15,7 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/joakimcarlsson/wasa/internal/launch"
-	"github.com/joakimcarlsson/wasa/internal/tui/component"
+	"github.com/joakimcarlsson/wasa/internal/tui/theme"
 	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
@@ -70,7 +70,7 @@ func formPickBranch() tea.Msg { return FormPickBranchMsg{} }
 // detected on PATH plus a bare-shell entry as a visible menu; ←/→ move the
 // selection and typing overrides it with any program name outside the known set.
 type CreateForm struct {
-	theme      component.Theme
+	theme      theme.Theme
 	inputs     []textinput.Model
 	BranchRepo string
 	profiles   []string
@@ -85,7 +85,7 @@ type CreateForm struct {
 
 // NewCreateForm builds the create form for a workspace's profiles, styled with
 // theme. The Directory field starts focused and empty.
-func NewCreateForm(theme component.Theme, profiles []string) CreateForm {
+func NewCreateForm(theme theme.Theme, profiles []string) CreateForm {
 	dir := textinput.New()
 	dir.Placeholder = "ctrl+f to browse, or empty for here"
 	dir.CharLimit = 4096

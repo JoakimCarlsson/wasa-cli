@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/joakimcarlsson/wasa/internal/tui/component"
+	"github.com/joakimcarlsson/wasa/internal/tui/theme"
 	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
@@ -53,7 +53,7 @@ type DiffSession struct {
 // theme is the resolved theme the colorizer uses; the root refreshes it via
 // SetTheme when the config editor changes it.
 type Diff struct {
-	theme   component.Theme
+	theme   theme.Theme
 	vp      viewport.Model
 	sid     string
 	text    string
@@ -63,13 +63,13 @@ type Diff struct {
 }
 
 // NewDiff builds a Diff with its viewport configured against theme.
-func NewDiff(theme component.Theme) Diff {
+func NewDiff(theme theme.Theme) Diff {
 	return Diff{theme: theme, vp: newDiffViewport()}
 }
 
 // SetTheme refreshes the theme the colorizer renders with. The root calls it
 // when the in-cockpit config editor changes the theme.
-func (d *Diff) SetTheme(theme component.Theme) {
+func (d *Diff) SetTheme(theme theme.Theme) {
 	d.theme = theme
 }
 
@@ -160,7 +160,7 @@ func (d *Diff) Size(w, h int) {
 // plain (non-worktree) session shows an explanatory state rather than an error;
 // a worktree whose diff is not yet computed shows a loading state; and a clean
 // worktree shows an empty state.
-func (d Diff) Body(t component.Theme, sess DiffSession, w, h int) string {
+func (d Diff) Body(t theme.Theme, sess DiffSession, w, h int) string {
 	if !sess.Selected {
 		return t.DimStyle.Render("No session selected.")
 	}
@@ -188,7 +188,7 @@ func (d Diff) Body(t component.Theme, sess DiffSession, w, h int) string {
 // diffSummaryLine renders the "N additions(+) / M deletions(-)" header above
 // the diff, the additions in the add colour and the deletions in the delete
 // colour.
-func diffSummaryLine(theme component.Theme, added, removed int) string {
+func diffSummaryLine(theme theme.Theme, added, removed int) string {
 	return theme.DiffAddStyle.Render(fmt.Sprintf("%d additions(+)", added)) +
 		theme.DimStyle.Render(" / ") +
 		theme.DiffDelStyle.Render(fmt.Sprintf("%d deletions(-)", removed))
@@ -198,7 +198,7 @@ func diffSummaryLine(theme component.Theme, added, removed int) string {
 // accent, additions green and deletions red, and the file/metadata lines
 // dimmed. The context lines are left unstyled. git emits the diff without
 // colour, so the cockpit colours it itself to match the theme.
-func colorizeDiff(theme component.Theme, text string) string {
+func colorizeDiff(theme theme.Theme, text string) string {
 	lines := strings.Split(text, "\n")
 	for i, line := range lines {
 		lines[i] = styleDiffLine(theme, line)
@@ -206,7 +206,7 @@ func colorizeDiff(theme component.Theme, text string) string {
 	return strings.Join(lines, "\n")
 }
 
-func styleDiffLine(theme component.Theme, line string) string {
+func styleDiffLine(theme theme.Theme, line string) string {
 	switch {
 	case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
 		return theme.DiffMetaStyle.Render(line)

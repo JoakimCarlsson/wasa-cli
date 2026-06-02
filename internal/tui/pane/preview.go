@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/joakimcarlsson/wasa/internal/backend"
-	"github.com/joakimcarlsson/wasa/internal/tui/component"
+	"github.com/joakimcarlsson/wasa/internal/tui/theme"
 )
 
 // PreviewMsg carries a fresh pane capture delivered by a control-mode stream.
@@ -143,7 +143,7 @@ func (p Preview) Capture() (content string, live bool) {
 // running; the root gates the no-session state and calls Body with running for
 // a selected session. An exited session shows an explanatory state, and a
 // running one shows the live capture or a waiting hint until output arrives.
-func (p Preview) Body(t component.Theme, running bool, w, h int) string {
+func (p Preview) Body(t theme.Theme, running bool, w, h int) string {
 	if !running {
 		return t.DimStyle.Render("Session exited — nothing to preview.")
 	}

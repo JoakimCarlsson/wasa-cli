@@ -8,11 +8,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/joakimcarlsson/wasa/internal/config"
+	"github.com/joakimcarlsson/wasa/internal/tui/theme"
 )
 
 // testTheme is the resolved default theme, used by the picker tests that build a
 // picker directly.
-func testTheme() Theme { return NewTheme(config.Default().Theme) }
+func testTheme() theme.Theme { return theme.NewTheme(config.Default().Theme) }
 
 // pickerTree lays out a small directory tree under a temp root and returns the
 // root path:

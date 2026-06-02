@@ -8,6 +8,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/joakimcarlsson/wasa/internal/tui/theme"
 )
 
 // branchMatch is a branch name that passed the current fuzzy filter, with the
@@ -24,7 +26,7 @@ type branchMatch struct {
 // new-branch entry: with a query that matches nothing, enter chooses the typed
 // text so a worktree can be created on a fresh branch.
 type BranchPicker struct {
-	theme   Theme
+	theme   theme.Theme
 	query   textinput.Model
 	all     []string
 	matches []branchMatch
@@ -48,7 +50,7 @@ type BranchCancelledMsg struct{}
 // NewBranchPicker builds the branch picker over branches, sized to width and
 // height, with an empty filter so the full list shows in incoming order.
 func NewBranchPicker(
-	theme Theme, branches []string, width, height int,
+	theme theme.Theme, branches []string, width, height int,
 ) BranchPicker {
 	q := textinput.New()
 	q.Prompt = "> "

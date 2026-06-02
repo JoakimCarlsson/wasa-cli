@@ -6,7 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/joakimcarlsson/wasa/internal/tui/component"
+	"github.com/joakimcarlsson/wasa/internal/tui/theme"
 )
 
 // ConfirmAcceptedMsg is emitted by a ConfirmDialog when the user accepts the
@@ -24,7 +24,7 @@ type ConfirmCancelledMsg struct{}
 // state; the parent decides what confirming means. The cancel button starts
 // focused so a stray enter on a destructive prompt cancels rather than confirms.
 type ConfirmDialog struct {
-	theme       component.Theme
+	theme       theme.Theme
 	title       string
 	body        string
 	confirmText string
@@ -37,7 +37,7 @@ type ConfirmDialog struct {
 // button labels and destructive styling, styled with theme. The cancel button
 // starts focused.
 func NewConfirmDialog(
-	theme component.Theme,
+	theme theme.Theme,
 	title, body, confirmText, cancelText string,
 	danger bool,
 ) ConfirmDialog {

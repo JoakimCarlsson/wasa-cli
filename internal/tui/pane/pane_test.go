@@ -11,12 +11,12 @@ import (
 
 	"github.com/joakimcarlsson/wasa/internal/backend"
 	"github.com/joakimcarlsson/wasa/internal/config"
-	"github.com/joakimcarlsson/wasa/internal/tui/component"
+	"github.com/joakimcarlsson/wasa/internal/tui/theme"
 	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
-func testTheme() component.Theme {
-	return component.NewTheme(config.Default().Theme)
+func testTheme() theme.Theme {
+	return theme.NewTheme(config.Default().Theme)
 }
 
 // fakeWatcher is a backend.Watcher backed by an in-memory channel, recording

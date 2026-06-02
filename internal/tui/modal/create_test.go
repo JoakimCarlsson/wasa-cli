@@ -8,14 +8,14 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/joakimcarlsson/wasa/internal/config"
-	"github.com/joakimcarlsson/wasa/internal/tui/component"
+	"github.com/joakimcarlsson/wasa/internal/tui/theme"
 	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
 // testTheme is the resolved default theme, used by the modal tests that build a
 // form or editor directly.
-func testTheme() component.Theme {
-	return component.NewTheme(config.Default().Theme)
+func testTheme() theme.Theme {
+	return theme.NewTheme(config.Default().Theme)
 }
 
 // emits reports whether cmd runs and yields a message of type T.

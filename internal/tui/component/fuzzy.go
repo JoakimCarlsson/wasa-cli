@@ -3,6 +3,8 @@ package component
 import (
 	"os"
 	"strings"
+
+	"github.com/joakimcarlsson/wasa/internal/tui/theme"
 )
 
 // PickerRows is the most tree or list rows a picker shows at once; the view
@@ -68,7 +70,7 @@ func isBoundary(b byte) bool {
 // highlight styles label rune by rune, accenting the byte offsets listed in
 // positions and leaving the rest plain, so a fuzzy match reads as the query
 // characters lit up inside the name.
-func highlight(theme Theme, label string, positions []int) string {
+func highlight(theme theme.Theme, label string, positions []int) string {
 	if len(positions) == 0 {
 		return label
 	}

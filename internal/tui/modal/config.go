@@ -11,6 +11,7 @@ import (
 
 	"github.com/joakimcarlsson/wasa/internal/config"
 	"github.com/joakimcarlsson/wasa/internal/tui/component"
+	"github.com/joakimcarlsson/wasa/internal/tui/theme"
 )
 
 // ConfigApplyMsg is emitted by a ConfigEditor when a field is committed; the
@@ -63,7 +64,7 @@ type cfgField struct {
 // are edited with RGB sliders, bindings by recording keypresses, layout values as
 // numbers; every edit funnels back through the same string setters as config.json.
 type ConfigEditor struct {
-	theme   component.Theme
+	theme   theme.Theme
 	working config.Config
 	fields  []cfgField
 	cursor  int
@@ -81,7 +82,7 @@ type ConfigEditor struct {
 // NewConfigEditor builds the settings panel over a working copy of cfg, sized to
 // width and height and styled with theme.
 func NewConfigEditor(
-	theme component.Theme, cfg config.Config, width, height int,
+	theme theme.Theme, cfg config.Config, width, height int,
 ) ConfigEditor {
 	working := cfg
 	working.Keys = make(config.Keys, len(cfg.Keys))
@@ -558,7 +559,7 @@ func window(lines []string, focus, h int) []string {
 // "#hex" value (or "#light / #dark" when the variants differ) on commit, which the
 // config editor parses back through parseColor.
 type colorEditor struct {
-	theme   component.Theme
+	theme   theme.Theme
 	light   [3]int
 	dark    [3]int
 	variant int
@@ -568,7 +569,7 @@ type colorEditor struct {
 	repeat  int
 }
 
-func newColorEditor(theme component.Theme, c config.Color) colorEditor {
+func newColorEditor(theme theme.Theme, c config.Color) colorEditor {
 	return colorEditor{
 		theme: theme,
 		light: parseRGB(c.Light),
@@ -780,7 +781,7 @@ func ansi256RGB(n int) [3]int {
 // backspace are reserved by the editor as commit/cancel/remove, so they cannot be
 // recorded here.
 type recordEditor struct {
-	theme  component.Theme
+	theme  theme.Theme
 	action string
 	keys   []string
 	other  map[string]string
@@ -788,7 +789,7 @@ type recordEditor struct {
 }
 
 func newRecordEditor(
-	theme component.Theme, action string, working config.Config,
+	theme theme.Theme, action string, working config.Config,
 ) recordEditor {
 	other := make(map[string]string)
 	for a, ks := range working.Keys {

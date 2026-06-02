@@ -12,6 +12,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/joakimcarlsson/wasa/internal/tui/theme"
 )
 
 // maxFilterDepth bounds how deep a fuzzy filter walks below the root and
@@ -104,7 +106,7 @@ type FilterResultMsg struct {
 // filterGen and schedules a FilterTickMsg, the tick spawns the walk, and a
 // FilterResultMsg is applied only while its gen is still current.
 type DirectoryPicker struct {
-	theme      Theme
+	theme      theme.Theme
 	root       *treeNode
 	filterRoot *treeNode
 	query      textinput.Model
@@ -135,7 +137,7 @@ type DirectoryPicker struct {
 // cursor starts on it. recents seeds the recent pane; with none the picker shows
 // the tree alone.
 func NewDirectoryPicker(
-	theme Theme,
+	theme theme.Theme,
 	rootPath, selectPath, home string,
 	recents []RecentDir,
 	width, height int,

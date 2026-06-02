@@ -28,6 +28,7 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/tui/component"
 	"github.com/joakimcarlsson/wasa/internal/tui/modal"
 	"github.com/joakimcarlsson/wasa/internal/tui/pane"
+	"github.com/joakimcarlsson/wasa/internal/tui/theme"
 )
 
 // mode is the model's interaction mode: browsing the session list or filling in
@@ -62,7 +63,7 @@ type Model struct {
 	stream backend.StreamingBackend
 	cfg    config.Config
 	keys   component.Keymap
-	theme  component.Theme
+	theme  theme.Theme
 
 	workspaces []*registry.Workspace
 	activeID   string
@@ -107,20 +108,20 @@ func New(
 	cfg config.Config,
 ) Model {
 	be := backend.Default()
-	theme := component.NewTheme(cfg.Theme)
+	th := theme.NewTheme(cfg.Theme)
 	m := Model{
 		home:         home,
 		reg:          reg,
 		tmux:         be,
 		cfg:          cfg,
 		keys:         component.NewKeymap(cfg.Keys),
-		theme:        theme,
+		theme:        th,
 		now:          time.Now,
 		statuses:     sessionstatus.NewTracker(time.Now),
 		notify:       makeNotifier(cfg.Notify),
 		lastNotifyAt: make(map[string]time.Time),
 		lastStatus:   make(map[string]sessionstatus.Status),
-		diff:         pane.NewDiff(theme),
+		diff:         pane.NewDiff(th),
 		term:         pane.NewTerminal(),
 	}
 	m.osHome, _ = os.UserHomeDir()
@@ -581,7 +582,7 @@ func (m Model) applyConfig(cfg config.Config) (tea.Model, tea.Cmd) {
 	}
 	cfg.Path = config.Path(m.home)
 	m.cfg = cfg
-	m.theme = component.NewTheme(cfg.Theme)
+	m.theme = theme.NewTheme(cfg.Theme)
 	m.diff.SetTheme(m.theme)
 	m.keys = component.NewKeymap(cfg.Keys)
 	m.notify = makeNotifier(cfg.Notify)

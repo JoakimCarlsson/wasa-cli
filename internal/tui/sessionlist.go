@@ -17,6 +17,7 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
 	"github.com/joakimcarlsson/wasa/internal/tui/component"
 	"github.com/joakimcarlsson/wasa/internal/tui/pane"
+	"github.com/joakimcarlsson/wasa/internal/tui/theme"
 	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
@@ -322,14 +323,14 @@ func sessionLabel(s *registry.Session) (title, ref string) {
 
 // confirmBody composes a confirm-modal body: the prompt followed by the dimmed
 // branch · profile line that identifies the target session.
-func confirmBody(theme component.Theme, prompt string, s *registry.Session) string {
+func confirmBody(theme theme.Theme, prompt string, s *registry.Session) string {
 	_, ref := sessionLabel(s)
 	return prompt + "\n\n" + theme.DimStyle.Render(
 		fmt.Sprintf("%s %s · %s", branchIcon, ref, s.ProfileName),
 	)
 }
 
-func statusDot(theme component.Theme, s sessionstatus.Status) string {
+func statusDot(theme theme.Theme, s sessionstatus.Status) string {
 	switch s {
 	case sessionstatus.Waiting:
 		return theme.WaitingDotStyle.Render(waitingIcon)
@@ -342,7 +343,7 @@ func statusDot(theme component.Theme, s sessionstatus.Status) string {
 	}
 }
 
-func noWorkspaceBanner(theme component.Theme) string {
+func noWorkspaceBanner(theme theme.Theme) string {
 	return theme.BannerStyle.Render("No workspaces yet.") + "\n\n" +
 		theme.DimStyle.Render(
 			"Press n to start a plain session here.\n\n"+
@@ -351,7 +352,7 @@ func noWorkspaceBanner(theme component.Theme) string {
 		)
 }
 
-func noSessionBanner(theme component.Theme, name string) string {
+func noSessionBanner(theme theme.Theme, name string) string {
 	title := "No sessions here."
 	if name != "" {
 		title = fmt.Sprintf("No sessions in %s.", name)
