@@ -1,25 +1,60 @@
 name: Feature request
-description: Suggest an idea or improvement for wasa
+description: Propose a feature or improvement for wasa
 labels: ["kind/feature"]
 body:
-  - type: textarea
-    id: problem
+  - type: markdown
     attributes:
-      label: Problem / motivation
-      description: What problem are you trying to solve? Why does it matter?
+      value: |
+        Required fields are Why and How it should work. The rest is scaffolding — fill what you can; it makes the issue ready to pick up without a back-and-forth.
+  - type: textarea
+    id: why
+    attributes:
+      label: Why / Context
+      description: Why does this need to exist? What problem does it solve or goal does it serve?
+      placeholder: |
+        Today X is impossible / painful because ...
+        This matters because ...
     validations:
       required: true
   - type: textarea
-    id: solution
+    id: how
     attributes:
-      label: Proposed solution
-      description: Describe what you would like to happen.
+      label: How it should work
+      description: How should it behave? Design decisions, constraints, edge cases, behavior on the unhappy path.
+      placeholder: |
+        - Reuse ... rather than ...
+        - Idempotent: ...
+        - On error: ...
     validations:
       required: true
   - type: textarea
-    id: alternatives
+    id: what
     attributes:
-      label: Alternatives considered
-      description: Any alternative approaches or workarounds you have thought about.
+      label: What needs to happen
+      description: Scope — which parts of the code / config / UI does this touch?
+      placeholder: |
+        Add ... that does ...
+        Touches: internal/...
+    validations:
+      required: false
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Binary, testable checks — done or not done.
+      value: |
+        - [ ]
+        - [ ]
+    validations:
+      required: false
+  - type: textarea
+    id: verify
+    attributes:
+      label: How to verify
+      description: Commands and/or manual steps to confirm it's done, run locally before opening a PR.
+      placeholder: |
+        go build ./... && go test ./internal/...
+        make fmt && make lint
+        Manual: run wasa, do X, expect Y.
     validations:
       required: false
