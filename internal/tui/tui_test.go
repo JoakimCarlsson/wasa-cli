@@ -219,7 +219,9 @@ func TestSubmitEmptyDefaultsToWorkingDir(t *testing.T) {
 	next, _ := m.enterCreate()
 	m = next.(Model)
 
-	next, _ = m.updateCreate(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.updateCreate(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	next, _ = m.Update(cmd())
 	got := next.(Model)
 	if got.mode != modeList {
 		t.Fatalf("submit left mode = %v, want modeList", got.mode)
@@ -369,12 +371,17 @@ func TestConfirmCancelLeavesSessionUnchanged(t *testing.T) {
 		{Type: tea.KeyRunes, Runes: []rune("n")},
 		{Type: tea.KeyRunes, Runes: []rune("q")},
 	} {
-		next, _ := m.updateConfirm(key)
+		next, cmd := m.updateConfirm(key)
 		got := next.(Model)
+		if cmd == nil {
+			t.Fatalf("cancel key %v produced no decision", key)
+		}
+		next, follow := got.Update(cmd())
+		got = next.(Model)
 		if got.mode != modeList {
 			t.Fatalf("cancel key %v did not return to the list", key)
 		}
-		if got.confirmCmd != nil {
+		if follow != nil {
 			t.Fatalf("cancel key %v left a pending command", key)
 		}
 	}
@@ -393,21 +400,24 @@ func TestConfirmDeleteRemovesExitedSession(t *testing.T) {
 	next, _ := m.enterConfirmDelete()
 	m = next.(Model)
 
-	// y confirms directly regardless of which button is focused.
 	next, cmd := m.updateConfirm(
 		tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")},
 	)
 	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("confirm produced no decision")
+	}
+
+	next, del := m.Update(cmd())
+	m = next.(Model)
 	if m.mode != modeList {
 		t.Fatal("confirm did not return to the list")
 	}
-	if cmd == nil {
+	if del == nil {
 		t.Fatal("confirm produced no delete command")
 	}
 
-	// The exited-session path runs no backend; the command removes the record
-	// and Saves. Feeding its result back into Update refreshes and clamps.
-	next, _ = m.Update(cmd())
+	next, _ = m.Update(del())
 	m = next.(Model)
 	if m.err != nil {
 		t.Fatalf("delete reported error: %v", m.err)
@@ -431,11 +441,16 @@ func TestConfirmEnterDefaultsToCancel(t *testing.T) {
 	// The cancel button starts focused, so a stray enter must not delete.
 	next, cmd := m.updateConfirm(tea.KeyMsg{Type: tea.KeyEnter})
 	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("enter produced no decision")
+	}
+	next, follow := m.Update(cmd())
+	m = next.(Model)
 	if m.mode != modeList {
 		t.Fatal("enter did not close the modal")
 	}
-	if cmd != nil {
-		t.Fatal("enter on the default (cancel) focus produced a command")
+	if follow != nil {
+		t.Fatal("cancel produced a follow-up command")
 	}
 	if _, ok := m.reg.Session("a1"); !ok {
 		t.Fatal("enter on the default focus deleted the session")
@@ -456,10 +471,14 @@ func TestConfirmFocusConfirmThenEnter(t *testing.T) {
 	next, cmd := m.updateConfirm(tea.KeyMsg{Type: tea.KeyEnter})
 	m = next.(Model)
 	if cmd == nil {
-		t.Fatal("enter on the confirm button produced no delete command")
+		t.Fatal("enter on the confirm button produced no decision")
 	}
-	next, _ = m.Update(cmd())
+	next, del := m.Update(cmd())
 	m = next.(Model)
+	if del == nil {
+		t.Fatal("confirming did not run the stored delete command")
+	}
+	del()
 	if _, ok := m.reg.Session("a1"); ok {
 		t.Fatal("tab+enter did not delete the session")
 	}

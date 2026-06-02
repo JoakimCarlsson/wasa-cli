@@ -50,39 +50,45 @@ func newBranchPicker(th Theme, branches []string, width, height int) branchPicke
 	return p
 }
 
-func (p branchPicker) update(
-	msg tea.Msg,
-) (branchPicker, dirPickerResult, tea.Cmd) {
+// branchPickedMsg reports the branch the user chose or typed; branchCancelledMsg
+// reports that the picker was dismissed. The picker emits one as a command, so
+// its result reaches the create form through the normal message path.
+type (
+	branchPickedMsg    struct{ branch string }
+	branchCancelledMsg struct{}
+)
+
+func (p branchPicker) update(msg tea.Msg) (branchPicker, tea.Cmd) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
-		return p, pickNone, nil
+		return p, nil
 	}
 
 	switch key.String() {
 	case "esc":
-		return p, pickCancel, nil
+		return p, emit(branchCancelledMsg{})
 	case "enter":
 		if m := p.selected(); m != nil {
 			p.chosen = m.name
-			return p, pickChoose, nil
+			return p, emit(branchPickedMsg{branch: p.chosen})
 		}
 		if q := strings.TrimSpace(p.query.Value()); q != "" {
 			p.chosen = q
-			return p, pickChoose, nil
+			return p, emit(branchPickedMsg{branch: q})
 		}
-		return p, pickNone, nil
+		return p, nil
 	case "up", "ctrl+p":
 		p.move(-1)
-		return p, pickNone, nil
+		return p, nil
 	case "down", "ctrl+n":
 		p.move(1)
-		return p, pickNone, nil
+		return p, nil
 	}
 
 	var cmd tea.Cmd
 	p.query, cmd = p.query.Update(msg)
 	p.filter()
-	return p, pickNone, cmd
+	return p, cmd
 }
 
 func (p *branchPicker) selected() *branchMatch {

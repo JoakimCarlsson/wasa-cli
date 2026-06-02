@@ -49,7 +49,7 @@ func TestDiffBodyLoadingBeforeCompute(t *testing.T) {
 func TestEnsureDiffCmdGuardsAlreadyLoaded(t *testing.T) {
 	m := diffWorktreeModel(t)
 	m.tabs.active = paneDiff
-	m.tabs.diff.sid = m.selectedSession().ID // pretend it is already loaded
+	m.tabs.diff.sid = m.selectedSession().ID
 	if cmd := m.tabs.diff.ensure(m.selectedSession(), m.reg, m.home); cmd != nil {
 		t.Fatal("ensure recomputed an already-loaded diff")
 	}

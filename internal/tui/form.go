@@ -24,15 +24,14 @@ const (
 	fieldCount
 )
 
-// formResult is what a form update reports back to the parent model.
-type formResult int
-
-const (
-	formNone formResult = iota
-	formSubmit
-	formCancel
-	formPickDir
-	formPickBranch
+// The create form reports its outcomes to the parent as typed messages rather
+// than a private result enum: submit, cancel, and the two "open a picker"
+// requests each flow up as a command the top-level Update handles.
+type (
+	formSubmitMsg     struct{}
+	formCancelMsg     struct{}
+	formPickDirMsg    struct{}
+	formPickBranchMsg struct{}
 )
 
 // createForm collects the inputs for a new session. The two session shapes share
@@ -118,37 +117,37 @@ func branchRepoFor(dir string) string {
 	return top
 }
 
-func (f createForm) update(msg tea.Msg) (createForm, formResult, tea.Cmd) {
+func (f createForm) update(msg tea.Msg) (createForm, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.String() {
 		case "esc":
-			return f, formCancel, nil
+			return f, emit(formCancelMsg{})
 		case "ctrl+f":
 			switch f.focus {
 			case fieldDir:
-				return f, formPickDir, nil
+				return f, emit(formPickDirMsg{})
 			case fieldBranch:
 				if f.branchEnabled() {
-					return f, formPickBranch, nil
+					return f, emit(formPickBranchMsg{})
 				}
 			}
-			return f, formNone, nil
+			return f, nil
 		case "enter":
-			return f, formSubmit, nil
+			return f, emit(formSubmitMsg{})
 		case "tab", "down":
 			f.focusNext()
-			return f, formNone, nil
+			return f, nil
 		case "shift+tab", "up":
 			f.focusPrev()
-			return f, formNone, nil
+			return f, nil
 		case "left", "right":
 			switch f.focus {
 			case fieldProfile:
 				f.cycleProfile(key.String() == "right")
-				return f, formNone, nil
+				return f, nil
 			case fieldProgram:
 				f.cycleProgram(key.String() == "right")
-				return f, formNone, nil
+				return f, nil
 			}
 		}
 	}
@@ -159,9 +158,9 @@ func (f createForm) update(msg tea.Msg) (createForm, formResult, tea.Cmd) {
 		if f.focus == fieldDir {
 			f.syncBranchRepo()
 		}
-		return f, formNone, cmd
+		return f, cmd
 	}
-	return f, formNone, nil
+	return f, nil
 }
 
 // setProfiles replaces the profile menu with names, the profiles of the

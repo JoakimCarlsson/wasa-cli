@@ -7,14 +7,15 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// confirmResult is what a confirmDialog update reports back to its parent.
-type confirmResult int
+// confirmDecisionMsg is the typed result a confirmDialog reports up to its
+// parent: confirmed is true when the user accepted the prompt, false when they
+// cancelled it. The dialog emits it as a command rather than returning a private
+// enum, so results flow up through the normal message path.
+type confirmDecisionMsg struct{ confirmed bool }
 
-const (
-	confirmNone confirmResult = iota
-	confirmYes
-	confirmNo
-)
+func confirmDecision(confirmed bool) tea.Cmd {
+	return func() tea.Msg { return confirmDecisionMsg{confirmed: confirmed} }
+}
 
 // confirmDialog is a reusable yes/no modal: a titled, bordered box with a body
 // prompt and two focusable buttons rendered like a web dialog. Left/right (or
@@ -47,26 +48,23 @@ func newConfirmDialog(
 	}
 }
 
-func (d confirmDialog) update(msg tea.Msg) (confirmDialog, confirmResult) {
+func (d confirmDialog) update(msg tea.Msg) (confirmDialog, tea.Cmd) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
-		return d, confirmNone
+		return d, nil
 	}
 	switch key.String() {
 	case "left", "right", "tab", "shift+tab", "h", "l":
 		d.onConfirm = !d.onConfirm
-		return d, confirmNone
+		return d, nil
 	case "enter":
-		if d.onConfirm {
-			return d, confirmYes
-		}
-		return d, confirmNo
+		return d, confirmDecision(d.onConfirm)
 	case "y":
-		return d, confirmYes
+		return d, confirmDecision(true)
 	case "n", "esc", "q":
-		return d, confirmNo
+		return d, confirmDecision(false)
 	}
-	return d, confirmNone
+	return d, nil
 }
 
 func (d confirmDialog) view() string {

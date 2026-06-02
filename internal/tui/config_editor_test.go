@@ -56,15 +56,15 @@ func TestEditorRecordKeyCommitsOnApply(t *testing.T) {
 		t.Fatal("new key field not found")
 	}
 
-	e, _, _ = e.update(tea.KeyMsg{Type: tea.KeyEnter}) // start recording
+	e, _ = e.update(tea.KeyMsg{Type: tea.KeyEnter})
 	if e.phase != editKeys {
 		t.Fatal("enter did not open the key recorder")
 	}
-	e, _, _ = e.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	e, _ = e.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 
-	e, result, _ := e.update(tea.KeyMsg{Type: tea.KeyEnter}) // commit
-	if result != cfgApply {
-		t.Fatalf("commit result = %v, want apply", result)
+	e, cmd := e.update(tea.KeyMsg{Type: tea.KeyEnter})
+	if _, ok := runMsg(cmd).(cfgAppliedMsg); !ok {
+		t.Fatal("commit did not report a cfgAppliedMsg")
 	}
 	if e.phase != editNone {
 		t.Fatal("commit did not leave the recorder")
@@ -79,17 +79,17 @@ func TestEditorColorSliderAdjustsAndCommits(t *testing.T) {
 	e := newConfigEditor(testTheme, config.Default(), 60, 20)
 	e.cursor = fieldIndex(e, "Theme", "accent")
 
-	e, _, _ = e.update(tea.KeyMsg{Type: tea.KeyEnter}) // open sliders
+	e, _ = e.update(tea.KeyMsg{Type: tea.KeyEnter})
 	if e.phase != editColor {
 		t.Fatal("enter did not open the colour picker")
 	}
 	before := e.color.value()
-	e, _, _ = e.update(tea.KeyMsg{Type: tea.KeyRight}) // +1 on R
+	e, _ = e.update(tea.KeyMsg{Type: tea.KeyRight})
 	if e.color.value() == before {
 		t.Fatal("right arrow did not adjust the channel")
 	}
 
-	e, _, _ = e.update(tea.KeyMsg{Type: tea.KeyEnter}) // commit
+	e, _ = e.update(tea.KeyMsg{Type: tea.KeyEnter})
 	if e.phase != editNone {
 		t.Fatal("commit did not leave the colour picker")
 	}
@@ -102,9 +102,9 @@ func TestEditorInvalidLayoutKeepsEditing(t *testing.T) {
 	e := newConfigEditor(testTheme, config.Default(), 60, 20)
 	e.cursor = fieldIndex(e, "Layout", "listColFrac")
 
-	e, _, _ = e.update(tea.KeyMsg{Type: tea.KeyEnter})
+	e, _ = e.update(tea.KeyMsg{Type: tea.KeyEnter})
 	e.input.SetValue("not-a-number")
-	e, _, _ = e.update(tea.KeyMsg{Type: tea.KeyEnter})
+	e, _ = e.update(tea.KeyMsg{Type: tea.KeyEnter})
 
 	if e.phase != editText {
 		t.Fatal("invalid commit should keep editing")

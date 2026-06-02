@@ -121,8 +121,8 @@ func TestDirPickerExpandRevealsChildren(t *testing.T) {
 	root := pickerTree(t)
 	p := newDirPicker(testTheme, root, "", root, nil, 60, 14)
 
-	p, _, _ = p.update(keyDown())  // onto alpha
-	p, _, _ = p.update(keyRight()) // expand alpha
+	p, _ = p.update(keyDown())
+	p, _ = p.update(keyRight())
 
 	want := filepath.Join(root, "alpha", "nested")
 	found := false
@@ -144,10 +144,10 @@ func TestDirPickerCollapse(t *testing.T) {
 	root := pickerTree(t)
 	p := newDirPicker(testTheme, root, "", root, nil, 60, 14)
 
-	p, _, _ = p.update(keyDown())  // alpha
-	p, _, _ = p.update(keyRight()) // expand
+	p, _ = p.update(keyDown())
+	p, _ = p.update(keyRight())
 	expanded := len(p.visible)
-	p, _, _ = p.update(keyRight()) // collapse
+	p, _ = p.update(keyRight())
 
 	if len(p.visible) >= expanded {
 		t.Errorf(
@@ -162,11 +162,11 @@ func TestDirPickerChooseReportsPath(t *testing.T) {
 	root := pickerTree(t)
 	p := newDirPicker(testTheme, root, "", root, nil, 60, 14)
 
-	p, _, _ = p.update(keyDown()) // alpha
-	p, result, _ := p.update(keyEnter())
+	p, _ = p.update(keyDown())
+	p, cmd := p.update(keyEnter())
 
-	if result != pickChoose {
-		t.Fatalf("result = %v, want pickChoose", result)
+	if _, ok := runMsg(cmd).(dirPickedMsg); !ok {
+		t.Fatal("enter did not report a chosen directory")
 	}
 	if want := filepath.Join(root, "alpha"); p.chosen != want {
 		t.Errorf("chosen = %q, want %q", p.chosen, want)
@@ -178,7 +178,7 @@ func TestDirPickerAscendRoot(t *testing.T) {
 	child := filepath.Join(root, "alpha")
 	p := newDirPicker(testTheme, child, "", child, nil, 60, 14)
 
-	p, _, _ = p.update(keyRunes("-"))
+	p, _ = p.update(keyRunes("-"))
 
 	if p.root.path != root {
 		t.Fatalf("root = %q, want %q", p.root.path, root)
@@ -198,7 +198,7 @@ func TestDirPickerFilterFindsNested(t *testing.T) {
 	root := pickerTree(t)
 	p := newDirPicker(testTheme, root, "", root, nil, 60, 14)
 
-	p, _, _ = p.update(keyRunes("nested"))
+	p, _ = p.update(keyRunes("nested"))
 
 	if !p.filtering {
 		t.Fatal("expected picker to be filtering")
@@ -233,11 +233,11 @@ func TestDirPickerFilterEscClears(t *testing.T) {
 	root := pickerTree(t)
 	p := newDirPicker(testTheme, root, "", root, nil, 60, 14)
 
-	p, _, _ = p.update(keyRunes("beta"))
-	p, result, _ := p.update(tea.KeyMsg{Type: tea.KeyEsc})
+	p, _ = p.update(keyRunes("beta"))
+	p, cmd := p.update(tea.KeyMsg{Type: tea.KeyEsc})
 
-	if result != pickNone {
-		t.Fatalf("first esc result = %v, want pickNone (clear)", result)
+	if _, ok := runMsg(cmd).(dirCancelledMsg); ok {
+		t.Fatal("first esc cancelled instead of clearing the filter")
 	}
 	if p.filtering {
 		t.Errorf("filter should be cleared after esc")
@@ -247,9 +247,9 @@ func TestDirPickerFilterEscClears(t *testing.T) {
 func TestDirPickerEscCancels(t *testing.T) {
 	root := pickerTree(t)
 	p := newDirPicker(testTheme, root, "", root, nil, 60, 14)
-	_, result, _ := p.update(tea.KeyMsg{Type: tea.KeyEsc})
-	if result != pickCancel {
-		t.Errorf("result = %v, want pickCancel", result)
+	_, cmd := p.update(tea.KeyMsg{Type: tea.KeyEsc})
+	if _, ok := runMsg(cmd).(dirCancelledMsg); !ok {
+		t.Error("esc did not cancel")
 	}
 }
 

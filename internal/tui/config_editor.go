@@ -12,13 +12,23 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/config"
 )
 
-// cfgResult is what a configEditor update reports back to the cockpit.
+// cfgResult is the configEditor's internal state-machine signal between its own
+// update methods. It never crosses to the cockpit: update translates it into a
+// cfgAppliedMsg or cfgClosedMsg command, the typed results the parent handles.
 type cfgResult int
 
 const (
-	cfgNone  cfgResult = iota
-	cfgApply           // a field was committed; persist it and apply it live
-	cfgClose           // leave the panel
+	cfgNone cfgResult = iota
+	cfgApply
+	cfgClose
+)
+
+// cfgAppliedMsg reports that a field was committed and carries the edited config
+// for the cockpit to persist and apply live; cfgClosedMsg reports that the panel
+// was dismissed.
+type (
+	cfgAppliedMsg struct{ cfg config.Config }
+	cfgClosedMsg  struct{}
 )
 
 // fieldKind selects how a setting is edited: a free-text input for numbers, the
@@ -284,16 +294,28 @@ func parseKeys(s string) (config.KeyList, error) {
 	return keys, nil
 }
 
-func (e configEditor) update(msg tea.Msg) (configEditor, cfgResult, tea.Cmd) {
+func (e configEditor) update(msg tea.Msg) (configEditor, tea.Cmd) {
+	var (
+		result cfgResult
+		cmd    tea.Cmd
+	)
 	switch e.phase {
 	case editText:
-		return e.updateText(msg)
+		e, result, cmd = e.updateText(msg)
 	case editColor:
-		return e.updateColor(msg)
+		e, result, cmd = e.updateColor(msg)
 	case editKeys:
-		return e.updateKeys(msg)
+		e, result, cmd = e.updateKeys(msg)
+	default:
+		e, result, cmd = e.updateList(msg)
 	}
-	return e.updateList(msg)
+	switch result {
+	case cfgApply:
+		return e, tea.Batch(cmd, emit(cfgAppliedMsg{cfg: e.config()}))
+	case cfgClose:
+		return e, tea.Batch(cmd, emit(cfgClosedMsg{}))
+	}
+	return e, cmd
 }
 
 // updateList routes input for the field list: navigation, opening the focused

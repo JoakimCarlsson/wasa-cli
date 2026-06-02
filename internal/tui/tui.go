@@ -164,6 +164,12 @@ func (m Model) Init() tea.Cmd {
 	return func() tea.Msg { return tickMsg{} }
 }
 
+// emit wraps a ready message value in a command, the idiom for a child
+// reporting a result up to its parent through the normal message path.
+func emit(msg tea.Msg) tea.Cmd {
+	return func() tea.Msg { return msg }
+}
+
 type tickMsg struct{}
 
 func tick() tea.Cmd {
@@ -205,6 +211,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = err
 		}
 		return m, cmd
+
+	case confirmDecisionMsg:
+		return m.applyConfirmDecision(msg)
+
+	case formSubmitMsg, formCancelMsg, formPickDirMsg, formPickBranchMsg:
+		return m.applyFormEvent(msg)
+
+	case cfgAppliedMsg, cfgClosedMsg:
+		return m.applyConfigEvent(msg)
+
+	case dirPickedMsg, dirCancelledMsg:
+		return m.applyDirPick(msg)
+
+	case branchPickedMsg, branchCancelledMsg:
+		return m.applyBranchPick(msg)
 
 	case createdMsg:
 		if msg.err != nil {
@@ -327,25 +348,40 @@ func (m *Model) afterListChange() tea.Cmd {
 	return m.tabs.retarget(m.selectedSession(), m.reg, m.home)
 }
 
+// updateCreate routes key input to the create form. The form reports its
+// outcomes (submit, cancel, open a picker) up as typed messages handled by the
+// top-level Update; here we only keep the profile menu in sync with the
+// directory the form currently resolves to.
 func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	prevBranchRepo := m.form.branchRepo
-	form, result, cmd := m.form.update(msg)
+	form, cmd := m.form.update(msg)
 	m.form = form
 	if m.form.branchRepo != prevBranchRepo {
 		m.form.setProfiles(m.profilesFor(m.form.branchRepo))
 	}
-	switch result {
-	case formCancel:
+	return m, cmd
+}
+
+// applyFormEvent handles an outcome the create form reported. It is a no-op
+// outside create mode so a late delivery cannot act on a closed form. Cancel
+// returns to the list, the pick events open the directory or branch browser, and
+// submit turns the form into a session.
+func (m Model) applyFormEvent(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.mode != modeCreate {
+		return m, nil
+	}
+	switch msg.(type) {
+	case formCancelMsg:
 		m.mode = modeList
 		return m, nil
-	case formPickDir:
+	case formPickDirMsg:
 		return m.enterPick()
-	case formPickBranch:
+	case formPickBranchMsg:
 		return m.enterBranchPick()
-	case formSubmit:
+	case formSubmitMsg:
 		return m.submitCreate()
 	}
-	return m, cmd
+	return m, nil
 }
 
 // submitCreate turns the create form into a session. A worktree session is
@@ -507,23 +543,33 @@ func (m Model) recentDirs() []recentDir {
 	return out
 }
 
-// updatePick routes input for the open directory browser. Choosing a directory
-// writes it into the form's Directory field and returns to the form; cancelling
-// returns to the form unchanged.
+// updatePick routes input to the open directory browser. The browser reports a
+// chosen directory as a dirPickedMsg and a dismissal as a dirCancelledMsg, both
+// handled by the top-level Update.
 func (m Model) updatePick(msg tea.Msg) (tea.Model, tea.Cmd) {
-	picker, result, cmd := m.picker.update(msg)
+	picker, cmd := m.picker.update(msg)
 	m.picker = picker
-	switch result {
-	case pickCancel:
+	return m, cmd
+}
+
+// applyDirPick handles the directory browser's reported outcome: a chosen
+// directory writes into the form's Directory field and returns to the form;
+// dismissal returns unchanged. It is a no-op outside directory-pick mode.
+func (m Model) applyDirPick(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.mode != modePick {
+		return m, nil
+	}
+	switch msg := msg.(type) {
+	case dirCancelledMsg:
 		m.mode = modeCreate
 		return m, textinput.Blink
-	case pickChoose:
-		m.form.setDir(picker.chosen)
+	case dirPickedMsg:
+		m.form.setDir(msg.path)
 		m.form.setProfiles(m.profilesFor(m.form.branchRepo))
 		m.mode = modeCreate
 		return m, textinput.Blink
 	}
-	return m, cmd
+	return m, nil
 }
 
 // enterBranchPick opens the branch picker over the create form, listing the
@@ -546,22 +592,32 @@ func (m Model) enterBranchPick() (tea.Model, tea.Cmd) {
 	return m, textinput.Blink
 }
 
-// updateBranchPick routes input for the open branch picker. Choosing or typing a
-// branch writes it into the form's Branch field and returns to the form;
-// cancelling returns unchanged.
+// updateBranchPick routes input to the open branch picker. The picker reports a
+// chosen branch as a branchPickedMsg and a dismissal as a branchCancelledMsg,
+// both handled by the top-level Update.
 func (m Model) updateBranchPick(msg tea.Msg) (tea.Model, tea.Cmd) {
-	picker, result, cmd := m.branch.update(msg)
+	picker, cmd := m.branch.update(msg)
 	m.branch = picker
-	switch result {
-	case pickCancel:
+	return m, cmd
+}
+
+// applyBranchPick handles the branch picker's reported outcome: a chosen or
+// typed branch writes into the form's Branch field and returns to the form;
+// dismissal returns unchanged. It is a no-op outside branch-pick mode.
+func (m Model) applyBranchPick(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.mode != modePickBranch {
+		return m, nil
+	}
+	switch msg := msg.(type) {
+	case branchCancelledMsg:
 		m.mode = modeCreate
 		return m, textinput.Blink
-	case pickChoose:
-		m.form.setBranch(picker.chosen)
+	case branchPickedMsg:
+		m.form.setBranch(msg.branch)
 		m.mode = modeCreate
 		return m, textinput.Blink
 	}
-	return m, cmd
+	return m, nil
 }
 
 // repoBranches lists the local branches of the repository at repoPath, newest
@@ -639,21 +695,27 @@ func (m Model) enterConfirm(
 	return m, nil
 }
 
-// updateConfirm routes key input for the active confirm modal. Accepting it runs
-// the stored command; cancelling returns to the list with no change.
+// updateConfirm routes key input to the active confirm modal. The dialog
+// reports the user's choice up as a confirmDecisionMsg command, handled by the
+// top-level Update.
 func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
-	dialog, result := m.confirm.update(msg)
+	dialog, cmd := m.confirm.update(msg)
 	m.confirm = dialog
-	switch result {
-	case confirmYes:
-		cmd := m.confirmCmd
-		m.mode = modeList
-		m.confirmCmd = nil
-		return m, cmd
-	case confirmNo:
-		m.mode = modeList
-		m.confirmCmd = nil
+	return m, cmd
+}
+
+// applyConfirmDecision handles the confirm modal's reported choice: accepting it
+// runs the stored command; cancelling returns to the list with no change. It is
+// a no-op outside confirm mode so a late delivery cannot fire the action twice.
+func (m Model) applyConfirmDecision(msg confirmDecisionMsg) (tea.Model, tea.Cmd) {
+	if m.mode != modeConfirm {
 		return m, nil
+	}
+	cmd := m.confirmCmd
+	m.mode = modeList
+	m.confirmCmd = nil
+	if msg.confirmed {
+		return m, cmd
 	}
 	return m, nil
 }
@@ -669,22 +731,33 @@ func (m Model) enterConfig() (tea.Model, tea.Cmd) {
 	return m, textinput.Blink
 }
 
-// updateConfig routes input for the open settings panel. Each committed field
-// (cfgApply) is validated, persisted and applied to the running cockpit in place,
-// so an edit takes effect and survives a restart with no separate save step; a
-// commit that fails validation keeps the panel open with the error. Closing
-// (cfgClose) returns to the list — by then every committed edit is already saved.
+// updateConfig routes input to the open settings panel. The panel reports a
+// committed field as a cfgAppliedMsg and a dismissal as a cfgClosedMsg, both
+// handled by the top-level Update.
 func (m Model) updateConfig(msg tea.Msg) (tea.Model, tea.Cmd) {
-	editor, result, cmd := m.editor.update(msg)
+	editor, cmd := m.editor.update(msg)
 	m.editor = editor
-	switch result {
-	case cfgApply:
-		return m.applyConfig(editor.config())
-	case cfgClose:
+	return m, cmd
+}
+
+// applyConfigEvent handles the settings panel's reported outcome. A committed
+// field is validated, persisted and applied to the running cockpit in place, so
+// an edit takes effect and survives a restart with no separate save step; a
+// commit that fails validation keeps the panel open with the error. A
+// dismissal returns to the list — by then every committed edit is already
+// saved. It is a no-op outside config mode.
+func (m Model) applyConfigEvent(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.mode != modeConfig {
+		return m, nil
+	}
+	switch msg := msg.(type) {
+	case cfgAppliedMsg:
+		return m.applyConfig(msg.cfg)
+	case cfgClosedMsg:
 		m.mode = modeList
 		return m, m.tabs.retargetPreview(m.selectedSession())
 	}
-	return m, cmd
+	return m, nil
 }
 
 // applyConfig persists cfg to $WASA_HOME and applies it to the running cockpit:

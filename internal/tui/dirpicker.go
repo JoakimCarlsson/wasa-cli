@@ -79,15 +79,6 @@ type recentDir struct {
 	display string
 }
 
-// dirPickerResult is what a picker update reports back to the parent model.
-type dirPickerResult int
-
-const (
-	pickNone dirPickerResult = iota
-	pickChoose
-	pickCancel
-)
-
 // filterTickMsg fires after the debounce interval to start a deferred filter
 // walk; gen identifies the keystroke that scheduled it so a superseded tick is
 // ignored. filterResultMsg carries a completed filter walk back to the picker.
@@ -174,36 +165,44 @@ func newDirPicker(
 	return p
 }
 
-func (p dirPicker) update(msg tea.Msg) (dirPicker, dirPickerResult, tea.Cmd) {
+// dirPickedMsg reports the directory the user chose; dirCancelledMsg reports
+// that the browser was dismissed. The picker emits one as a command, so its
+// result reaches the create form through the normal message path.
+type (
+	dirPickedMsg    struct{ path string }
+	dirCancelledMsg struct{}
+)
+
+func (p dirPicker) update(msg tea.Msg) (dirPicker, tea.Cmd) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
-		return p, pickNone, nil
+		return p, nil
 	}
 
 	switch key.String() {
 	case "esc":
 		if p.query.Value() != "" {
 			p.query.SetValue("")
-			return p, pickNone, p.onQueryChange()
+			return p, p.onQueryChange()
 		}
-		return p, pickCancel, nil
+		return p, emit(dirCancelledMsg{})
 	case "tab":
 		if len(p.recents) > 0 {
 			p.focus = focusTree + focusRecent - p.focus
 		}
-		return p, pickNone, nil
+		return p, nil
 	case "enter":
 		if path, ok := p.currentPath(); ok {
 			p.chosen = path
-			return p, pickChoose, nil
+			return p, emit(dirPickedMsg{path: path})
 		}
-		return p, pickNone, nil
+		return p, nil
 	case "up", "ctrl+p":
 		p.moveCursor(-1)
-		return p, pickNone, nil
+		return p, nil
 	case "down", "ctrl+n":
 		p.moveCursor(1)
-		return p, pickNone, nil
+		return p, nil
 	}
 
 	if p.focus == focusTree {
@@ -211,30 +210,30 @@ func (p dirPicker) update(msg tea.Msg) (dirPicker, dirPickerResult, tea.Cmd) {
 		case "right":
 			if !p.filtering {
 				p.toggle()
-				return p, pickNone, nil
+				return p, nil
 			}
 		case "left":
 			if !p.filtering {
 				p.collapseOrParent()
-				return p, pickNone, nil
+				return p, nil
 			}
 		case "-":
 			if !p.filtering {
 				p.ascendRoot()
-				return p, pickNone, nil
+				return p, nil
 			}
 		}
 	} else {
 		switch key.String() {
 		case "left", "right", "-":
-			return p, pickNone, nil
+			return p, nil
 		}
 	}
 
 	p.focus = focusTree
 	var cmd tea.Cmd
 	p.query, cmd = p.query.Update(msg)
-	return p, pickNone, tea.Batch(cmd, p.onQueryChange())
+	return p, tea.Batch(cmd, p.onQueryChange())
 }
 
 // onQueryChange reacts to an edited query: it reverts to the browse tree when the

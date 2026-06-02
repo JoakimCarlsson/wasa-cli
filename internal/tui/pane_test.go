@@ -56,15 +56,15 @@ func TestPaneTabGatesPreviewTarget(t *testing.T) {
 	if got := m.tabs.previewTarget(m.selectedSession()); got != "wasa_x_s1" {
 		t.Fatalf("Preview tab target = %q, want the session's tmux name", got)
 	}
-	m.tabs.cycle(1) // Diff
+	m.tabs.cycle(1)
 	if got := m.tabs.previewTarget(m.selectedSession()); got != "" {
 		t.Fatalf("Diff tab target = %q, want empty", got)
 	}
-	m.tabs.cycle(1) // Terminal
+	m.tabs.cycle(1)
 	if got := m.tabs.previewTarget(m.selectedSession()); got != "" {
 		t.Fatalf("Terminal tab target = %q, want empty", got)
 	}
-	m.tabs.cycle(1) // back to Preview
+	m.tabs.cycle(1)
 	if got := m.tabs.previewTarget(m.selectedSession()); got != "wasa_x_s1" {
 		t.Fatalf("returning to Preview target = %q, want resumed", got)
 	}

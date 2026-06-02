@@ -92,7 +92,7 @@ func TestTerminalEnsureSpawnsAndCaptures(t *testing.T) {
 func TestTerminalReusesExistingCompanion(t *testing.T) {
 	m := paneModel(t)
 	fb := newFakeBackend()
-	fb.sessions["wasa_x_s1_term"] = true // already running
+	fb.sessions["wasa_x_s1_term"] = true
 	m.tmux = fb
 	m.tabs.terminal.tmux = fb
 	m.tabs.active = paneTerminal
@@ -146,7 +146,7 @@ func TestTerminalAttachSpawnsAndTargetsCompanion(t *testing.T) {
 func TestPreviewAttachTargetsAgentSession(t *testing.T) {
 	m := paneModel(t)
 	fb := newFakeBackend()
-	m.tmux = fb // Preview tab is the default
+	m.tmux = fb
 
 	m.attach()
 	if len(fb.attached) != 1 || fb.attached[0] != "wasa_x_s1" {

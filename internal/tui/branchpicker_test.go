@@ -26,7 +26,7 @@ func TestBranchPickerFilters(t *testing.T) {
 		14,
 	)
 
-	p, _, _ = p.update(keyRunes("logi"))
+	p, _ = p.update(keyRunes("logi"))
 
 	if len(p.matches) != 1 || p.matches[0].name != "feature/login" {
 		t.Fatalf("matches = %v, want only feature/login", p.matches)
@@ -36,11 +36,11 @@ func TestBranchPickerFilters(t *testing.T) {
 func TestBranchPickerChoosesSelected(t *testing.T) {
 	p := newBranchPicker(testTheme, []string{"main", "develop"}, 60, 14)
 
-	p, _, _ = p.update(keyDown()) // onto develop
-	p, result, _ := p.update(keyEnter())
+	p, _ = p.update(keyDown())
+	p, cmd := p.update(keyEnter())
 
-	if result != pickChoose {
-		t.Fatalf("result = %v, want pickChoose", result)
+	if _, ok := runMsg(cmd).(branchPickedMsg); !ok {
+		t.Fatal("enter did not report a chosen branch")
 	}
 	if p.chosen != "develop" {
 		t.Errorf("chosen = %q, want develop", p.chosen)
@@ -52,14 +52,14 @@ func TestBranchPickerChoosesSelected(t *testing.T) {
 func TestBranchPickerCreatesTypedBranch(t *testing.T) {
 	p := newBranchPicker(testTheme, []string{"main"}, 60, 14)
 
-	p, _, _ = p.update(keyRunes("feature/new"))
+	p, _ = p.update(keyRunes("feature/new"))
 	if len(p.matches) != 0 {
 		t.Fatalf("expected no matches for a novel name, got %v", p.matches)
 	}
-	p, result, _ := p.update(keyEnter())
+	p, cmd := p.update(keyEnter())
 
-	if result != pickChoose {
-		t.Fatalf("result = %v, want pickChoose", result)
+	if _, ok := runMsg(cmd).(branchPickedMsg); !ok {
+		t.Fatal("enter did not report a chosen branch")
 	}
 	if p.chosen != "feature/new" {
 		t.Errorf("chosen = %q, want the typed feature/new", p.chosen)
@@ -68,8 +68,8 @@ func TestBranchPickerCreatesTypedBranch(t *testing.T) {
 
 func TestBranchPickerEscCancels(t *testing.T) {
 	p := newBranchPicker(testTheme, []string{"main"}, 60, 14)
-	_, result, _ := p.update(tea.KeyMsg{Type: tea.KeyEsc})
-	if result != pickCancel {
-		t.Errorf("result = %v, want pickCancel", result)
+	_, cmd := p.update(tea.KeyMsg{Type: tea.KeyEsc})
+	if _, ok := runMsg(cmd).(branchCancelledMsg); !ok {
+		t.Error("esc did not report a cancellation")
 	}
 }

@@ -141,13 +141,24 @@ func TestFormCtrlFRoutesByField(t *testing.T) {
 	f := newCreateForm(testTheme, nil)
 	ctrlF := tea.KeyMsg{Type: tea.KeyCtrlF}
 
-	if _, result, _ := f.update(ctrlF); result != formPickDir {
-		t.Errorf("on Directory, ctrl+f result = %v, want formPickDir", result)
+	_, cmd := f.update(ctrlF)
+	if _, ok := runMsg(cmd).(formPickDirMsg); !ok {
+		t.Errorf("on Directory, ctrl+f did not request the directory picker")
 	}
 
 	f.setDir(repo)
 	f.setFocus(fieldBranch)
-	if _, result, _ := f.update(ctrlF); result != formPickBranch {
-		t.Errorf("on Branch, ctrl+f result = %v, want formPickBranch", result)
+	_, cmd = f.update(ctrlF)
+	if _, ok := runMsg(cmd).(formPickBranchMsg); !ok {
+		t.Errorf("on Branch, ctrl+f did not request the branch picker")
 	}
+}
+
+// runMsg runs a command and returns the message it produced, or nil for a nil
+// command, so a test can assert the typed result a child reports up.
+func runMsg(cmd tea.Cmd) tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	return cmd()
 }
