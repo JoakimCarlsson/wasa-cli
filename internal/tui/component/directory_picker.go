@@ -1,4 +1,4 @@
-package tui
+package component
 
 import (
 	"os"
@@ -12,19 +12,17 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/joakimcarlsson/wasa/internal/tui/theme"
 )
 
-// pickerRows is the most tree rows shown at once; the view scrolls a window of
-// this height over the visible nodes. maxFilterDepth bounds how deep a fuzzy
-// filter walks below the root and filterCap bounds how many matches it collects,
-// so a filter over a large tree stays bounded; maxRecents caps the recent list.
-// filterDebounce is how long after the last keystroke the filter walk is
-// deferred, so typing fast spawns one walk rather than one per keystroke.
+// maxFilterDepth bounds how deep a fuzzy filter walks below the root and
+// filterCap bounds how many matches it collects, so a filter over a large tree
+// stays bounded. filterDebounce is how long after the last keystroke the filter
+// walk is deferred, so typing fast spawns one walk rather than one per keystroke.
 const (
-	pickerRows     = 14
 	maxFilterDepth = 6
 	filterCap      = 4000
-	maxRecents     = 8
 	filterDebounce = 150 * time.Millisecond
 )
 
@@ -72,41 +70,43 @@ type visRow struct {
 	depth int
 }
 
-// recentDir is one entry in the picker's recent pane: a directory drawn from
+// RecentDir is one entry in the picker's recent pane: a directory drawn from
 // session and workspace history, with its home-relative display form.
-type recentDir struct {
-	path    string
-	display string
+type RecentDir struct {
+	Path    string
+	Display string
 }
 
-// dirPickerResult is what a picker update reports back to the parent model.
-type dirPickerResult int
+// DirChosenMsg is emitted by a DirectoryPicker when the user picks a directory;
+// Path is the chosen directory.
+type DirChosenMsg struct{ Path string }
 
-const (
-	pickNone dirPickerResult = iota
-	pickChoose
-	pickCancel
-)
+// DirCancelledMsg is emitted by a DirectoryPicker when the user dismisses it
+// without a choice.
+type DirCancelledMsg struct{}
 
-// filterTickMsg fires after the debounce interval to start a deferred filter
+// FilterTickMsg fires after the debounce interval to start a deferred filter
 // walk; gen identifies the keystroke that scheduled it so a superseded tick is
-// ignored. filterResultMsg carries a completed filter walk back to the picker.
-type filterTickMsg struct{ gen int }
+// ignored. FilterResultMsg carries a completed filter walk back to the picker.
+type FilterTickMsg struct{ Gen int }
 
-type filterResultMsg struct {
+// FilterResultMsg carries a completed filter walk back to the picker, tagged
+// with the generation that requested it so a superseded result is ignored.
+type FilterResultMsg struct {
 	gen   int
 	root  *treeNode
 	count int
 }
 
-// dirPicker is the two-pane directory browser shown over the create form. The
-// left pane is a lazily-loaded tree rooted at root that you drill into and roam
-// upward through, and that typing fuzzy-filters broot-style; the right pane is a
-// recent-directories quick list. tab moves focus between panes. The fuzzy filter
-// runs off the update goroutine and debounced: a query keystroke bumps filterGen
-// and schedules a filterTickMsg, the tick spawns the walk, and a filterResultMsg
-// is applied only while its gen is still current.
-type dirPicker struct {
+// DirectoryPicker is the two-pane directory browser shown over the create form.
+// The left pane is a lazily-loaded tree rooted at root that you drill into and
+// roam upward through, and that typing fuzzy-filters broot-style; the right pane
+// is a recent-directories quick list. tab moves focus between panes. The fuzzy
+// filter runs off the update goroutine and debounced: a query keystroke bumps
+// filterGen and schedules a FilterTickMsg, the tick spawns the walk, and a
+// FilterResultMsg is applied only while its gen is still current.
+type DirectoryPicker struct {
+	theme      theme.Theme
 	root       *treeNode
 	filterRoot *treeNode
 	query      textinput.Model
@@ -114,14 +114,16 @@ type dirPicker struct {
 	cursor     int
 	offset     int
 
-	recents      []recentDir
+	recents      []RecentDir
 	recentCursor int
 	focus        int
 
 	width  int
 	height int
 	home   string
-	chosen string
+
+	// Chosen is the path the picker carried in its last DirChosenMsg.
+	Chosen string
 
 	filtering    bool
 	pending      bool
@@ -130,15 +132,16 @@ type dirPicker struct {
 	matchCount   int
 }
 
-// newDirPicker builds a tree rooted at rootPath with its top level loaded and an
-// empty filter. When selectPath names one of the root's children the cursor
-// starts on it. recents seeds the recent pane; with none the picker shows the
-// tree alone.
-func newDirPicker(
+// NewDirectoryPicker builds a tree rooted at rootPath with its top level loaded
+// and an empty filter. When selectPath names one of the root's children the
+// cursor starts on it. recents seeds the recent pane; with none the picker shows
+// the tree alone.
+func NewDirectoryPicker(
+	theme theme.Theme,
 	rootPath, selectPath, home string,
-	recents []recentDir,
+	recents []RecentDir,
 	width, height int,
-) dirPicker {
+) DirectoryPicker {
 	q := textinput.New()
 	q.Prompt = "> "
 	q.Placeholder = "type to fuzzy-filter"
@@ -156,7 +159,8 @@ func newDirPicker(
 	}
 	loadChildren(root)
 
-	p := dirPicker{
+	p := DirectoryPicker{
+		theme:   theme,
 		root:    root,
 		query:   q,
 		recents: recents,
@@ -171,36 +175,40 @@ func newDirPicker(
 	return p
 }
 
-func (p dirPicker) update(msg tea.Msg) (dirPicker, dirPickerResult, tea.Cmd) {
+// Update handles a key message, returning the updated picker and a command. The
+// command emits a DirChosenMsg when a directory is picked or a DirCancelledMsg
+// when the picker is dismissed; on a query keystroke it carries the debounced
+// filter tick, and otherwise it is nil.
+func (p DirectoryPicker) Update(msg tea.Msg) (DirectoryPicker, tea.Cmd) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
-		return p, pickNone, nil
+		return p, nil
 	}
 
 	switch key.String() {
 	case "esc":
 		if p.query.Value() != "" {
 			p.query.SetValue("")
-			return p, pickNone, p.onQueryChange()
+			return p, p.onQueryChange()
 		}
-		return p, pickCancel, nil
+		return p, dirCancelled
 	case "tab":
 		if len(p.recents) > 0 {
 			p.focus = focusTree + focusRecent - p.focus
 		}
-		return p, pickNone, nil
+		return p, nil
 	case "enter":
 		if path, ok := p.currentPath(); ok {
-			p.chosen = path
-			return p, pickChoose, nil
+			p.Chosen = path
+			return p, dirChosen(path)
 		}
-		return p, pickNone, nil
+		return p, nil
 	case "up", "ctrl+p":
 		p.moveCursor(-1)
-		return p, pickNone, nil
+		return p, nil
 	case "down", "ctrl+n":
 		p.moveCursor(1)
-		return p, pickNone, nil
+		return p, nil
 	}
 
 	if p.focus == focusTree {
@@ -208,36 +216,42 @@ func (p dirPicker) update(msg tea.Msg) (dirPicker, dirPickerResult, tea.Cmd) {
 		case "right":
 			if !p.filtering {
 				p.toggle()
-				return p, pickNone, nil
+				return p, nil
 			}
 		case "left":
 			if !p.filtering {
 				p.collapseOrParent()
-				return p, pickNone, nil
+				return p, nil
 			}
 		case "-":
 			if !p.filtering {
 				p.ascendRoot()
-				return p, pickNone, nil
+				return p, nil
 			}
 		}
 	} else {
 		switch key.String() {
 		case "left", "right", "-":
-			return p, pickNone, nil
+			return p, nil
 		}
 	}
 
 	p.focus = focusTree
 	var cmd tea.Cmd
 	p.query, cmd = p.query.Update(msg)
-	return p, pickNone, tea.Batch(cmd, p.onQueryChange())
+	return p, tea.Batch(cmd, p.onQueryChange())
 }
+
+func dirChosen(path string) tea.Cmd {
+	return func() tea.Msg { return DirChosenMsg{Path: path} }
+}
+
+func dirCancelled() tea.Msg { return DirCancelledMsg{} }
 
 // onQueryChange reacts to an edited query: it reverts to the browse tree when the
 // query is empty, otherwise bumps the filter generation and schedules a debounced
 // walk, returning the tick command that will start it.
-func (p *dirPicker) onQueryChange() tea.Cmd {
+func (p *DirectoryPicker) onQueryChange() tea.Cmd {
 	p.filterGen++
 	q := strings.TrimSpace(p.query.Value())
 	if q == "" {
@@ -254,18 +268,18 @@ func (p *dirPicker) onQueryChange() tea.Cmd {
 	return filterTick(p.filterGen)
 }
 
-// tickFilter starts the deferred filter walk if the tick's generation is still
+// TickFilter starts the deferred filter walk if the tick's generation is still
 // the current one; a superseded tick (the user kept typing) is dropped.
-func (p *dirPicker) tickFilter(gen int) tea.Cmd {
+func (p *DirectoryPicker) TickFilter(gen int) tea.Cmd {
 	if gen != p.filterGen || !p.pending {
 		return nil
 	}
 	return filterWalk(gen, p.root.path, p.pendingQuery)
 }
 
-// applyFilterResult installs a completed filter walk, ignoring a result whose
+// ApplyFilterResult installs a completed filter walk, ignoring a result whose
 // generation has been superseded by newer typing.
-func (p *dirPicker) applyFilterResult(msg filterResultMsg) {
+func (p *DirectoryPicker) ApplyFilterResult(msg FilterResultMsg) {
 	if msg.gen != p.filterGen {
 		return
 	}
@@ -278,19 +292,19 @@ func (p *dirPicker) applyFilterResult(msg filterResultMsg) {
 
 func filterTick(gen int) tea.Cmd {
 	return tea.Tick(filterDebounce, func(time.Time) tea.Msg {
-		return filterTickMsg{gen: gen}
+		return FilterTickMsg{Gen: gen}
 	})
 }
 
 func filterWalk(gen int, root, query string) tea.Cmd {
 	return func() tea.Msg {
 		tree, count := buildFilterTree(root, query)
-		return filterResultMsg{gen: gen, root: tree, count: count}
+		return FilterResultMsg{gen: gen, root: tree, count: count}
 	}
 }
 
 // moveCursor moves the selection in the focused pane.
-func (p *dirPicker) moveCursor(delta int) {
+func (p *DirectoryPicker) moveCursor(delta int) {
 	if p.focus == focusRecent {
 		if len(p.recents) == 0 {
 			return
@@ -306,10 +320,10 @@ func (p *dirPicker) moveCursor(delta int) {
 }
 
 // currentPath is the path the focused pane's selection would pick.
-func (p dirPicker) currentPath() (string, bool) {
+func (p DirectoryPicker) currentPath() (string, bool) {
 	if p.focus == focusRecent {
 		if p.recentCursor >= 0 && p.recentCursor < len(p.recents) {
-			return p.recents[p.recentCursor].path, true
+			return p.recents[p.recentCursor].Path, true
 		}
 		return "", false
 	}
@@ -322,7 +336,7 @@ func (p dirPicker) currentPath() (string, bool) {
 // toggle expands the node under the cursor, loading its children on first use,
 // or collapses it when already expanded. A directory with no sub-directories is
 // a leaf and does not expand. Browse mode only.
-func (p *dirPicker) toggle() {
+func (p *DirectoryPicker) toggle() {
 	if len(p.visible) == 0 {
 		return
 	}
@@ -341,7 +355,7 @@ func (p *dirPicker) toggle() {
 
 // collapseOrParent collapses an expanded node, or jumps the cursor to the parent
 // of a collapsed one. Browse mode only.
-func (p *dirPicker) collapseOrParent() {
+func (p *DirectoryPicker) collapseOrParent() {
 	if len(p.visible) == 0 {
 		return
 	}
@@ -359,7 +373,7 @@ func (p *dirPicker) collapseOrParent() {
 // ascendRoot re-roots the tree one directory up, grafting the old root in as a
 // child so its expanded state and loaded children survive, and parks the cursor
 // back on it. Browse mode only.
-func (p *dirPicker) ascendRoot() {
+func (p *DirectoryPicker) ascendRoot() {
 	parent := filepath.Dir(p.root.path)
 	if parent == p.root.path {
 		return
@@ -386,11 +400,11 @@ func (p *dirPicker) ascendRoot() {
 	p.cursorToPath(old.path)
 }
 
-func (p *dirPicker) rebuild() { p.flattenFrom(p.root) }
+func (p *DirectoryPicker) rebuild() { p.flattenFrom(p.root) }
 
 // flattenFrom re-flattens the expanded tree under root into visible in display
 // order and clamps the cursor and scroll window to it.
-func (p *dirPicker) flattenFrom(root *treeNode) {
+func (p *DirectoryPicker) flattenFrom(root *treeNode) {
 	p.visible = p.visible[:0]
 	var walk func(n *treeNode, depth int)
 	walk = func(n *treeNode, depth int) {
@@ -408,7 +422,7 @@ func (p *dirPicker) flattenFrom(root *treeNode) {
 	p.ensureVisible()
 }
 
-func (p *dirPicker) cursorToPath(path string) {
+func (p *DirectoryPicker) cursorToPath(path string) {
 	for i, r := range p.visible {
 		if r.node.path == path {
 			p.cursor = i
@@ -418,7 +432,7 @@ func (p *dirPicker) cursorToPath(path string) {
 	}
 }
 
-func (p *dirPicker) cursorToFirstMatch() {
+func (p *DirectoryPicker) cursorToFirstMatch() {
 	for i, r := range p.visible {
 		if r.node.matched {
 			p.cursor = i
@@ -430,7 +444,7 @@ func (p *dirPicker) cursorToFirstMatch() {
 	p.ensureVisible()
 }
 
-func (p *dirPicker) ensureVisible() {
+func (p *DirectoryPicker) ensureVisible() {
 	rows := p.rows()
 	if p.cursor < p.offset {
 		p.offset = p.cursor
@@ -443,24 +457,26 @@ func (p *dirPicker) ensureVisible() {
 	}
 }
 
-func (p dirPicker) rows() int {
-	return min(pickerRows, max(p.height, 3))
+func (p DirectoryPicker) rows() int {
+	return min(PickerRows, max(p.height, 3))
 }
 
-func (p dirPicker) view() string {
+// View renders the picker box: the title and filter input, the tree (and recent
+// pane when present), and the footer hint.
+func (p DirectoryPicker) View() string {
 	inner := max(p.width, 32)
 	rows := p.rows()
 
-	head := titleStyle.Render("Pick directory") + "\n" + p.query.View()
+	head := p.theme.TitleStyle.Render("Pick directory") + "\n" + p.query.View()
 	body := p.bodyView(inner, rows)
-	footer := dimStyle.Render(p.footer())
+	footer := p.theme.DimStyle.Render(p.footer())
 
-	return pickerStyle.Render(head + "\n\n" + body + "\n\n" + footer)
+	return p.theme.PickerStyle.Render(head + "\n\n" + body + "\n\n" + footer)
 }
 
 // bodyView lays out the tree pane, and a recent pane beside it when there are
 // recents, sized to fit inner cells across.
-func (p dirPicker) bodyView(inner, rows int) string {
+func (p DirectoryPicker) bodyView(inner, rows int) string {
 	if len(p.recents) == 0 {
 		return strings.Join(
 			fitColumn(p.treeLines(inner, rows), inner, rows),
@@ -476,7 +492,7 @@ func (p dirPicker) bodyView(inner, rows int) string {
 	recent := fitColumn(p.recentLines(recentW, rows), recentW, rows)
 	sep := make([]string, rows)
 	for i := range sep {
-		sep[i] = dimStyle.Render(" │ ")
+		sep[i] = p.theme.DimStyle.Render(" │ ")
 	}
 
 	return lipgloss.JoinHorizontal(
@@ -489,14 +505,14 @@ func (p dirPicker) bodyView(inner, rows int) string {
 
 // treeLines renders the tree pane's rows for the current scroll window, or a
 // single status line when there is nothing to show.
-func (p dirPicker) treeLines(w, rows int) []string {
+func (p DirectoryPicker) treeLines(w, rows int) []string {
 	switch {
 	case p.pending && len(p.visible) == 0:
-		return []string{dimStyle.Render("  searching…")}
+		return []string{p.theme.DimStyle.Render("  searching…")}
 	case p.filtering && !p.pending && p.matchCount == 0:
-		return []string{dimStyle.Render("  no matches")}
+		return []string{p.theme.DimStyle.Render("  no matches")}
 	case len(p.visible) == 0:
-		return []string{dimStyle.Render("  (empty)")}
+		return []string{p.theme.DimStyle.Render("  (empty)")}
 	}
 	end := min(p.offset+rows, len(p.visible))
 	lines := make([]string, 0, end-p.offset)
@@ -509,16 +525,18 @@ func (p dirPicker) treeLines(w, rows int) []string {
 
 // recentLines renders the recent pane: a header followed by the recent
 // directories, the focused one drawn as a selection band.
-func (p dirPicker) recentLines(w, rows int) []string {
-	lines := []string{focusedLabelStyle.Render("Recent")}
+func (p DirectoryPicker) recentLines(w, rows int) []string {
+	lines := []string{p.theme.FocusedLabelStyle.Render("Recent")}
 	limit := rows - 1
 	for i, rec := range p.recents {
 		if i >= limit {
 			break
 		}
-		disp := tailTrunc(rec.display, w-2)
+		disp := tailTrunc(rec.Display, w-2)
 		if p.focus == focusRecent && i == p.recentCursor {
-			lines = append(lines, selRowTitleStyle.Render(pad("▌ "+disp, w)))
+			lines = append(
+				lines, p.theme.SelRowTitleStyle.Render(Pad("▌ "+disp, w)),
+			)
 			continue
 		}
 		lines = append(lines, "  "+disp)
@@ -526,7 +544,7 @@ func (p dirPicker) recentLines(w, rows int) []string {
 	return lines
 }
 
-func (p dirPicker) footer() string {
+func (p DirectoryPicker) footer() string {
 	switch {
 	case p.pending:
 		return "searching… · ↵ pick · esc clear"
@@ -546,7 +564,7 @@ func (p dirPicker) footer() string {
 // shows its home-relative path; a fuzzy match has its matched characters
 // highlighted, otherwise a repository is accented. The current row is a solid
 // selection band sized to w so it never wraps.
-func (p dirPicker) row(r visRow, current bool, w int) string {
+func (p DirectoryPicker) row(r visRow, current bool, w int) string {
 	n := r.node
 	indent := strings.Repeat("  ", r.depth)
 
@@ -560,82 +578,26 @@ func (p dirPicker) row(r visRow, current bool, w int) string {
 
 	label := n.name
 	if r.depth == 0 {
-		label = homeRel(n.path, p.home)
+		label = HomeRel(n.path, p.home)
 	}
 
 	if current {
-		return selRowTitleStyle.Render(pad("▌ "+indent+marker+label, w))
+		return p.theme.SelRowTitleStyle.Render(
+			Pad("▌ "+indent+marker+label, w),
+		)
 	}
 
 	var styledLabel string
 	switch {
 	case n.matched:
-		styledLabel = highlight(label, n.positions)
+		styledLabel = highlight(p.theme, label, n.positions)
 	case n.isRepo:
-		styledLabel = focusedLabelStyle.Render(label)
+		styledLabel = p.theme.FocusedLabelStyle.Render(label)
 	default:
 		styledLabel = label
 	}
-	line := "  " + indent + dimStyle.Render(marker) + styledLabel
+	line := "  " + indent + p.theme.DimStyle.Render(marker) + styledLabel
 	return ansi.Truncate(line, w, "…") + "\x1b[0m"
-}
-
-// fitColumn pads every line to exactly w visible cells and the block to exactly
-// height lines, so columns align when joined horizontally.
-func fitColumn(lines []string, w, height int) []string {
-	out := make([]string, height)
-	for i := range out {
-		if i < len(lines) {
-			out[i] = fitAnsi(lines[i], w)
-		} else {
-			out[i] = strings.Repeat(" ", w)
-		}
-	}
-	return out
-}
-
-// fitAnsi pads or truncates an ANSI-styled string to exactly w visible cells.
-func fitAnsi(s string, w int) string {
-	vis := ansi.StringWidth(s)
-	if vis > w {
-		return ansi.Truncate(s, w, "…")
-	}
-	return s + strings.Repeat(" ", w-vis)
-}
-
-// tailTrunc keeps the rightmost w visible cells of a plain string, prefixing an
-// ellipsis when it had to cut — so a path keeps its tail, the directory name.
-func tailTrunc(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	vis := ansi.StringWidth(s)
-	if vis <= w {
-		return s
-	}
-	return ansi.TruncateLeft(s, vis-(w-1), "…")
-}
-
-// highlight styles label rune by rune, accenting the byte offsets listed in
-// positions and leaving the rest plain, so a fuzzy match reads as the query
-// characters lit up inside the name.
-func highlight(label string, positions []int) string {
-	if len(positions) == 0 {
-		return label
-	}
-	set := make(map[int]bool, len(positions))
-	for _, pos := range positions {
-		set[pos] = true
-	}
-	var b strings.Builder
-	for i, r := range label {
-		if set[i] {
-			b.WriteString(matchStyle.Render(string(r)))
-		} else {
-			b.WriteString(string(r))
-		}
-	}
-	return b.String()
 }
 
 // loadChildren reads dir's sub-directories into n on first call, sorted by name,
@@ -791,56 +753,4 @@ func finalizeTree(n *treeNode) {
 func isRepoDir(path string) bool {
 	_, err := os.Stat(filepath.Join(path, ".git"))
 	return err == nil
-}
-
-// homeRel rewrites a path under home to a ~-prefixed form for display, leaving
-// paths outside home untouched.
-func homeRel(path, home string) string {
-	if home == "" {
-		return path
-	}
-	if path == home {
-		return "~"
-	}
-	if rel, ok := strings.CutPrefix(path, home+string(os.PathSeparator)); ok {
-		return "~" + string(os.PathSeparator) + rel
-	}
-	return path
-}
-
-// fuzzyScore matches query against target as a case-insensitive subsequence,
-// returning the match score, the byte positions in target that matched, and
-// whether every query character was found in order. Consecutive matches and
-// matches at a word boundary score higher. An empty query matches everything.
-func fuzzyScore(query, target string) (int, []int, bool) {
-	if query == "" {
-		return 0, nil, true
-	}
-	q := strings.ToLower(query)
-	t := strings.ToLower(target)
-
-	positions := make([]int, 0, len(q))
-	score, ti, prev := 0, 0, -2
-	for qi := range len(q) {
-		idx := strings.IndexByte(t[ti:], q[qi])
-		if idx < 0 {
-			return 0, nil, false
-		}
-		pos := ti + idx
-		score++
-		if pos == prev+1 {
-			score += 5
-		}
-		if pos == 0 || isBoundary(target[pos-1]) {
-			score += 10
-		}
-		positions = append(positions, pos)
-		prev = pos
-		ti = pos + 1
-	}
-	return score, positions, true
-}
-
-func isBoundary(b byte) bool {
-	return b == '-' || b == '_' || b == ' ' || b == os.PathSeparator
 }

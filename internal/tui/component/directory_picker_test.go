@@ -1,4 +1,4 @@
-package tui
+package component
 
 import (
 	"os"
@@ -6,7 +6,14 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/joakimcarlsson/wasa/internal/config"
+	"github.com/joakimcarlsson/wasa/internal/tui/theme"
 )
+
+// testTheme is the resolved default theme, used by the picker tests that build a
+// picker directly.
+func testTheme() theme.Theme { return theme.NewTheme(config.Default().Theme) }
 
 // pickerTree lays out a small directory tree under a temp root and returns the
 // root path:
@@ -41,7 +48,7 @@ func keyRunes(s string) tea.KeyMsg {
 }
 
 // visiblePaths is the on-screen node paths in display order.
-func visiblePaths(p dirPicker) []string {
+func visiblePaths(p DirectoryPicker) []string {
 	out := make([]string, len(p.visible))
 	for i, r := range p.visible {
 		out[i] = r.node.path
@@ -51,7 +58,7 @@ func visiblePaths(p dirPicker) []string {
 
 func TestNewDirPickerListsTopLevelSkippingNoise(t *testing.T) {
 	root := pickerTree(t)
-	p := newDirPicker(root, "", root, nil, 60, 14)
+	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
 
 	got := visiblePaths(p)
 	want := []string{
@@ -75,7 +82,7 @@ func TestNewDirPickerListsTopLevelSkippingNoise(t *testing.T) {
 
 func TestNewDirPickerMarksRepo(t *testing.T) {
 	root := pickerTree(t)
-	p := newDirPicker(root, "", root, nil, 60, 14)
+	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
 
 	alpha := p.visible[1].node
 	if alpha.name != "alpha" || !alpha.isRepo {
@@ -89,7 +96,7 @@ func TestNewDirPickerMarksRepo(t *testing.T) {
 func TestNewDirPickerSelectsPath(t *testing.T) {
 	root := pickerTree(t)
 	beta := filepath.Join(root, "beta")
-	p := newDirPicker(root, beta, root, nil, 60, 14)
+	p := NewDirectoryPicker(testTheme(), root, beta, root, nil, 60, 14)
 
 	if p.visible[p.cursor].node.path != beta {
 		t.Errorf("cursor on %q, want %q", p.visible[p.cursor].node.path, beta)
@@ -100,29 +107,37 @@ func keyDown() tea.KeyMsg  { return tea.KeyMsg{Type: tea.KeyDown} }
 func keyRight() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRight} }
 func keyEnter() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyEnter} }
 
+// runCmd runs cmd and returns its message, or nil when cmd is nil.
+func runCmd(cmd tea.Cmd) tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	return cmd()
+}
+
 // runFilter drives the picker's debounced async filter to completion: it runs
 // the deferred walk for the current generation and applies the result, the same
 // sequence the model performs in response to the tick and result messages.
-func runFilter(t *testing.T, p dirPicker) dirPicker {
+func runFilter(t *testing.T, p DirectoryPicker) DirectoryPicker {
 	t.Helper()
-	cmd := (&p).tickFilter(p.filterGen)
+	cmd := (&p).TickFilter(p.filterGen)
 	if cmd == nil {
 		t.Fatal("no filter walk was scheduled")
 	}
-	msg, ok := cmd().(filterResultMsg)
+	msg, ok := cmd().(FilterResultMsg)
 	if !ok {
-		t.Fatalf("filter walk produced %T, want filterResultMsg", cmd())
+		t.Fatalf("filter walk produced %T, want FilterResultMsg", cmd())
 	}
-	(&p).applyFilterResult(msg)
+	(&p).ApplyFilterResult(msg)
 	return p
 }
 
 func TestDirPickerExpandRevealsChildren(t *testing.T) {
 	root := pickerTree(t)
-	p := newDirPicker(root, "", root, nil, 60, 14)
+	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
 
-	p, _, _ = p.update(keyDown())  // onto alpha
-	p, _, _ = p.update(keyRight()) // expand alpha
+	p, _ = p.Update(keyDown())  // onto alpha
+	p, _ = p.Update(keyRight()) // expand alpha
 
 	want := filepath.Join(root, "alpha", "nested")
 	found := false
@@ -142,12 +157,12 @@ func TestDirPickerExpandRevealsChildren(t *testing.T) {
 
 func TestDirPickerCollapse(t *testing.T) {
 	root := pickerTree(t)
-	p := newDirPicker(root, "", root, nil, 60, 14)
+	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
 
-	p, _, _ = p.update(keyDown())  // alpha
-	p, _, _ = p.update(keyRight()) // expand
+	p, _ = p.Update(keyDown())  // alpha
+	p, _ = p.Update(keyRight()) // expand
 	expanded := len(p.visible)
-	p, _, _ = p.update(keyRight()) // collapse
+	p, _ = p.Update(keyRight()) // collapse
 
 	if len(p.visible) >= expanded {
 		t.Errorf(
@@ -160,25 +175,30 @@ func TestDirPickerCollapse(t *testing.T) {
 
 func TestDirPickerChooseReportsPath(t *testing.T) {
 	root := pickerTree(t)
-	p := newDirPicker(root, "", root, nil, 60, 14)
+	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
 
-	p, _, _ = p.update(keyDown()) // alpha
-	p, result, _ := p.update(keyEnter())
+	p, _ = p.Update(keyDown()) // alpha
+	p, cmd := p.Update(keyEnter())
 
-	if result != pickChoose {
-		t.Fatalf("result = %v, want pickChoose", result)
+	want := filepath.Join(root, "alpha")
+	msg, ok := runCmd(cmd).(DirChosenMsg)
+	if !ok {
+		t.Fatalf("enter emitted %T, want DirChosenMsg", runCmd(cmd))
 	}
-	if want := filepath.Join(root, "alpha"); p.chosen != want {
-		t.Errorf("chosen = %q, want %q", p.chosen, want)
+	if msg.Path != want {
+		t.Errorf("chosen path = %q, want %q", msg.Path, want)
+	}
+	if p.Chosen != want {
+		t.Errorf("chosen = %q, want %q", p.Chosen, want)
 	}
 }
 
 func TestDirPickerAscendRoot(t *testing.T) {
 	root := pickerTree(t)
 	child := filepath.Join(root, "alpha")
-	p := newDirPicker(child, "", child, nil, 60, 14)
+	p := NewDirectoryPicker(testTheme(), child, "", child, nil, 60, 14)
 
-	p, _, _ = p.update(keyRunes("-"))
+	p, _ = p.Update(keyRunes("-"))
 
 	if p.root.path != root {
 		t.Fatalf("root = %q, want %q", p.root.path, root)
@@ -196,9 +216,9 @@ func TestDirPickerAscendRoot(t *testing.T) {
 // surfaced with its ancestor chain and marked as a fuzzy hit.
 func TestDirPickerFilterFindsNested(t *testing.T) {
 	root := pickerTree(t)
-	p := newDirPicker(root, "", root, nil, 60, 14)
+	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
 
-	p, _, _ = p.update(keyRunes("nested"))
+	p, _ = p.Update(keyRunes("nested"))
 
 	if !p.filtering {
 		t.Fatal("expected picker to be filtering")
@@ -231,13 +251,13 @@ func TestDirPickerFilterFindsNested(t *testing.T) {
 // and returns to the browse tree rather than cancelling.
 func TestDirPickerFilterEscClears(t *testing.T) {
 	root := pickerTree(t)
-	p := newDirPicker(root, "", root, nil, 60, 14)
+	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
 
-	p, _, _ = p.update(keyRunes("beta"))
-	p, result, _ := p.update(tea.KeyMsg{Type: tea.KeyEsc})
+	p, _ = p.Update(keyRunes("beta"))
+	p, cmd := p.Update(tea.KeyMsg{Type: tea.KeyEsc})
 
-	if result != pickNone {
-		t.Fatalf("first esc result = %v, want pickNone (clear)", result)
+	if _, ok := runCmd(cmd).(DirCancelledMsg); ok {
+		t.Fatal("first esc cancelled instead of clearing the filter")
 	}
 	if p.filtering {
 		t.Errorf("filter should be cleared after esc")
@@ -246,10 +266,10 @@ func TestDirPickerFilterEscClears(t *testing.T) {
 
 func TestDirPickerEscCancels(t *testing.T) {
 	root := pickerTree(t)
-	p := newDirPicker(root, "", root, nil, 60, 14)
-	_, result, _ := p.update(tea.KeyMsg{Type: tea.KeyEsc})
-	if result != pickCancel {
-		t.Errorf("result = %v, want pickCancel", result)
+	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
+	_, cmd := p.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if _, ok := runCmd(cmd).(DirCancelledMsg); !ok {
+		t.Errorf("esc emitted %T, want DirCancelledMsg", runCmd(cmd))
 	}
 }
 
@@ -261,8 +281,8 @@ func TestHomeRel(t *testing.T) {
 		{"/etc/hosts", "/etc/hosts"},
 	}
 	for _, c := range cases {
-		if got := homeRel(c.path, home); got != c.want {
-			t.Errorf("homeRel(%q) = %q, want %q", c.path, got, c.want)
+		if got := HomeRel(c.path, home); got != c.want {
+			t.Errorf("HomeRel(%q) = %q, want %q", c.path, got, c.want)
 		}
 	}
 }

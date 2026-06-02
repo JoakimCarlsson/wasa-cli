@@ -1,4 +1,4 @@
-package tui
+package modal
 
 import (
 	"os/exec"
@@ -6,25 +6,44 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/joakimcarlsson/wasa/internal/config"
+	"github.com/joakimcarlsson/wasa/internal/tui/theme"
+	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
+
+// testTheme is the resolved default theme, used by the modal tests that build a
+// form or editor directly.
+func testTheme() theme.Theme {
+	return theme.NewTheme(config.Default().Theme)
+}
+
+// emits reports whether cmd runs and yields a message of type T.
+func emits[T tea.Msg](cmd tea.Cmd) bool {
+	if cmd == nil {
+		return false
+	}
+	_, ok := cmd().(T)
+	return ok
+}
 
 // TestFormBranchDisabledWithoutRepo checks that with no directory chosen the
 // Branch field is skipped in tab order and a stray branch value is ignored, so a
 // plain session is produced.
 func TestFormBranchDisabledWithoutRepo(t *testing.T) {
-	f := newCreateForm(nil)
-	if f.branchEnabled() {
+	f := NewCreateForm(testTheme(), nil)
+	if f.BranchEnabled() {
 		t.Fatal("branch should be disabled before a directory is chosen")
 	}
 
-	f.focusNext() // from Directory
+	f.focusNext()
 	if f.focus == fieldBranch {
 		t.Errorf("tab landed on the disabled Branch field")
 	}
 
 	f.inputs[fieldBranch].SetValue("feature/x")
 	f.inputs[fieldDir].SetValue("/tmp/here")
-	p := f.params()
+	p := f.Params()
 	if p.Branch != "" {
 		t.Errorf("disabled branch leaked into params: %q", p.Branch)
 	}
@@ -47,15 +66,15 @@ func TestFormBranchEnabledWithRepo(t *testing.T) {
 	repo := t.TempDir()
 	initRepo(t, repo)
 
-	f := newCreateForm(nil)
-	f.setDir(repo)
-	if !f.branchEnabled() {
+	f := NewCreateForm(testTheme(), nil)
+	f.SetDir(repo)
+	if !f.BranchEnabled() {
 		t.Fatal(
 			"branch should be enabled for a directory inside a git repository",
 		)
 	}
 
-	f.focusNext() // Directory -> Branch
+	f.focusNext()
 	if f.focus != fieldBranch {
 		t.Fatalf(
 			"focus = %d after tab, want Branch field %d",
@@ -65,7 +84,7 @@ func TestFormBranchEnabledWithRepo(t *testing.T) {
 	}
 
 	f.inputs[fieldBranch].SetValue("feature/x")
-	if p := f.params(); p.Branch != "feature/x" {
+	if p := f.Params(); p.Branch != "feature/x" {
 		t.Errorf("params.Branch = %q, want feature/x", p.Branch)
 	}
 }
@@ -86,25 +105,28 @@ func TestFormBranchRepoFollowsChosenDirectory(t *testing.T) {
 
 	plain := t.TempDir()
 
-	f := newCreateForm(nil)
-	if f.branchEnabled() {
+	f := NewCreateForm(testTheme(), nil)
+	if f.BranchEnabled() {
 		t.Fatal("branch should be disabled before a directory is chosen")
 	}
 
-	f.setDir(repo)
-	if !f.branchEnabled() {
+	f.SetDir(repo)
+	if !f.BranchEnabled() {
 		t.Fatal(
 			"branch should be enabled for a directory inside a git repository",
 		)
 	}
-	branches := repoBranches(f.branchRepo)
+	branches, err := worktree.New(f.BranchRepo, "", "").Branches()
+	if err != nil {
+		t.Fatalf("Branches: %v", err)
+	}
 	if !slices.Contains(branches, "feature-x") ||
 		!slices.Contains(branches, "feature-y") {
 		t.Errorf("branches = %v, want feature-x and feature-y", branches)
 	}
 
-	f.setDir(plain)
-	if f.branchEnabled() {
+	f.SetDir(plain)
+	if f.BranchEnabled() {
 		t.Fatal("branch should be disabled for a non-git directory")
 	}
 }
@@ -131,7 +153,7 @@ func runGit(t *testing.T, dir string, args ...string) {
 // TestFormAutonomousInjectsFlag checks that with a known agent selected, toggling
 // autonomous on bakes that agent's skip-permissions flag into the spawned program.
 func TestFormAutonomousInjectsFlag(t *testing.T) {
-	f := newCreateForm(nil)
+	f := NewCreateForm(testTheme(), nil)
 	f.inputs[fieldProgram].SetValue("claude")
 
 	if !f.autonomousEnabled() {
@@ -143,7 +165,7 @@ func TestFormAutonomousInjectsFlag(t *testing.T) {
 	}
 
 	want := "claude --dangerously-skip-permissions"
-	if p := f.params(); p.Program != want {
+	if p := f.Params(); p.Program != want {
 		t.Errorf("params.Program = %q, want %q", p.Program, want)
 	}
 }
@@ -152,7 +174,7 @@ func TestFormAutonomousInjectsFlag(t *testing.T) {
 // the toggle disabled, skipped in tab order, and never injects a flag even if the
 // toggle state was set on.
 func TestFormAutonomousDisabledForShell(t *testing.T) {
-	f := newCreateForm(nil)
+	f := NewCreateForm(testTheme(), nil)
 	f.inputs[fieldProgram].SetValue("/bin/bash")
 
 	if f.autonomousEnabled() {
@@ -165,8 +187,8 @@ func TestFormAutonomousDisabledForShell(t *testing.T) {
 		t.Error("tab landed on the disabled Autonomous field")
 	}
 
-	f.autonomous = true // even if forced on, a shell has no flag to inject
-	if p := f.params(); p.Program != "/bin/bash" {
+	f.autonomous = true
+	if p := f.Params(); p.Program != "/bin/bash" {
 		t.Errorf("params.Program = %q, want the bare shell", p.Program)
 	}
 }
@@ -175,12 +197,12 @@ func TestFormAutonomousDisabledForShell(t *testing.T) {
 // for a known agent and then switching to the shell omits the flag, since the
 // toggle is gated on the current program supporting it.
 func TestFormAutonomousDropsFlagWhenProgramChanges(t *testing.T) {
-	f := newCreateForm(nil)
+	f := NewCreateForm(testTheme(), nil)
 	f.inputs[fieldProgram].SetValue("claude")
 	f.toggleAutonomous()
 
 	f.inputs[fieldProgram].SetValue("/bin/bash")
-	if p := f.params(); p.Program != "/bin/bash" {
+	if p := f.Params(); p.Program != "/bin/bash" {
 		t.Errorf("params.Program = %q, want the bare shell", p.Program)
 	}
 }
@@ -195,16 +217,16 @@ func TestFormCtrlFRoutesByField(t *testing.T) {
 	repo := t.TempDir()
 	initRepo(t, repo)
 
-	f := newCreateForm(nil)
+	f := NewCreateForm(testTheme(), nil)
 	ctrlF := tea.KeyMsg{Type: tea.KeyCtrlF}
 
-	if _, result, _ := f.update(ctrlF); result != formPickDir {
-		t.Errorf("on Directory, ctrl+f result = %v, want formPickDir", result)
+	if _, cmd := f.Update(ctrlF); !emits[FormPickDirMsg](cmd) {
+		t.Errorf("on Directory, ctrl+f did not emit FormPickDirMsg")
 	}
 
-	f.setDir(repo)
+	f.SetDir(repo)
 	f.setFocus(fieldBranch)
-	if _, result, _ := f.update(ctrlF); result != formPickBranch {
-		t.Errorf("on Branch, ctrl+f result = %v, want formPickBranch", result)
+	if _, cmd := f.Update(ctrlF); !emits[FormPickBranchMsg](cmd) {
+		t.Errorf("on Branch, ctrl+f did not emit FormPickBranchMsg")
 	}
 }

@@ -11,7 +11,47 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/config"
 	"github.com/joakimcarlsson/wasa/internal/registry"
 	"github.com/joakimcarlsson/wasa/internal/repo"
+	"github.com/joakimcarlsson/wasa/internal/tui/pane"
 )
+
+// previewColorBackend is a non-streaming SessionBackend whose Capture returns a
+// fixed pane content, so the preview render path can be exercised end to end.
+type previewColorBackend struct{ content string }
+
+func (b *previewColorBackend) SpawnEnv(
+	string,
+	string,
+	[]string,
+	...string,
+) error {
+	return nil
+}
+
+func (b *previewColorBackend) AttachCmd(
+	string,
+) (*exec.Cmd, error) {
+	return nil, nil
+}
+
+func (b *previewColorBackend) Capture(
+	string,
+) (string, error) {
+	return b.content, nil
+}
+
+func (b *previewColorBackend) Has(
+	string,
+) (bool, error) {
+	return true, nil
+}
+
+func (b *previewColorBackend) List() ([]string, error) { return nil, nil }
+
+func (b *previewColorBackend) Kill(
+	string,
+) error {
+	return nil
+}
 
 // initGitRepo initializes a throwaway git repository at dir with one empty
 // commit so worktree and remote resolution have something to read.
@@ -158,14 +198,12 @@ func TestEnterCreatePreselectsDefaultProfile(t *testing.T) {
 	if got.mode != modeCreate {
 		t.Fatal("enterCreate did not switch to create mode")
 	}
-	if len(got.form.profiles) == 0 {
-		t.Fatal("create form has no profiles")
+	prof := got.form.Params().Profile
+	if prof == "" {
+		t.Fatal("create form preselected no profile")
 	}
-	if got.form.profIdx != 0 {
-		t.Fatalf(
-			"profIdx = %d, want default profile preselected (0)",
-			got.form.profIdx,
-		)
+	if want := registry.DefaultProfileName; prof != want {
+		t.Fatalf("preselected profile = %q, want default %q", prof, want)
 	}
 }
 
@@ -184,14 +222,13 @@ func TestEnterCreateWithNoWorkspaceOpensPlainForm(t *testing.T) {
 	if got.mode != modeCreate {
 		t.Fatal("enterCreate did not open the form when there is no workspace")
 	}
-	if len(got.form.profiles) != 0 {
+	params := got.form.Params()
+	if params.Profile != "" {
 		t.Fatalf(
-			"form profiles = %v, want none without a workspace",
-			got.form.profiles,
+			"form profile = %q, want none without a workspace",
+			params.Profile,
 		)
 	}
-
-	params := got.form.params()
 	if params.Branch != "" {
 		t.Fatalf(
 			"default params carried a branch %q, want a plain session",
@@ -219,7 +256,11 @@ func TestSubmitEmptyDefaultsToWorkingDir(t *testing.T) {
 	next, _ := m.enterCreate()
 	m = next.(Model)
 
-	next, _ = m.updateCreate(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.updateCreate(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter emitted no form-submit command")
+	}
+	next, _ = next.(Model).Update(cmd())
 	got := next.(Model)
 	if got.mode != modeList {
 		t.Fatalf("submit left mode = %v, want modeList", got.mode)
@@ -261,9 +302,9 @@ func TestWorktreeWorkspaceTargetsPickedDirRepo(t *testing.T) {
 
 	next, _ := m.enterCreate()
 	m = next.(Model)
-	m.form.setDir(repoB)
+	m.form.SetDir(repoB)
 
-	if got := m.profilesFor(m.form.branchRepo); len(got) != 1 ||
+	if got := m.profilesFor(m.form.BranchRepo); len(got) != 1 ||
 		got[0] != registry.DefaultProfileName {
 		t.Fatalf(
 			"profiles for unregistered repoB = %v, want [%s]",
@@ -369,7 +410,11 @@ func TestConfirmCancelLeavesSessionUnchanged(t *testing.T) {
 		{Type: tea.KeyRunes, Runes: []rune("n")},
 		{Type: tea.KeyRunes, Runes: []rune("q")},
 	} {
-		next, _ := m.updateConfirm(key)
+		next, cmd := m.updateConfirm(key)
+		if cmd == nil {
+			t.Fatalf("cancel key %v emitted no result command", key)
+		}
+		next, _ = next.(Model).Update(cmd())
 		got := next.(Model)
 		if got.mode != modeList {
 			t.Fatalf("cancel key %v did not return to the list", key)
@@ -398,11 +443,18 @@ func TestConfirmDeleteRemovesExitedSession(t *testing.T) {
 		tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")},
 	)
 	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("confirm produced no accept command")
+	}
+
+	// The accept message runs the stored delete command and returns to the list.
+	next, cmd = m.Update(cmd())
+	m = next.(Model)
 	if m.mode != modeList {
 		t.Fatal("confirm did not return to the list")
 	}
 	if cmd == nil {
-		t.Fatal("confirm produced no delete command")
+		t.Fatal("accept did not run the stored delete command")
 	}
 
 	// The exited-session path runs no backend; the command removes the record
@@ -430,6 +482,10 @@ func TestConfirmEnterDefaultsToCancel(t *testing.T) {
 
 	// The cancel button starts focused, so a stray enter must not delete.
 	next, cmd := m.updateConfirm(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter emitted no result command")
+	}
+	next, cmd = next.(Model).Update(cmd())
 	m = next.(Model)
 	if m.mode != modeList {
 		t.Fatal("enter did not close the modal")
@@ -454,9 +510,13 @@ func TestConfirmFocusConfirmThenEnter(t *testing.T) {
 	next, _ = m.updateConfirm(tea.KeyMsg{Type: tea.KeyTab})
 	m = next.(Model)
 	next, cmd := m.updateConfirm(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter on the confirm button emitted no result command")
+	}
+	next, cmd = next.(Model).Update(cmd())
 	m = next.(Model)
 	if cmd == nil {
-		t.Fatal("enter on the confirm button produced no delete command")
+		t.Fatal("accept did not run the stored delete command")
 	}
 	next, _ = m.Update(cmd())
 	m = next.(Model)
@@ -528,13 +588,18 @@ func TestPreviewPreservesColor(t *testing.T) {
 	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
 	reg.AddSession(&registry.Session{
 		ID: "s1", WorkspaceID: ws.ID, Branch: "feat/s1",
-		Status: registry.StatusRunning,
+		Status: registry.StatusRunning, TmuxName: "wasa_s1",
 	})
 
 	m := New(t.TempDir(), reg, ws.ID, config.Default())
 	m.width, m.height = 100, 30
-	m.preview = "\x1b[38;2;255;0;0mRED" +
-		strings.Repeat("x", 200) + "\x1b[0m"
+	be := &previewColorBackend{
+		content: "\x1b[38;2;255;0;0mRED" + strings.Repeat("x", 200) + "\x1b[0m",
+	}
+	m.tmux = be
+	m.stream = nil
+	m.tabbed.Preview = pane.NewPreview(nil, be)
+	m.tabbed.Preview.PollOrReconnect(m.previewTarget())
 
 	out := m.View()
 	if !strings.Contains(out, "\x1b[38;2;255;0;0m") {

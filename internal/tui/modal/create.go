@@ -1,4 +1,11 @@
-package tui
+// Package modal holds the cockpit's full-screen modal screens: the create form,
+// the yes/no confirm dialog and the in-cockpit settings editor. Each owns only
+// its presentation, focus and result reporting; the root tui package constructs
+// them, routes input, and acts on the exported result messages each emits. The
+// package may
+// build on internal/tui/component but never imports the root tui package nor
+// internal/tui/pane.
+package modal
 
 import (
 	"fmt"
@@ -8,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/joakimcarlsson/wasa/internal/launch"
+	"github.com/joakimcarlsson/wasa/internal/tui/theme"
 	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
@@ -25,33 +33,46 @@ const (
 	fieldCount
 )
 
-// formResult is what a form update reports back to the parent model.
-type formResult int
+// FormSubmitMsg is emitted when the user accepts the create form; the parent
+// builds the session.
+type FormSubmitMsg struct{}
 
-const (
-	formNone formResult = iota
-	formSubmit
-	formCancel
-	formPickDir
-	formPickBranch
-)
+// FormCancelMsg is emitted when the user dismisses the create form.
+type FormCancelMsg struct{}
 
-// createForm collects the inputs for a new session. The two session shapes share
+// FormPickDirMsg is emitted when the user opens the directory browser over the
+// form.
+type FormPickDirMsg struct{}
+
+// FormPickBranchMsg is emitted when the user opens the branch picker over the
+// form.
+type FormPickBranchMsg struct{}
+
+func formSubmit() tea.Msg { return FormSubmitMsg{} }
+
+func formCancel() tea.Msg { return FormCancelMsg{} }
+
+func formPickDir() tea.Msg { return FormPickDirMsg{} }
+
+func formPickBranch() tea.Msg { return FormPickBranchMsg{} }
+
+// CreateForm collects the inputs for a new session. The two session shapes share
 // one form: leaving Branch empty creates a plain session that runs in the
 // Directory field; entering a branch opts into a worktree session created on it.
 // The Branch field is only meaningful when the chosen Directory resolves to a git
 // repository, since a worktree is created against that repository; so it is
-// enabled only when branchRepo is set, and disabled (skipped in tab order and
-// shown dimmed) otherwise. branchRepo is the repository toplevel resolved from the
+// enabled only when BranchRepo is set, and disabled (skipped in tab order and
+// shown dimmed) otherwise. BranchRepo is the repository toplevel resolved from the
 // Directory field — re-derived whenever that field changes. An empty Directory has
 // no branch context, so the field is disabled until a directory is chosen. Title
 // and program are optional, and a profile is chosen from the workspace's profiles
 // with the default (first) preselected. The program field shows every agent
 // detected on PATH plus a bare-shell entry as a visible menu; ←/→ move the
 // selection and typing overrides it with any program name outside the known set.
-type createForm struct {
+type CreateForm struct {
+	theme      theme.Theme
 	inputs     []textinput.Model
-	branchRepo string
+	BranchRepo string
 	profiles   []string
 	profIdx    int
 	programs   []string
@@ -62,7 +83,9 @@ type createForm struct {
 	err        string
 }
 
-func newCreateForm(profiles []string) createForm {
+// NewCreateForm builds the create form for a workspace's profiles, styled with
+// theme. The Directory field starts focused and empty.
+func NewCreateForm(theme theme.Theme, profiles []string) CreateForm {
 	dir := textinput.New()
 	dir.Placeholder = "ctrl+f to browse, or empty for here"
 	dir.CharLimit = 4096
@@ -83,24 +106,25 @@ func newCreateForm(profiles []string) createForm {
 	program.CharLimit = 200
 	program.SetValue(programs[0])
 
-	f := createForm{
+	f := CreateForm{
+		theme:    theme,
 		inputs:   []textinput.Model{dir, branch, title, program},
 		profiles: profiles,
 		programs: programs,
 		shell:    shell,
 	}
-	f.syncBranchRepo()
+	f.SyncBranchRepo()
 	return f
 }
 
-// syncBranchRepo re-derives the repository the Branch field operates on from the
+// SyncBranchRepo re-derives the repository the Branch field operates on from the
 // Directory field's current value, so the field's enabled state and the branch
 // picker always reflect the directory as currently chosen. An empty Directory has
 // no branch context and disables the field; a Directory inside a git repository
 // resolves to that repository; anything else (a plain directory, a path that does
 // not exist, git absent) leaves it empty, disabling the field.
-func (f *createForm) syncBranchRepo() {
-	f.branchRepo = branchRepoFor(f.dir())
+func (f *CreateForm) SyncBranchRepo() {
+	f.BranchRepo = branchRepoFor(f.Dir())
 }
 
 // branchRepoFor resolves the repository toplevel that should back the Branch
@@ -118,45 +142,48 @@ func branchRepoFor(dir string) string {
 	return top
 }
 
-func (f createForm) update(msg tea.Msg) (createForm, formResult, tea.Cmd) {
+// Update routes a message into the form, returning the updated form and a
+// command that emits a FormSubmitMsg, FormCancelMsg, FormPickDirMsg or
+// FormPickBranchMsg on the key that triggers it, or nil otherwise.
+func (f CreateForm) Update(msg tea.Msg) (CreateForm, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.String() {
 		case "esc":
-			return f, formCancel, nil
+			return f, formCancel
 		case "ctrl+f":
 			switch f.focus {
 			case fieldDir:
-				return f, formPickDir, nil
+				return f, formPickDir
 			case fieldBranch:
-				if f.branchEnabled() {
-					return f, formPickBranch, nil
+				if f.BranchEnabled() {
+					return f, formPickBranch
 				}
 			}
-			return f, formNone, nil
+			return f, nil
 		case "enter":
-			return f, formSubmit, nil
+			return f, formSubmit
 		case "tab", "down":
 			f.focusNext()
-			return f, formNone, nil
+			return f, nil
 		case "shift+tab", "up":
 			f.focusPrev()
-			return f, formNone, nil
+			return f, nil
 		case "left", "right":
 			switch f.focus {
 			case fieldProfile:
 				f.cycleProfile(key.String() == "right")
-				return f, formNone, nil
+				return f, nil
 			case fieldProgram:
 				f.cycleProgram(key.String() == "right")
-				return f, formNone, nil
+				return f, nil
 			case fieldAutonomous:
 				f.toggleAutonomous()
-				return f, formNone, nil
+				return f, nil
 			}
 		case " ":
 			if f.focus == fieldAutonomous {
 				f.toggleAutonomous()
-				return f, formNone, nil
+				return f, nil
 			}
 		}
 	}
@@ -165,19 +192,19 @@ func (f createForm) update(msg tea.Msg) (createForm, formResult, tea.Cmd) {
 		var cmd tea.Cmd
 		f.inputs[f.focus], cmd = f.inputs[f.focus].Update(msg)
 		if f.focus == fieldDir {
-			f.syncBranchRepo()
+			f.SyncBranchRepo()
 		}
-		return f, formNone, cmd
+		return f, cmd
 	}
-	return f, formNone, nil
+	return f, nil
 }
 
-// setProfiles replaces the profile menu with names, the profiles of the
+// SetProfiles replaces the profile menu with names, the profiles of the
 // workspace the form's current Directory resolves to. It preserves the user's
 // selection by name when that profile still exists, and otherwise falls back to
 // the default (first) profile, so switching to a directory in a different
 // repository never leaves a profile selected that is invalid there.
-func (f *createForm) setProfiles(names []string) {
+func (f *CreateForm) SetProfiles(names []string) {
 	cur := ""
 	if f.profIdx < len(f.profiles) {
 		cur = f.profiles[f.profIdx]
@@ -192,7 +219,7 @@ func (f *createForm) setProfiles(names []string) {
 	}
 }
 
-func (f *createForm) cycleProfile(forward bool) {
+func (f *CreateForm) cycleProfile(forward bool) {
 	if len(f.profiles) == 0 {
 		return
 	}
@@ -206,7 +233,7 @@ func (f *createForm) cycleProfile(forward bool) {
 // cycleProgram steps the program field through the detected-agents-plus-shell
 // menu, writing the chosen program into the text input. Typing afterwards
 // overrides the selection, so a program outside the known set stays reachable.
-func (f *createForm) cycleProgram(forward bool) {
+func (f *CreateForm) cycleProgram(forward bool) {
 	if len(f.programs) == 0 {
 		return
 	}
@@ -221,7 +248,7 @@ func (f *createForm) cycleProgram(forward bool) {
 // toggleAutonomous flips the autonomous (skip-permissions) toggle, but only when
 // the selected program has a known autonomous flag — there is nothing to enable
 // for a shell or an unknown program.
-func (f *createForm) toggleAutonomous() {
+func (f *CreateForm) toggleAutonomous() {
 	if !f.autonomousEnabled() {
 		return
 	}
@@ -231,54 +258,54 @@ func (f *createForm) toggleAutonomous() {
 // autonomousEnabled reports whether the autonomous toggle is usable: only when
 // the program as currently typed maps to a known skip-permissions flag. It reads
 // the live Program field so a free-typed agent name is honoured too.
-func (f createForm) autonomousEnabled() bool {
+func (f CreateForm) autonomousEnabled() bool {
 	return launch.AutonomousAvailable(
 		strings.TrimSpace(f.inputs[fieldProgram].Value()),
 	)
 }
 
-// dir is the Directory field's current value, trimmed. It seeds the directory
+// Dir is the Directory field's current value, trimmed. It seeds the directory
 // browser's starting point when the picker is opened.
-func (f createForm) dir() string {
+func (f CreateForm) Dir() string {
 	return strings.TrimSpace(f.inputs[fieldDir].Value())
 }
 
-// setDir writes a path chosen in the directory picker into the Directory field
+// SetDir writes a path chosen in the directory picker into the Directory field
 // and moves focus to it, so the picked value is visible and editable on return.
-func (f *createForm) setDir(path string) {
+func (f *CreateForm) SetDir(path string) {
 	f.inputs[fieldDir].SetValue(path)
-	f.syncBranchRepo()
+	f.SyncBranchRepo()
 	f.setFocus(fieldDir)
 }
 
-// setBranch writes a branch chosen or typed in the branch picker into the Branch
+// SetBranch writes a branch chosen or typed in the branch picker into the Branch
 // field and moves focus to it.
-func (f *createForm) setBranch(branch string) {
+func (f *CreateForm) SetBranch(branch string) {
 	f.inputs[fieldBranch].SetValue(branch)
 	f.setFocus(fieldBranch)
 }
 
-// branchEnabled reports whether the Branch field is usable: only when the chosen
+// BranchEnabled reports whether the Branch field is usable: only when the chosen
 // Directory resolves to a git repository (or, with an empty Directory, when wasa
 // was launched inside one), since a worktree session is created against that
-// repository. branchRepo is kept in sync with the Directory field, so this reads
+// repository. BranchRepo is kept in sync with the Directory field, so this reads
 // the cached resolution rather than shelling out to git on every render.
-func (f createForm) branchEnabled() bool {
-	return f.branchRepo != ""
+func (f CreateForm) BranchEnabled() bool {
+	return f.BranchRepo != ""
 }
 
-func (f *createForm) focusNext() { f.setFocus(f.stepFocus(1)) }
+func (f *CreateForm) focusNext() { f.setFocus(f.stepFocus(1)) }
 
-func (f *createForm) focusPrev() { f.setFocus(f.stepFocus(-1)) }
+func (f *CreateForm) focusPrev() { f.setFocus(f.stepFocus(-1)) }
 
 // stepFocus returns the next focusable field in the given direction, skipping
 // the Branch and Autonomous fields when they are disabled so tab never lands on a
 // dead input.
-func (f createForm) stepFocus(dir int) int {
+func (f CreateForm) stepFocus(dir int) int {
 	i := f.focus
 	for range fieldCount {
 		i = (i + dir + fieldCount) % fieldCount
-		if i == fieldBranch && !f.branchEnabled() {
+		if i == fieldBranch && !f.BranchEnabled() {
 			continue
 		}
 		if i == fieldAutonomous && !f.autonomousEnabled() {
@@ -289,7 +316,7 @@ func (f createForm) stepFocus(dir int) int {
 	return f.focus
 }
 
-func (f *createForm) setFocus(i int) {
+func (f *CreateForm) setFocus(i int) {
 	f.focus = i
 	for j := range f.inputs {
 		if j == i {
@@ -300,10 +327,10 @@ func (f *createForm) setFocus(i int) {
 	}
 }
 
-// params reads the form into launch.Params. A non-empty branch selects a
+// Params reads the form into launch.Params. A non-empty branch selects a
 // worktree session and the directory field is ignored; an empty branch selects a
 // plain session run in the directory field.
-func (f createForm) params() launch.Params {
+func (f CreateForm) Params() launch.Params {
 	prof := ""
 	if f.profIdx < len(f.profiles) {
 		prof = f.profiles[f.profIdx]
@@ -318,7 +345,7 @@ func (f createForm) params() launch.Params {
 		Profile: prof,
 	}
 	branch := ""
-	if f.branchEnabled() {
+	if f.BranchEnabled() {
 		branch = strings.TrimSpace(f.inputs[fieldBranch].Value())
 	}
 	if branch != "" {
@@ -329,17 +356,20 @@ func (f createForm) params() launch.Params {
 	return p
 }
 
-func (f createForm) view() string {
+// View renders the create form.
+func (f CreateForm) View() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("New session"))
+	b.WriteString(f.theme.TitleStyle.Render("New session"))
 	b.WriteString("\n\n")
 
 	labels := []string{"Directory", "Branch", "Title"}
 	for i := fieldDir; i <= fieldTitle; i++ {
 		b.WriteString(f.label(labels[i], i))
 		b.WriteString("\n")
-		if i == fieldBranch && !f.branchEnabled() {
-			b.WriteString(dimStyle.Render("  (only inside a git repository)"))
+		if i == fieldBranch && !f.BranchEnabled() {
+			b.WriteString(
+				f.theme.DimStyle.Render("  (only inside a git repository)"),
+			)
 		} else {
 			b.WriteString(f.inputs[i].View())
 		}
@@ -362,27 +392,27 @@ func (f createForm) view() string {
 	b.WriteString("\n\n")
 
 	if f.err != "" {
-		b.WriteString(errorStyle.Render(f.err))
+		b.WriteString(f.theme.ErrorStyle.Render(f.err))
 		b.WriteString("\n\n")
 	}
-	b.WriteString(dimStyle.Render(
+	b.WriteString(f.theme.DimStyle.Render(
 		"tab/↑↓ move · ←/→/space choose/toggle · " +
 			"ctrl+f browse dir/branch · enter create · esc cancel",
 	))
 	return b.String()
 }
 
-func (f createForm) label(text string, field int) string {
+func (f CreateForm) label(text string, field int) string {
 	if f.focus == field {
-		return focusedLabelStyle.Render("> " + text)
+		return f.theme.FocusedLabelStyle.Render("> " + text)
 	}
-	return labelStyle.Render("  " + text)
+	return f.theme.LabelStyle.Render("  " + text)
 }
 
 // programView renders the detected-agents-plus-shell menu inline, highlighting
 // the active entry. A value typed outside the known set is shown as a trailing
 // highlighted entry so free-text overrides stay visible.
-func (f createForm) programView() string {
+func (f CreateForm) programView() string {
 	cur := strings.TrimSpace(f.inputs[fieldProgram].Value())
 	parts := make([]string, 0, len(f.programs)+1)
 	matched := false
@@ -391,21 +421,21 @@ func (f createForm) programView() string {
 			matched = true
 			parts = append(
 				parts,
-				focusedLabelStyle.Render("["+f.programLabel(p)+"]"),
+				f.theme.FocusedLabelStyle.Render("["+f.programLabel(p)+"]"),
 			)
 			continue
 		}
-		parts = append(parts, dimStyle.Render(f.programLabel(p)))
+		parts = append(parts, f.theme.DimStyle.Render(f.programLabel(p)))
 	}
 	if !matched && cur != "" {
-		parts = append(parts, focusedLabelStyle.Render("["+cur+"]"))
+		parts = append(parts, f.theme.FocusedLabelStyle.Render("["+cur+"]"))
 	}
 	return "  " + strings.Join(parts, "   ")
 }
 
 // programLabel is the menu label for a program value: the shell entry shows as
 // "shell" rather than its resolved path, every agent shows by name.
-func (f createForm) programLabel(p string) string {
+func (f CreateForm) programLabel(p string) string {
 	if p == f.shell {
 		return "shell"
 	}
@@ -415,26 +445,26 @@ func (f createForm) programLabel(p string) string {
 // autonomousView renders the skip-permissions toggle: a checkbox with an inline
 // hint about the consequence when the selected program supports it, or a dim
 // note that it is unavailable for a shell or unknown program.
-func (f createForm) autonomousView() string {
+func (f CreateForm) autonomousView() string {
 	if !f.autonomousEnabled() {
-		return dimStyle.Render("  (not available for this program)")
+		return f.theme.DimStyle.Render("  (not available for this program)")
 	}
 	box := "[ ]"
 	if f.autonomous {
 		box = "[x]"
 	}
-	hint := dimStyle.Render(" runs without approval prompts")
+	hint := f.theme.DimStyle.Render(" runs without approval prompts")
 	return "  " + box + " skip permissions" + hint
 }
 
-func (f createForm) profileView() string {
+func (f CreateForm) profileView() string {
 	if len(f.profiles) == 0 {
-		return dimStyle.Render("  (no profiles)")
+		return f.theme.DimStyle.Render("  (no profiles)")
 	}
 	name := f.profiles[f.profIdx]
 	marker := ""
 	if f.profIdx == 0 {
 		marker = " (default)"
 	}
-	return fmt.Sprintf("  ◄ %s%s ►", name, dimStyle.Render(marker))
+	return fmt.Sprintf("  ◄ %s%s ►", name, f.theme.DimStyle.Render(marker))
 }
