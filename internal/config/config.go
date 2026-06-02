@@ -177,7 +177,7 @@ var defaultBindings = []binding{
 	{ActionPaneTab, modeList, KeyList{"ctrl+t"}},
 	{ActionCursorUp, modeList, KeyList{"up"}},
 	{ActionCursorDown, modeList, KeyList{"down"}},
-	{ActionFilter, modeList, KeyList{"/"}},
+	{ActionFilter, modeList, KeyList{"ctrl+f"}},
 	{ActionConfig, modeList, KeyList{","}},
 	{ActionQuit, modeList, KeyList{"q", "ctrl+c"}},
 }

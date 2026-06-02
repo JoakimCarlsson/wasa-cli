@@ -73,10 +73,10 @@ func TestFilterKeyOpensFilter(t *testing.T) {
 		t.Fatal("precondition: filter should start inactive")
 	}
 
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
 	m = next.(Model)
 	if !m.filter.active {
-		t.Fatal("/ did not open the session filter")
+		t.Fatal("ctrl+f did not open the session filter")
 	}
 }
 
@@ -88,7 +88,7 @@ func TestFilterEnterIsNoopWithoutSessions(t *testing.T) {
 	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
 	m := New(t.TempDir(), reg, ws.ID, config.Default())
 
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
 	if next.(Model).filter.active {
 		t.Fatal("filter opened over an empty session list")
 	}
@@ -96,7 +96,7 @@ func TestFilterEnterIsNoopWithoutSessions(t *testing.T) {
 
 func TestFilterByName(t *testing.T) {
 	m := filterModel(t)
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
 	m = next.(Model)
 
 	m = typeFilter(t, m, "login")
@@ -108,7 +108,7 @@ func TestFilterByName(t *testing.T) {
 
 func TestFilterMatchesBranch(t *testing.T) {
 	m := filterModel(t)
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
 	m = next.(Model)
 
 	// "feat" appears only in the branches, not the titles.
@@ -127,7 +127,7 @@ func TestFilterMatchesBranch(t *testing.T) {
 
 func TestFilterStatusTokenRunning(t *testing.T) {
 	m := filterModel(t)
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
 	m = next.(Model)
 
 	m = typeFilter(t, m, "running")
@@ -145,7 +145,7 @@ func TestFilterStatusTokenRunning(t *testing.T) {
 
 func TestFilterStatusTokenExitedWithText(t *testing.T) {
 	m := filterModel(t)
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
 	m = next.(Model)
 
 	// "exited log" narrows to exited sessions whose haystack matches "log":
@@ -159,7 +159,7 @@ func TestFilterStatusTokenExitedWithText(t *testing.T) {
 
 func TestFilterEmptyResultShowsNoMatches(t *testing.T) {
 	m := filterModel(t)
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
 	m = next.(Model)
 
 	m = typeFilter(t, m, "zzzznope")
@@ -177,7 +177,7 @@ func TestFilterEmptyResultShowsNoMatches(t *testing.T) {
 func TestFilterClampsCursorIntoNarrowedSet(t *testing.T) {
 	m := filterModel(t)
 	m.cursor = 3 // last session in the full list
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
 	m = next.(Model)
 
 	m = typeFilter(t, m, "login") // narrows to one match
@@ -197,7 +197,7 @@ func TestFilterClampsCursorIntoNarrowedSet(t *testing.T) {
 
 func TestFilterEscRestoresFullList(t *testing.T) {
 	m := filterModel(t)
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
 	m = next.(Model)
 	m = typeFilter(t, m, "login")
 	if len(m.sessions()) != 1 {

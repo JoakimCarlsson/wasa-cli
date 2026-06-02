@@ -83,7 +83,7 @@ func (m Model) enterFilter() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	in := textinput.New()
-	in.Prompt = "/ "
+	in.Prompt = "> "
 	in.Placeholder = "filter — prefix running/exited"
 	in.CharLimit = 200
 	in.Width = max(m.listColWidth()-4, 10)
