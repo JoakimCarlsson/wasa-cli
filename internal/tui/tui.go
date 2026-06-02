@@ -18,9 +18,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/joakimcarlsson/wasa/internal/backend"
@@ -30,6 +28,7 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/repo"
 	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
 	"github.com/joakimcarlsson/wasa/internal/tui/component"
+	"github.com/joakimcarlsson/wasa/internal/tui/pane"
 	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
@@ -68,11 +67,10 @@ var paneTabNames = [...]string{"Preview", "Diff", "Terminal"}
 // against; osHome is the user's home directory, used only to root and abbreviate
 // the directory browser — the two are distinct and must not be conflated.
 //
-// The live-preview fields track the selected session's output stream: watchName
-// is the session the preview targets (its tmux name, or "" for none); watcher is
-// the live control-mode stream for it, or nil when streaming is unavailable,
-// failed or dropped, in which case the fallback tick polls Capture; watchGen
-// tags the active stream so a previewMsg from a superseded stream is ignored.
+// The three right-pane feature machines — preview, diff and term — own their own
+// state and lifecycle (see internal/tui/pane). The Model is their container: it
+// targets each at the selected session, routes the typed messages back, and
+// dispatches the active tab's body for rendering.
 type Model struct {
 	home   string
 	osHome string
@@ -100,22 +98,9 @@ type Model struct {
 	width  int
 	height int
 
-	preview string
-
-	watcher   backend.Watcher
-	watchName string
-	watchGen  int
-
-	termShown   string
-	termContent string
-	terms       map[string]bool
-
-	diffVP      viewport.Model
-	diffSID     string
-	diffText    string
-	diffAdded   int
-	diffRemoved int
-	diffErr     error
+	preview pane.Preview
+	diff    pane.Diff
+	term    pane.Terminal
 
 	now          func() time.Time
 	statuses     *sessionstatus.Tracker
@@ -139,25 +124,27 @@ func New(
 	cfg config.Config,
 ) Model {
 	be := backend.Default()
+	theme := component.NewTheme(cfg.Theme)
 	m := Model{
 		home:         home,
 		reg:          reg,
 		tmux:         be,
 		cfg:          cfg,
 		keys:         component.NewKeymap(cfg.Keys),
-		theme:        component.NewTheme(cfg.Theme),
+		theme:        theme,
 		now:          time.Now,
 		statuses:     sessionstatus.NewTracker(time.Now),
 		notify:       makeNotifier(cfg.Notify),
 		lastNotifyAt: make(map[string]time.Time),
 		lastStatus:   make(map[string]sessionstatus.Status),
-		terms:        make(map[string]bool),
+		diff:         pane.NewDiff(theme),
+		term:         pane.NewTerminal(),
 	}
 	m.osHome, _ = os.UserHomeDir()
-	m.diffVP = newDiffViewport()
 	if s, ok := be.(backend.StreamingBackend); ok {
 		m.stream = s
 	}
+	m.preview = pane.NewPreview(m.stream, be)
 	m.workspaces = reg.ListWorkspaces()
 	switch {
 	case currentID != "" && m.hasWorkspace(currentID):
@@ -207,47 +194,6 @@ func tick() tea.Cmd {
 	)
 }
 
-// previewMsg carries a fresh pane capture delivered by a control-mode stream.
-// gen identifies the stream that produced it so a message from a superseded or
-// closed stream is ignored; ok is false when that stream's channel closed.
-type previewMsg struct {
-	gen     int
-	content string
-	ok      bool
-}
-
-// waitPreview blocks on the stream's update channel and reports the next
-// capture as a previewMsg tagged with gen. Re-issued after each delivery to keep
-// consuming the stream; never runs on the Update goroutine.
-func waitPreview(gen int, ch <-chan string) tea.Cmd {
-	return func() tea.Msg {
-		content, ok := <-ch
-		return previewMsg{gen: gen, content: content, ok: ok}
-	}
-}
-
-// termMsg carries the result of ensuring and capturing a session's companion
-// shell. name is the companion's tmux name (so a delivery for a session no
-// longer selected is ignored), content is its pane capture, and err is set when
-// the companion could not be spawned or addressed.
-type termMsg struct {
-	name    string
-	content string
-	err     error
-}
-
-// diffMsg carries the computed diff of a worktree session against its base
-// commit. sessionID tags the session it was computed for, so a diff that
-// arrives after the selection moved is dropped rather than shown under the wrong
-// session. An empty text with no err is a clean worktree (no changes).
-type diffMsg struct {
-	sessionID string
-	text      string
-	added     int
-	removed   int
-	err       error
-}
-
 type createdMsg struct {
 	session *registry.Session
 	err     error
@@ -274,13 +220,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sweepStatuses()
 		return m, tea.Batch(tick(), m.paneTick())
 
-	case previewMsg:
-		return m, m.applyPreview(msg)
+	case pane.PreviewMsg:
+		return m, m.preview.Apply(msg)
 
-	case termMsg:
+	case pane.TermMsg:
 		return m, m.applyTerm(msg)
 
-	case diffMsg:
+	case pane.DiffMsg:
 		return m, m.applyDiff(msg)
 
 	case createdMsg:
@@ -362,13 +308,13 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if m.pane == paneDiff {
 		m.sizeDiffViewport()
-		m.diffVP, _ = m.diffVP.Update(msg)
+		m.diff.Update(msg)
 	}
 
 	switch m.keys.Action(key.String()) {
 	case config.ActionQuit:
-		m.closeWatcher()
-		m.closeTerms()
+		m.preview.Close()
+		m.term.Close(m.tmux)
 		return m, tea.Quit
 	case config.ActionTabNext:
 		m.cycleTab(1)
@@ -404,7 +350,7 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 // an immediate companion ensure+capture so switching to it or moving the cursor
 // shows the shell without waiting for the next tick.
 func (m *Model) afterListChange() tea.Cmd {
-	cmd := m.ensureWatcher()
+	cmd := m.preview.SetTarget(m.previewTarget())
 	switch m.pane {
 	case paneTerminal:
 		cmd = tea.Batch(cmd, m.ensureTermCmd())
@@ -778,7 +724,7 @@ func (m Model) updateConfig(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applyConfig(editor.config())
 	case cfgClose:
 		m.mode = modeList
-		return m, m.ensureWatcher()
+		return m, m.preview.SetTarget(m.previewTarget())
 	}
 	return m, cmd
 }
@@ -796,6 +742,7 @@ func (m Model) applyConfig(cfg config.Config) (tea.Model, tea.Cmd) {
 	cfg.Path = config.Path(m.home)
 	m.cfg = cfg
 	m.theme = component.NewTheme(cfg.Theme)
+	m.diff.SetTheme(m.theme)
 	m.keys = component.NewKeymap(cfg.Keys)
 	m.notify = makeNotifier(cfg.Notify)
 	m.err = nil
@@ -871,24 +818,7 @@ func (m Model) attach() (tea.Model, tea.Cmd) {
 // and resumes on detach (C-b d). The companion is independent of the agent, so
 // it attaches even when the agent session itself has exited.
 func (m Model) attachTerm(s *registry.Session) (tea.Model, tea.Cmd) {
-	name := companionName(s)
-	dir := s.WorktreePath
-	if dir == "" {
-		dir = s.WorkingDir
-	}
-	switch has, err := m.tmux.Has(name); {
-	case err != nil:
-		m.err = err
-		return m, nil
-	case !has:
-		if err := m.tmux.SpawnEnv(name, dir, nil, launch.Shell()); err != nil {
-			m.err = err
-			return m, nil
-		}
-	}
-	m.terms[name] = true
-
-	cmd, err := m.tmux.AttachCmd(name)
+	cmd, err := m.term.AttachCmd(s.TmuxName, sessionDir(s), m.tmux)
 	if err != nil {
 		m.err = err
 		return m, nil
@@ -898,6 +828,15 @@ func (m Model) attachTerm(s *registry.Session) (tea.Model, tea.Cmd) {
 	return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
 		return attachedMsg{sessionID: sessionID, err: err}
 	})
+}
+
+// sessionDir is the directory a session's companion shell runs in: its worktree
+// for a worktree session, or its working directory for a plain one.
+func sessionDir(s *registry.Session) string {
+	if s.WorktreePath != "" {
+		return s.WorktreePath
+	}
+	return s.WorkingDir
 }
 
 func (m Model) createCmd(ws *registry.Workspace, params launch.Params) tea.Cmd {
@@ -917,7 +856,7 @@ func (m Model) createCmd(ws *registry.Workspace, params launch.Params) tea.Cmd {
 func (m Model) killCmd(s *registry.Session) tea.Cmd {
 	reg := m.reg
 	be := m.tmux
-	term := companionName(s)
+	term := companionName(s.TmuxName)
 	return func() tea.Msg {
 		if err := launch.KillSession(reg, s); err != nil {
 			return killedMsg{err: err}
@@ -933,7 +872,7 @@ func (m Model) killCmd(s *registry.Session) tea.Cmd {
 func (m Model) deleteCmd(s *registry.Session) tea.Cmd {
 	reg, home := m.reg, m.home
 	be := m.tmux
-	term := companionName(s)
+	term := companionName(s.TmuxName)
 	return func() tea.Msg {
 		if err := launch.DeleteSession(reg, s); err != nil {
 			return deletedMsg{err: err}
@@ -964,7 +903,7 @@ func (m *Model) refresh() tea.Cmd {
 		m.cursor = n - 1
 	}
 	m.cursor = max(m.cursor, 0)
-	return m.ensureWatcher()
+	return m.preview.SetTarget(m.previewTarget())
 }
 
 // previewTarget is the tmux name the preview should track: the selected
@@ -983,91 +922,6 @@ func (m Model) previewTarget() string {
 	return s.TmuxName
 }
 
-// ensureWatcher makes the live preview stream track the selected session. When
-// the target changed it tears down the old stream and clears the stale preview;
-// when streaming is available and no stream is live for the target it opens one
-// and returns the command that waits on it. It returns nil when nothing changed,
-// when there is no running target, or when streaming is unavailable or fails —
-// in which cases the fallback tick polls Capture instead. Never blocks on a
-// capture itself.
-func (m *Model) ensureWatcher() tea.Cmd {
-	name := m.previewTarget()
-	if name != m.watchName {
-		m.closeWatcher()
-		m.watchName = name
-		m.preview = ""
-	}
-	if name == "" || m.stream == nil || m.watcher != nil {
-		return nil
-	}
-	w, err := m.stream.Watch(name)
-	if err != nil {
-		return nil
-	}
-	m.watcher = w
-	m.watchGen++
-	return waitPreview(m.watchGen, w.Updates())
-}
-
-// closeWatcher tears down any live stream and invalidates in-flight previewMsgs
-// by bumping the generation, so a late delivery from the closed stream is
-// dropped rather than applied.
-func (m *Model) closeWatcher() {
-	if m.watcher != nil {
-		_ = m.watcher.Close()
-		m.watcher = nil
-	}
-	m.watchGen++
-}
-
-// applyPreview handles a previewMsg from a stream. It ignores deliveries from a
-// superseded stream, drops to the fallback poll when the stream closed, and
-// otherwise stores the capture and re-arms the wait on the same stream.
-func (m *Model) applyPreview(msg previewMsg) tea.Cmd {
-	if msg.gen != m.watchGen || m.watcher == nil {
-		return nil
-	}
-	if !msg.ok {
-		m.closeWatcher()
-		return nil
-	}
-	m.preview = msg.content
-	return waitPreview(msg.gen, m.watcher.Updates())
-}
-
-// pollOrReconnect runs on the fallback tick. With a live stream it does nothing
-// (the stream delivers updates and runs its own safety captures). Otherwise it
-// tries to (re)establish a stream for the selected session, and failing that
-// falls back to a one-shot Capture poll — the only path on a non-streaming
-// backend (Windows) and the recovery path after a dropped connection.
-func (m *Model) pollOrReconnect() tea.Cmd {
-	if m.watcher != nil {
-		return nil
-	}
-	if cmd := m.ensureWatcher(); cmd != nil {
-		return cmd
-	}
-	m.pollCapture()
-	return nil
-}
-
-// pollCapture re-captures the preview target with a one-shot Capture. An empty
-// target — no running selection, or the Preview tab not active — clears the
-// buffer and captures nothing, so the fallback poll, like the stream, does no
-// work when another tab is shown. Errors are swallowed: the preview is a
-// convenience, not a source of truth. This is the fallback when no stream is
-// available; on the streaming path it does not run.
-func (m *Model) pollCapture() {
-	name := m.previewTarget()
-	if name == "" {
-		m.preview = ""
-		return
-	}
-	if out, err := m.tmux.Capture(name); err == nil {
-		m.preview = out
-	}
-}
-
 // paneTick is the per-tick work for the active right-pane tab. The Preview and
 // Diff tabs poll-or-reconnect the preview stream — a near no-op off the Preview
 // tab, since previewTarget is then empty — while the Terminal tab ensures the
@@ -1076,97 +930,41 @@ func (m *Model) paneTick() tea.Cmd {
 	if m.pane == paneTerminal {
 		return m.ensureTermCmd()
 	}
-	return m.pollOrReconnect()
+	return m.preview.PollOrReconnect(m.previewTarget())
 }
 
-// ensureTermCmd returns a command that lazily spawns the selected session's
-// companion shell — a tmux session distinct from the agent's, named off its
-// TmuxName, running launch.Shell() in the session's worktree (or working)
-// directory — when one does not already exist, then captures it for the
-// Terminal tab body. An existing companion is reused rather than respawned, so
-// it survives cockpit restarts. With no session selected it clears the body.
+// ensureTermCmd ensures and captures the selected session's companion shell for
+// the Terminal tab. With no session selected it clears the body via an empty
+// target.
 func (m *Model) ensureTermCmd() tea.Cmd {
 	s := m.selectedSession()
 	if s == nil {
-		return func() tea.Msg { return termMsg{} }
+		return m.term.EnsureCmd("", "", m.tmux)
 	}
-	name := companionName(s)
-	dir := s.WorktreePath
-	if dir == "" {
-		dir = s.WorkingDir
-	}
-	be := m.tmux
-	return func() tea.Msg {
-		has, err := be.Has(name)
-		if err != nil {
-			return termMsg{name: name, err: err}
-		}
-		if !has {
-			if err := be.SpawnEnv(name, dir, nil, launch.Shell()); err != nil {
-				return termMsg{name: name, err: err}
-			}
-		}
-		out, _ := be.Capture(name)
-		return termMsg{name: name, content: out}
-	}
+	return m.term.EnsureCmd(s.TmuxName, sessionDir(s), m.tmux)
 }
 
-// applyTerm stores a companion capture for rendering and records the companion
-// as live so it is torn down on exit. A delivery whose companion is no longer
-// the selected session's is dropped, so a late capture cannot overwrite the
-// body after the selection moved. A spawn or address error surfaces on the
-// status line.
-func (m *Model) applyTerm(msg termMsg) tea.Cmd {
-	if msg.err != nil {
-		m.err = msg.err
-		return nil
+// applyTerm routes a companion capture to the Terminal pane, passing the
+// expected companion of the current selection so a stale delivery is dropped,
+// and surfaces a spawn or address error on the status line.
+func (m *Model) applyTerm(msg pane.TermMsg) tea.Cmd {
+	expected := ""
+	if s := m.selectedSession(); s != nil {
+		expected = companionName(s.TmuxName)
 	}
-	if msg.name == "" {
-		m.termShown = ""
-		m.termContent = ""
-		return nil
+	cmd, err := m.term.Apply(msg, expected)
+	if err != nil {
+		m.err = err
 	}
-	m.terms[msg.name] = true
-	if s := m.selectedSession(); s == nil || companionName(s) != msg.name {
-		return nil
-	}
-	m.termShown = msg.name
-	m.termContent = msg.content
-	return nil
-}
-
-// closeTerms kills every companion shell this run spawned. It runs on quit so no
-// wasa_*_term sessions are left behind. Each kill is best-effort: a companion a
-// session kill or delete already removed is gone, and tmux's error for a missing
-// session is swallowed.
-func (m *Model) closeTerms() {
-	for name := range m.terms {
-		_ = m.tmux.Kill(name)
-	}
-	m.terms = make(map[string]bool)
+	return cmd
 }
 
 // companionName is the deterministic tmux name of a session's companion shell:
 // its agent TmuxName with a _term suffix. Deriving it from the stable TmuxName
 // keeps it identical across cockpit restarts and distinct from the agent
 // session, so the two never collide.
-func companionName(s *registry.Session) string {
-	return s.TmuxName + "_term"
-}
-
-// newDiffViewport builds the Diff tab's scrollable viewport with a keymap that
-// avoids the cockpit list bindings: it scrolls with PageUp/PageDown and the
-// ctrl+f/ctrl+b/ctrl+u/ctrl+d chords and leaves the bare arrow keys to the list
-// so up/down keep moving the session cursor (which re-targets the diff).
-func newDiffViewport() viewport.Model {
-	vp := viewport.New(0, 0)
-	vp.KeyMap = viewport.KeyMap{
-		PageDown:     key.NewBinding(key.WithKeys("pgdown", "ctrl+f")),
-		PageUp:       key.NewBinding(key.WithKeys("pgup", "ctrl+b")),
-		HalfPageDown: key.NewBinding(key.WithKeys("ctrl+d")),
-		HalfPageUp:   key.NewBinding(key.WithKeys("ctrl+u")),
-	}
-	return vp
+func companionName(sessionTmux string) string {
+	return sessionTmux + "_term"
 }
 
 // rightPaneSize is the inner width and height of the right pane's body, below
@@ -1177,69 +975,58 @@ func (m Model) rightPaneSize() (w, h int) {
 	return m.width - m.listColWidth() - 4, max(bodyH-(tabRowRows-1), 1)
 }
 
-// sizeDiffViewport sizes the diff viewport to the pane body minus the summary
-// line, so its paging math and render match what diffBody draws. It runs on
-// resize and whenever a diff is loaded, never per tick.
+// sizeDiffViewport sizes the diff viewport to the pane body, so its paging math
+// and render match what the Diff body draws. It runs on resize and whenever a
+// diff is loaded, never per tick.
 func (m *Model) sizeDiffViewport() {
 	w, h := m.rightPaneSize()
-	m.diffVP.Width = max(w, 1)
-	m.diffVP.Height = max(h-1, 1)
+	m.diff.Size(w, h)
 }
 
 // ensureDiffCmd returns a command that computes the selected worktree session's
 // diff against its recorded base commit, when that diff is not already loaded.
 // It is a no-op (nil) when the diff for the selection is already shown, so it
 // fires only on a selection change or a switch to the Diff tab, never per tick.
-// A plain (non-worktree) session loads an empty diff; diffBody renders the
-// explanatory state for it from the session's own fields.
+// The root resolves the session's workspace repository here and passes the
+// worktree inputs to the Diff pane, which keeps the already-loaded guard and
+// runs the diff. A worktree session whose workspace it cannot resolve surfaces
+// that as the diff error rather than running a diff against an empty repo path.
 func (m *Model) ensureDiffCmd() tea.Cmd {
 	s := m.selectedSession()
-	if s == nil || m.diffSID == s.ID {
+	if s == nil {
 		return nil
 	}
-	sid := s.ID
-	branch, wt, base := s.Branch, s.WorktreePath, s.BaseCommit
-	if branch == "" || wt == "" || base == "" {
-		return func() tea.Msg { return diffMsg{sessionID: sid} }
-	}
-	ws, ok := m.reg.Workspace(s.WorkspaceID)
-	if !ok {
-		return func() tea.Msg {
-			return diffMsg{
-				sessionID: sid,
-				err:       fmt.Errorf("workspace not found"),
+	if s.Branch != "" && s.WorktreePath != "" && s.BaseCommit != "" {
+		ws, ok := m.reg.Workspace(s.WorkspaceID)
+		if !ok {
+			if m.diff.SID() == s.ID {
+				return nil
+			}
+			sid := s.ID
+			return func() tea.Msg {
+				return pane.NewDiffErr(sid, fmt.Errorf("workspace not found"))
 			}
 		}
+		return m.diff.EnsureCmd(
+			s.ID, ws.RepoPath, m.home, s.WorkspaceID,
+			s.WorktreePath, s.BaseCommit,
+		)
 	}
-	repo, home, wsID := ws.RepoPath, m.home, s.WorkspaceID
-	return func() tea.Msg {
-		res, err := worktree.New(repo, home, wsID).Diff(wt, base)
-		if err != nil {
-			return diffMsg{sessionID: sid, err: err}
-		}
-		return diffMsg{
-			sessionID: sid, text: res.Text,
-			added: res.Added, removed: res.Removed,
-		}
-	}
+	return m.diff.EnsureCmd(
+		s.ID, "", m.home, s.WorkspaceID, s.WorktreePath, s.BaseCommit,
+	)
 }
 
-// applyDiff stores a computed diff for rendering, dropping a delivery whose
+// applyDiff routes a computed diff to the Diff pane, dropping a delivery whose
 // session is no longer selected so a slow diff cannot overwrite the body after
-// the cursor moved. It loads the colorized content into the viewport and scrolls
-// it back to the top for the new session.
-func (m *Model) applyDiff(msg diffMsg) tea.Cmd {
-	if s := m.selectedSession(); s == nil || s.ID != msg.sessionID {
+// the cursor moved. It sizes the viewport before applying so the paging math
+// matches the current pane.
+func (m *Model) applyDiff(msg pane.DiffMsg) tea.Cmd {
+	if s := m.selectedSession(); s == nil || s.ID != msg.SessionID() {
 		return nil
 	}
-	m.diffSID = msg.sessionID
-	m.diffErr = msg.err
-	m.diffText = msg.text
-	m.diffAdded, m.diffRemoved = msg.added, msg.removed
 	m.sizeDiffViewport()
-	m.diffVP.SetContent(colorizeDiff(m.theme, msg.text))
-	m.diffVP.SetYOffset(0)
-	return nil
+	return m.diff.Apply(msg)
 }
 
 // sweepStatuses refreshes the derived runtime status of every running session
@@ -1299,12 +1086,14 @@ func (m *Model) transition(
 }
 
 // contentFor returns the pane content sweepStatuses derives a session's status
-// from. The focused session is already streamed into m.preview, so its live
-// capture is reused rather than re-captured; every other running session is
-// captured one-shot. A capture error yields empty content, which reads as idle.
+// from. The focused session is already streamed into the preview pane, so its
+// live capture is reused rather than re-captured; every other running session
+// is captured one-shot. A capture error yields empty content, which reads as
+// idle.
 func (m *Model) contentFor(s *registry.Session) string {
-	if s.TmuxName == m.watchName && m.watcher != nil {
-		return m.preview
+	if content, live := m.preview.Capture(); live &&
+		s.TmuxName == m.preview.WatchedName() {
+		return content
 	}
 	out, _ := m.tmux.Capture(s.TmuxName)
 	return out

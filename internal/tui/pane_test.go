@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -8,7 +9,37 @@ import (
 
 	"github.com/joakimcarlsson/wasa/internal/config"
 	"github.com/joakimcarlsson/wasa/internal/registry"
+	"github.com/joakimcarlsson/wasa/internal/tui/pane"
 )
+
+// attachBackend is an in-memory SessionBackend that records spawns and attaches
+// so the root attach dispatch (agent vs companion) can be exercised without a
+// tmux server.
+type attachBackend struct {
+	sessions map[string]bool
+	spawned  []string
+	attached []string
+}
+
+func newAttachBackend() *attachBackend {
+	return &attachBackend{sessions: map[string]bool{}}
+}
+
+func (b *attachBackend) SpawnEnv(name, _ string, _ []string, _ ...string) error {
+	b.sessions[name] = true
+	b.spawned = append(b.spawned, name)
+	return nil
+}
+
+func (b *attachBackend) AttachCmd(name string) (*exec.Cmd, error) {
+	b.attached = append(b.attached, name)
+	return exec.Command("true"), nil
+}
+
+func (b *attachBackend) Capture(string) (string, error) { return "", nil }
+func (b *attachBackend) Has(name string) (bool, error)  { return b.sessions[name], nil }
+func (b *attachBackend) List() ([]string, error)        { return nil, nil }
+func (b *attachBackend) Kill(string) error              { return nil }
 
 // paneModel builds a one-workspace cockpit with a single running session
 // selected, sized so the full (non-compact) frame renders.
@@ -91,5 +122,57 @@ func TestPaneTabStripRendersAllTabs(t *testing.T) {
 		if !strings.Contains(view, label) {
 			t.Fatalf("view missing pane tab %q:\n%s", label, view)
 		}
+	}
+}
+
+// TestTerminalAttachTargetsCompanion is the root dispatch test: on the Terminal
+// tab attach spawns and attaches the selected session's companion shell and
+// records it for teardown.
+func TestTerminalAttachTargetsCompanion(t *testing.T) {
+	m := paneModel(t)
+	be := newAttachBackend()
+	m.tmux = be
+	m.term = pane.NewTerminal()
+	m.pane = paneTerminal
+
+	next, cmd := m.attach()
+	got := next.(Model)
+	if cmd == nil {
+		t.Fatal("terminal attach produced no exec command")
+	}
+	if len(be.spawned) != 1 || be.spawned[0] != "wasa_x_s1_term" {
+		t.Fatalf("attach did not spawn the companion: %v", be.spawned)
+	}
+	if len(be.attached) != 1 || be.attached[0] != "wasa_x_s1_term" {
+		t.Fatalf("attach targeted the wrong session: %v", be.attached)
+	}
+	if !got.term.Tracking("wasa_x_s1_term") {
+		t.Fatal("attach did not record the companion for teardown")
+	}
+}
+
+// TestPreviewAttachTargetsAgentSession is the root dispatch test for the
+// Preview tab: attach targets the agent session, not a companion.
+func TestPreviewAttachTargetsAgentSession(t *testing.T) {
+	m := paneModel(t)
+	be := newAttachBackend()
+	m.tmux = be
+
+	m.attach()
+	if len(be.attached) != 1 || be.attached[0] != "wasa_x_s1" {
+		t.Fatalf(
+			"preview attach should target the agent session: %v",
+			be.attached,
+		)
+	}
+}
+
+// TestApplyDiffDropsStaleDelivery is the root stale-drop guard: a diff for a
+// session that is no longer selected must not be applied.
+func TestApplyDiffDropsStaleDelivery(t *testing.T) {
+	m := paneModel(t)
+	m.applyDiff(pane.NewDiffErr("not-the-selected-one", nil))
+	if m.diff.SID() != "" {
+		t.Fatalf("stale diff was applied: sid=%q", m.diff.SID())
 	}
 }

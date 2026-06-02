@@ -6,12 +6,12 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/joakimcarlsson/wasa/internal/config"
 	"github.com/joakimcarlsson/wasa/internal/registry"
 	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
 	"github.com/joakimcarlsson/wasa/internal/tui/component"
+	"github.com/joakimcarlsson/wasa/internal/tui/pane"
 )
 
 // chromeRows is the number of rows the tab bar, menu and status line take from
@@ -177,140 +177,51 @@ func (m Model) tabbedRightPane(contentW, bodyH int) string {
 	return lipgloss.JoinVertical(lipgloss.Left, row, window)
 }
 
-// paneBody renders the body of the active right-pane tab into a w×h area.
+// paneBody renders the body of the active right-pane tab into a w×h area. The
+// no-session and exited gating that depends on the registry stays here; the
+// owning pane machine renders the rest of each tab's states.
 func (m Model) paneBody(w, h int) string {
+	s := m.selectedSession()
 	switch m.pane {
 	case paneDiff:
-		return m.diffBody(w, h)
+		return m.diff.Body(m.theme, m.diffSession(s), w, h)
 	case paneTerminal:
-		return m.terminalBody(w, h)
+		return m.term.Body(m.theme, m.termSession(s), w, h)
 	default:
-		return m.previewBody(w, h)
-	}
-}
-
-// diffBody renders the Diff tab: a colorized git diff of the selected worktree
-// session against its recorded base commit, in a scrollable viewport under an
-// additions/deletions summary line. A plain (non-worktree) session shows an
-// explanatory state rather than an error; a worktree with no changes shows an
-// empty state; and the diff is shown only once it has been computed for the
-// current selection.
-func (m Model) diffBody(w, h int) string {
-	s := m.selectedSession()
-	if s == nil {
-		return m.theme.DimStyle.Render("No session selected.")
-	}
-	if s.Branch == "" || s.WorktreePath == "" || s.BaseCommit == "" {
-		return m.theme.DimStyle.Render(
-			"Diff is only available for worktree sessions.",
+		if s == nil {
+			return m.theme.DimStyle.Render("No session selected.")
+		}
+		return m.preview.Body(
+			m.theme, s.Status == registry.StatusRunning, w, h,
 		)
 	}
-	if m.diffSID != s.ID {
-		return m.theme.DimStyle.Render("Loading diff…")
-	}
-	if m.diffErr != nil {
-		return m.theme.ErrorStyle.Render("diff error: " + m.diffErr.Error())
-	}
-	if strings.TrimSpace(m.diffText) == "" {
-		return m.theme.DimStyle.Render("No changes.")
-	}
-
-	vp := m.diffVP
-	vp.Width = max(w, 1)
-	vp.Height = max(h-1, 1)
-	return diffSummaryLine(m.theme, m.diffAdded, m.diffRemoved) +
-		"\n" + vp.View()
 }
 
-// diffSummaryLine renders the "N additions(+) / M deletions(-)" header above the
-// diff, the additions in the add colour and the deletions in the delete colour.
-func diffSummaryLine(theme component.Theme, added, removed int) string {
-	return theme.DiffAddStyle.Render(fmt.Sprintf("%d additions(+)", added)) +
-		theme.DimStyle.Render(" / ") +
-		theme.DiffDelStyle.Render(fmt.Sprintf("%d deletions(-)", removed))
-}
-
-// colorizeDiff styles a plain unified diff line by line: hunk headers in the
-// accent, additions green and deletions red, and the file/metadata lines dimmed.
-// The context lines are left unstyled. git emits the diff without colour, so the
-// cockpit colours it itself to match the theme.
-func colorizeDiff(theme component.Theme, text string) string {
-	lines := strings.Split(text, "\n")
-	for i, line := range lines {
-		lines[i] = styleDiffLine(theme, line)
-	}
-	return strings.Join(lines, "\n")
-}
-
-func styleDiffLine(theme component.Theme, line string) string {
-	switch {
-	case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
-		return theme.DiffMetaStyle.Render(line)
-	case strings.HasPrefix(line, "@@"):
-		return theme.DiffHunkStyle.Render(line)
-	case strings.HasPrefix(line, "+"):
-		return theme.DiffAddStyle.Render(line)
-	case strings.HasPrefix(line, "-"):
-		return theme.DiffDelStyle.Render(line)
-	case strings.HasPrefix(line, "diff "),
-		strings.HasPrefix(line, "index "),
-		strings.HasPrefix(line, "new file"),
-		strings.HasPrefix(line, "deleted file"),
-		strings.HasPrefix(line, "rename "),
-		strings.HasPrefix(line, "similarity "):
-		return theme.DiffMetaStyle.Render(line)
-	default:
-		return line
-	}
-}
-
-// terminalBody renders the Terminal tab: a capture of the selected session's
-// companion shell. Until the first capture for the current selection arrives it
-// shows a starting hint, so a stale capture from a previously selected session
-// is never shown as if it were this one's.
-func (m Model) terminalBody(w, h int) string {
-	s := m.selectedSession()
+// diffSession projects the selected session into the minimal facts the Diff
+// pane's body needs to choose its render state.
+func (m Model) diffSession(s *registry.Session) pane.DiffSession {
 	if s == nil {
-		return m.theme.DimStyle.Render("No session selected.")
+		return pane.DiffSession{}
 	}
-	if m.termShown != companionName(s) ||
-		strings.TrimSpace(ansi.Strip(m.termContent)) == "" {
-		return m.theme.DimStyle.Render("Starting shell…")
+	return pane.DiffSession{
+		Selected:     true,
+		ID:           s.ID,
+		Branch:       s.Branch,
+		WorktreePath: s.WorktreePath,
+		BaseCommit:   s.BaseCommit,
 	}
-	return renderCapture(m.termContent, w, h)
 }
 
-func (m Model) previewBody(w, h int) string {
-	s := m.selectedSession()
+// termSession projects the selected session into the minimal facts the Terminal
+// pane's body needs to choose its render state.
+func (m Model) termSession(s *registry.Session) pane.TermSession {
 	if s == nil {
-		return m.theme.DimStyle.Render("No session selected.")
+		return pane.TermSession{}
 	}
-	if s.Status != registry.StatusRunning {
-		return m.theme.DimStyle.Render("Session exited — nothing to preview.")
+	return pane.TermSession{
+		Selected:      true,
+		CompanionName: companionName(s.TmuxName),
 	}
-	// The capture carries the agent's own escape sequences (tmux capture-pane
-	// -e), so emptiness must be judged on the visible text, not the raw bytes.
-	if strings.TrimSpace(ansi.Strip(m.preview)) == "" {
-		return m.theme.DimStyle.Render("Waiting for output…")
-	}
-	return renderCapture(m.preview, w, h)
-}
-
-// renderCapture fits a tmux pane capture to a w×h area for the Preview and
-// Terminal tabs: it expands tabs, keeps the last h lines so the freshest output
-// shows, and truncates each line to the visible width without slicing an escape
-// sequence — resetting at the end so an unterminated colour cannot bleed into
-// the pane border or the padding lipgloss adds. The capture is already styled,
-// so it is emitted as-is and never re-styled.
-func renderCapture(content string, w, h int) string {
-	lines := strings.Split(strings.ReplaceAll(content, "\t", "    "), "\n")
-	if len(lines) > h {
-		lines = lines[len(lines)-h:]
-	}
-	for i, ln := range lines {
-		lines[i] = ansi.Truncate(ln, w, "") + "\x1b[0m"
-	}
-	return strings.Join(lines, "\n")
 }
 
 func (m Model) menuBar() string {
