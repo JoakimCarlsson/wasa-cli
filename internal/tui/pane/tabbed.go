@@ -14,6 +14,7 @@ import (
 // its stream down and cycling back resumes it.
 type Tab int
 
+// The right-pane tabs, in strip order.
 const (
 	TabPreview Tab = iota
 	TabDiff
