@@ -14,6 +14,7 @@ REPO="JoakimCarlsson/wasa"
 BINARY="wasa"
 BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
 VERSION="${VERSION:-latest}"
+tmp=""
 
 err() {
     echo "error: $1" >&2
@@ -46,9 +47,14 @@ detect_platform() {
 
 resolve_version() {
     if [ "$VERSION" = "latest" ]; then
-        VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-            | grep -m1 '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')"
-        [ -n "$VERSION" ] || err "could not determine the latest release. Has one been published yet?"
+        local resp
+        resp="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest")" \
+            || err "could not query the latest release. Has one been published yet?"
+        if [[ "$resp" =~ \"tag_name\":[[:space:]]*\"([^\"]+)\" ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+        else
+            err "could not parse the latest release tag from the GitHub API response."
+        fi
     fi
     VERSION="${VERSION#v}"
 }
@@ -89,7 +95,7 @@ main() {
     detect_platform
     resolve_version
 
-    local archive url tmp
+    local archive url
     archive="${BINARY}_${VERSION}_${PLATFORM}_${ARCH}.tar.gz"
     url="https://github.com/${REPO}/releases/download/v${VERSION}/${archive}"
     tmp="$(mktemp -d)"
