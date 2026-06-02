@@ -672,7 +672,9 @@ func (e colorEditor) view(label string) string {
 		if active {
 			marker = e.theme.FocusedLabelStyle.Render("▸ ")
 			label = e.theme.FocusedLabelStyle.Render(name)
-			value = e.theme.FocusedLabelStyle.Render(component.Pad(strconv.Itoa(cur[i]), 3))
+			value = e.theme.FocusedLabelStyle.Render(
+				component.Pad(strconv.Itoa(cur[i]), 3),
+			)
 		}
 		rows = append(rows, fmt.Sprintf(
 			"%s%s %s %s", marker, label, e.channelBar(cur[i], active), value,

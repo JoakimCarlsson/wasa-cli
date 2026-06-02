@@ -235,7 +235,9 @@ func TestWatchFailureFallsBackToPoll(t *testing.T) {
 		t.Fatal("a watcher was retained after Watch failed")
 	}
 	if rc := p.PollOrReconnect("wasa_s1"); rc != nil {
-		t.Fatal("PollOrReconnect returned a stream command after a failed Watch")
+		t.Fatal(
+			"PollOrReconnect returned a stream command after a failed Watch",
+		)
 	}
 	if fs.captures == 0 {
 		t.Fatal("fallback poll did not call Capture")
@@ -307,7 +309,10 @@ func TestTerminalReusesExistingCompanion(t *testing.T) {
 func TestTerminalDropsStaleCapture(t *testing.T) {
 	term := NewTerminal()
 
-	term.Apply(TermMsg{name: "someone_else_term", content: "stale"}, "wasa_x_s1_term")
+	term.Apply(
+		TermMsg{name: "someone_else_term", content: "stale"},
+		"wasa_x_s1_term",
+	)
 	if term.content != "" {
 		t.Fatalf("stale capture overwrote the body: %q", term.content)
 	}
@@ -369,7 +374,14 @@ func TestTerminalEnsureNoSelectionClearsBody(t *testing.T) {
 
 func TestDiffBodyPlainSessionExplains(t *testing.T) {
 	d := NewDiff(testTheme())
-	if cmd := d.EnsureCmd("p1", "/repo", t.TempDir(), "ws", "", ""); cmd == nil {
+	if cmd := d.EnsureCmd(
+		"p1",
+		"/repo",
+		t.TempDir(),
+		"ws",
+		"",
+		"",
+	); cmd == nil {
 		t.Fatal("plain session should still produce a load command")
 	}
 	sess := DiffSession{Selected: true, ID: "p1"}
@@ -385,7 +397,15 @@ func TestDiffBodyLoadingBeforeCompute(t *testing.T) {
 		Selected: true, ID: "w1", Branch: "feature/w1",
 		WorktreePath: "/wt/w1", BaseCommit: "deadbeef",
 	}
-	if body := d.Body(testTheme(), sess, 100, 20); !strings.Contains(body, "Loading diff") {
+	if body := d.Body(
+		testTheme(),
+		sess,
+		100,
+		20,
+	); !strings.Contains(
+		body,
+		"Loading diff",
+	) {
 		t.Fatalf("uncomputed worktree diff body = %q", body)
 	}
 }

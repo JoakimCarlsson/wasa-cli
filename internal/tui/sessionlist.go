@@ -21,21 +21,6 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
-// paneTab selects which view the right pane shows: the live preview (today's
-// default), a git diff of the session's work, or a companion shell. Only the
-// active tab does per-tick work; the others are idle, so cycling away from
-// Preview tears its stream down and cycling back resumes it.
-type paneTab int
-
-const (
-	panePreview paneTab = iota
-	paneDiff
-	paneTerminal
-)
-
-// paneTabNames is the tab strip's labels in paneTab order.
-var paneTabNames = [...]string{"Preview", "Diff", "Terminal"}
-
 // chromeRows is the number of rows the tab bar, menu and status line take from
 // the body height. Unlike the column sizing it is not user-configurable: it
 // tracks the fixed frame the cockpit draws, not a preference.
@@ -61,10 +46,10 @@ func (m Model) View() string {
 
 	base := m.listView()
 	if m.mode == modeConfirm {
-		return component.PlaceOverlay(m.confirm.View(), base)
+		return component.Modal(m.confirm.View(), base)
 	}
 	if m.mode == modeConfig {
-		return component.PlaceOverlay(m.editor.View(), base)
+		return component.Modal(m.editor.View(), base)
 	}
 	return base
 }
@@ -177,46 +162,18 @@ func (m Model) sessionRow(i int, s *registry.Session, w int) string {
 	)
 }
 
-// tabRowRows is the height the tab row occupies above the content window: the
-// box top border, the label line and the bottom edge that doubles as the
-// window's top border.
-const tabRowRows = 3
-
-// tabbedRightPane renders the right pane as a row of connected tab boxes —
-// Preview, Diff, Terminal — sitting on a content window, in the lipgloss tabs
-// idiom (after claude-squad): the tabs span the pane width, the active tab's
-// bottom border opens into the window beneath it, and the inactive tabs close
-// against the window's top edge. contentW and bodyH are the content width and
-// the full body height the pane must fill so it lines up with the sessions
-// pane.
+// tabbedRightPane renders the right pane through the Tabbed component. The root
+// computes the per-tab facts from the selected session — whether the previewed
+// session is running, and the Diff/Terminal projections — and Tabbed frames the
+// tab strip over the active pane's body. contentW and bodyH are the content
+// width and the full body height the pane must fill so it lines up with the
+// sessions pane.
 func (m Model) tabbedRightPane(contentW, bodyH int) string {
-	contentH := max(bodyH-(tabRowRows-1), 1)
-
-	row := component.TabStrip(m.theme, paneTabNames[:], int(m.pane), contentW+2)
-	window := m.theme.PaneWindowStyle.Width(contentW).Height(contentH).Render(
-		m.paneBody(contentW, contentH),
-	)
-	return lipgloss.JoinVertical(lipgloss.Left, row, window)
-}
-
-// paneBody renders the body of the active right-pane tab into a w×h area. The
-// no-session and exited gating that depends on the registry stays here; the
-// owning pane machine renders the rest of each tab's states.
-func (m Model) paneBody(w, h int) string {
 	s := m.selectedSession()
-	switch m.pane {
-	case paneDiff:
-		return m.diff.Body(m.theme, m.diffSession(s), w, h)
-	case paneTerminal:
-		return m.term.Body(m.theme, m.termSession(s), w, h)
-	default:
-		if s == nil {
-			return m.theme.DimStyle.Render("No session selected.")
-		}
-		return m.preview.Body(
-			m.theme, s.Status == registry.StatusRunning, w, h,
-		)
-	}
+	running := s != nil && s.Status == registry.StatusRunning
+	return m.tabbed.Body(
+		m.theme, contentW, bodyH, running, m.diffSession(s), m.termSession(s),
+	)
 }
 
 // diffSession projects the selected session into the minimal facts the Diff
@@ -367,11 +324,11 @@ func noSessionBanner(theme theme.Theme, name string) string {
 // an immediate companion ensure+capture so switching to it or moving the cursor
 // shows the shell without waiting for the next tick.
 func (m *Model) afterListChange() tea.Cmd {
-	cmd := m.preview.SetTarget(m.previewTarget())
-	switch m.pane {
-	case paneTerminal:
+	cmd := m.tabbed.Preview.SetTarget(m.previewTarget())
+	switch m.tabbed.Active() {
+	case pane.TabTerminal:
 		cmd = tea.Batch(cmd, m.ensureTermCmd())
-	case paneDiff:
+	case pane.TabDiff:
 		cmd = tea.Batch(cmd, m.ensureDiffCmd())
 	}
 	return cmd
@@ -436,7 +393,10 @@ func (m Model) recentDirs() []component.RecentDir {
 		seen[p] = true
 		out = append(
 			out,
-			component.RecentDir{Path: p, Display: component.HomeRel(p, m.osHome)},
+			component.RecentDir{
+				Path:    p,
+				Display: component.HomeRel(p, m.osHome),
+			},
 		)
 		if len(out) >= component.MaxRecents {
 			break
@@ -533,7 +493,7 @@ func companionName(sessionTmux string) string {
 // streaming preview's cost off the other tabs — when Diff or Terminal is shown
 // the watcher tears down and no per-tick capture runs for the preview.
 func (m Model) previewTarget() string {
-	if m.pane != panePreview {
+	if m.tabbed.Active() != pane.TabPreview {
 		return ""
 	}
 	s := m.selectedSession()
@@ -548,10 +508,10 @@ func (m Model) previewTarget() string {
 // tab, since previewTarget is then empty — while the Terminal tab ensures the
 // selected session's companion shell exists and re-captures it.
 func (m *Model) paneTick() tea.Cmd {
-	if m.pane == paneTerminal {
+	if m.tabbed.Active() == pane.TabTerminal {
 		return m.ensureTermCmd()
 	}
-	return m.preview.PollOrReconnect(m.previewTarget())
+	return m.tabbed.Preview.PollOrReconnect(m.previewTarget())
 }
 
 // ensureTermCmd ensures and captures the selected session's companion shell for
@@ -560,9 +520,9 @@ func (m *Model) paneTick() tea.Cmd {
 func (m *Model) ensureTermCmd() tea.Cmd {
 	s := m.selectedSession()
 	if s == nil {
-		return m.term.EnsureCmd("", "", m.tmux)
+		return m.tabbed.Terminal.EnsureCmd("", "", m.tmux)
 	}
-	return m.term.EnsureCmd(s.TmuxName, sessionDir(s), m.tmux)
+	return m.tabbed.Terminal.EnsureCmd(s.TmuxName, sessionDir(s), m.tmux)
 }
 
 // applyTerm routes a companion capture to the Terminal pane, passing the
@@ -573,7 +533,7 @@ func (m *Model) applyTerm(msg pane.TermMsg) tea.Cmd {
 	if s := m.selectedSession(); s != nil {
 		expected = companionName(s.TmuxName)
 	}
-	cmd, err := m.term.Apply(msg, expected)
+	cmd, err := m.tabbed.Terminal.Apply(msg, expected)
 	if err != nil {
 		m.err = err
 	}
@@ -582,10 +542,11 @@ func (m *Model) applyTerm(msg pane.TermMsg) tea.Cmd {
 
 // rightPaneSize is the inner width and height of the right pane's body, below
 // the tab strip — the area the Preview, Diff and Terminal tabs render into. It
-// mirrors the sizing listView applies to the pane.
+// mirrors the sizing Tabbed.Body applies to the pane: the tab row consumes two
+// rows of the body height above the content window.
 func (m Model) rightPaneSize() (w, h int) {
 	bodyH := max(m.height-chromeRows, 3)
-	return m.width - m.listColWidth() - 4, max(bodyH-(tabRowRows-1), 1)
+	return m.width - m.listColWidth() - 4, max(bodyH-2, 1)
 }
 
 // sizeDiffViewport sizes the diff viewport to the pane body, so its paging math
@@ -593,7 +554,7 @@ func (m Model) rightPaneSize() (w, h int) {
 // diff is loaded, never per tick.
 func (m *Model) sizeDiffViewport() {
 	w, h := m.rightPaneSize()
-	m.diff.Size(w, h)
+	m.tabbed.Diff.Size(w, h)
 }
 
 // ensureDiffCmd returns a command that computes the selected worktree session's
@@ -612,7 +573,7 @@ func (m *Model) ensureDiffCmd() tea.Cmd {
 	if s.Branch != "" && s.WorktreePath != "" && s.BaseCommit != "" {
 		ws, ok := m.reg.Workspace(s.WorkspaceID)
 		if !ok {
-			if m.diff.SID() == s.ID {
+			if m.tabbed.Diff.SID() == s.ID {
 				return nil
 			}
 			sid := s.ID
@@ -620,12 +581,12 @@ func (m *Model) ensureDiffCmd() tea.Cmd {
 				return pane.NewDiffErr(sid, fmt.Errorf("workspace not found"))
 			}
 		}
-		return m.diff.EnsureCmd(
+		return m.tabbed.Diff.EnsureCmd(
 			s.ID, ws.RepoPath, m.home, s.WorkspaceID,
 			s.WorktreePath, s.BaseCommit,
 		)
 	}
-	return m.diff.EnsureCmd(
+	return m.tabbed.Diff.EnsureCmd(
 		s.ID, "", m.home, s.WorkspaceID, s.WorktreePath, s.BaseCommit,
 	)
 }
@@ -639,7 +600,7 @@ func (m *Model) applyDiff(msg pane.DiffMsg) tea.Cmd {
 		return nil
 	}
 	m.sizeDiffViewport()
-	return m.diff.Apply(msg)
+	return m.tabbed.Diff.Apply(msg)
 }
 
 func (m *Model) cycleTab(delta int) {
@@ -651,14 +612,6 @@ func (m *Model) cycleTab(delta int) {
 	i = (i + delta%n + n) % n
 	m.activeID = m.workspaces[i].ID
 	m.cursor = 0
-}
-
-// cyclePaneTab advances the active right-pane tab by delta, wrapping. The list
-// update that calls it then re-runs ensureWatcher, which tears the preview
-// stream down when the new tab is not Preview and re-establishes it on return.
-func (m *Model) cyclePaneTab(delta int) {
-	n := len(paneTabNames)
-	m.pane = paneTab(((int(m.pane)+delta)%n + n) % n)
 }
 
 func (m Model) tabIndex() int {

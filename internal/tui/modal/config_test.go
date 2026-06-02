@@ -121,7 +121,10 @@ func TestRecordConflictWarns(t *testing.T) {
 }
 
 func TestColorEditorAcceleratesOnHeldKey(t *testing.T) {
-	e := newColorEditor(testTheme(), config.Color{Light: "#000000", Dark: "#000000"})
+	e := newColorEditor(
+		testTheme(),
+		config.Color{Light: "#000000", Dark: "#000000"},
+	)
 	right := tea.KeyMsg{Type: tea.KeyRight}
 
 	e = e.update(right)
@@ -142,7 +145,10 @@ func TestColorEditorAcceleratesOnHeldKey(t *testing.T) {
 }
 
 func TestColorEditorResetsAccelOnDirectionChange(t *testing.T) {
-	e := newColorEditor(testTheme(), config.Color{Light: "#808080", Dark: "#808080"})
+	e := newColorEditor(
+		testTheme(),
+		config.Color{Light: "#808080", Dark: "#808080"},
+	)
 	for range 10 {
 		e = e.update(tea.KeyMsg{Type: tea.KeyRight})
 	}
@@ -153,7 +159,10 @@ func TestColorEditorResetsAccelOnDirectionChange(t *testing.T) {
 }
 
 func TestColorEditorHexRoundTrip(t *testing.T) {
-	e := newColorEditor(testTheme(), config.Color{Light: "#7d56f4", Dark: "#7d56f4"})
+	e := newColorEditor(
+		testTheme(),
+		config.Color{Light: "#7d56f4", Dark: "#7d56f4"},
+	)
 	if got := e.value(); got != "#7d56f4" {
 		t.Fatalf("round-trip changed colour: %q", got)
 	}

@@ -37,7 +37,10 @@ type Preview struct {
 
 // NewPreview builds a Preview over the streaming capability (nil on a
 // non-streaming backend) and the session backend it polls as a fallback.
-func NewPreview(stream backend.StreamingBackend, tmux backend.SessionBackend) Preview {
+func NewPreview(
+	stream backend.StreamingBackend,
+	tmux backend.SessionBackend,
+) Preview {
 	return Preview{stream: stream, tmux: tmux}
 }
 

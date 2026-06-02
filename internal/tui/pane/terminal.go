@@ -53,7 +53,10 @@ func NewTerminal() Terminal {
 // captures it for the Terminal tab body. An existing companion is reused rather
 // than respawned, so it survives cockpit restarts. An empty sessionTmux (no
 // session selected) clears the body.
-func (t *Terminal) EnsureCmd(sessionTmux, dir string, be backend.SessionBackend) tea.Cmd {
+func (t *Terminal) EnsureCmd(
+	sessionTmux, dir string,
+	be backend.SessionBackend,
+) tea.Cmd {
 	if sessionTmux == "" {
 		return func() tea.Msg { return TermMsg{} }
 	}

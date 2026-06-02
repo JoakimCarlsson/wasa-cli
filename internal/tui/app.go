@@ -51,10 +51,11 @@ const (
 // against; osHome is the user's home directory, used only to root and abbreviate
 // the directory browser — the two are distinct and must not be conflated.
 //
-// The three right-pane feature machines — preview, diff and term — own their own
-// state and lifecycle (see internal/tui/pane). The Model is their container: it
-// targets each at the selected session, routes the typed messages back, and
-// dispatches the active tab's body for rendering.
+// The three right-pane feature machines — preview, diff and terminal — own their
+// own state and lifecycle (see internal/tui/pane). The Model holds them through
+// the pane.Tabbed container, which also tracks the active tab: the Model targets
+// each at the selected session, routes the typed messages back, and reaches the
+// panes through m.tabbed to render the active tab's body.
 type Model struct {
 	home   string
 	osHome string
@@ -70,7 +71,6 @@ type Model struct {
 	cursor     int
 
 	mode    mode
-	pane    paneTab
 	form    modal.CreateForm
 	confirm modal.ConfirmDialog
 	picker  component.DirectoryPicker
@@ -82,9 +82,7 @@ type Model struct {
 	width  int
 	height int
 
-	preview pane.Preview
-	diff    pane.Diff
-	term    pane.Terminal
+	tabbed pane.Tabbed
 
 	now          func() time.Time
 	statuses     *sessionstatus.Tracker
@@ -121,14 +119,12 @@ func New(
 		notify:       makeNotifier(cfg.Notify),
 		lastNotifyAt: make(map[string]time.Time),
 		lastStatus:   make(map[string]sessionstatus.Status),
-		diff:         pane.NewDiff(th),
-		term:         pane.NewTerminal(),
 	}
 	m.osHome, _ = os.UserHomeDir()
 	if s, ok := be.(backend.StreamingBackend); ok {
 		m.stream = s
 	}
-	m.preview = pane.NewPreview(m.stream, be)
+	m.tabbed = pane.NewTabbed(m.stream, be, th)
 	m.workspaces = reg.ListWorkspaces()
 	switch {
 	case currentID != "" && m.hasWorkspace(currentID):
@@ -205,7 +201,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(tick(), m.paneTick())
 
 	case pane.PreviewMsg:
-		return m, m.preview.Apply(msg)
+		return m, m.tabbed.Preview.Apply(msg)
 
 	case pane.TermMsg:
 		return m, m.applyTerm(msg)
@@ -316,7 +312,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case modal.ConfigCloseMsg:
 		m.mode = modeList
-		return m, m.preview.SetTarget(m.previewTarget())
+		return m, m.tabbed.Preview.SetTarget(m.previewTarget())
 	}
 
 	switch m.mode {
@@ -340,22 +336,22 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if m.pane == paneDiff {
+	if m.tabbed.Active() == pane.TabDiff {
 		m.sizeDiffViewport()
-		m.diff.Update(msg)
+		m.tabbed.Diff.Update(msg)
 	}
 
 	switch m.keys.Action(key.String()) {
 	case config.ActionQuit:
-		m.preview.Close()
-		m.term.Close(m.tmux)
+		m.tabbed.Preview.Close()
+		m.tabbed.Terminal.Close(m.tmux)
 		return m, tea.Quit
 	case config.ActionTabNext:
 		m.cycleTab(1)
 	case config.ActionTabPrev:
 		m.cycleTab(-1)
 	case config.ActionPaneTab:
-		m.cyclePaneTab(1)
+		m.tabbed.Cycle(1)
 	case config.ActionCursorUp:
 		if m.cursor > 0 {
 			m.cursor--
@@ -583,7 +579,7 @@ func (m Model) applyConfig(cfg config.Config) (tea.Model, tea.Cmd) {
 	cfg.Path = config.Path(m.home)
 	m.cfg = cfg
 	m.theme = theme.NewTheme(cfg.Theme)
-	m.diff.SetTheme(m.theme)
+	m.tabbed.Diff.SetTheme(m.theme)
 	m.keys = component.NewKeymap(cfg.Keys)
 	m.notify = makeNotifier(cfg.Notify)
 	m.err = nil
@@ -627,7 +623,7 @@ func (m Model) attach() (tea.Model, tea.Cmd) {
 	if s == nil {
 		return m, nil
 	}
-	if m.pane == paneTerminal {
+	if m.tabbed.Active() == pane.TabTerminal {
 		return m.attachTerm(s)
 	}
 	if s.Status != registry.StatusRunning {
@@ -653,7 +649,7 @@ func (m Model) attach() (tea.Model, tea.Cmd) {
 // and resumes on detach (C-b d). The companion is independent of the agent, so
 // it attaches even when the agent session itself has exited.
 func (m Model) attachTerm(s *registry.Session) (tea.Model, tea.Cmd) {
-	cmd, err := m.term.AttachCmd(s.TmuxName, sessionDir(s), m.tmux)
+	cmd, err := m.tabbed.Terminal.AttachCmd(s.TmuxName, sessionDir(s), m.tmux)
 	if err != nil {
 		m.err = err
 		return m, nil
@@ -729,7 +725,7 @@ func (m *Model) refresh() tea.Cmd {
 		m.cursor = n - 1
 	}
 	m.cursor = max(m.cursor, 0)
-	return m.preview.SetTarget(m.previewTarget())
+	return m.tabbed.Preview.SetTarget(m.previewTarget())
 }
 
 // sweepStatuses refreshes the derived runtime status of every running session
@@ -794,8 +790,8 @@ func (m *Model) transition(
 // is captured one-shot. A capture error yields empty content, which reads as
 // idle.
 func (m *Model) contentFor(s *registry.Session) string {
-	if content, live := m.preview.Capture(); live &&
-		s.TmuxName == m.preview.WatchedName() {
+	if content, live := m.tabbed.Preview.Capture(); live &&
+		s.TmuxName == m.tabbed.Preview.WatchedName() {
 		return content
 	}
 	out, _ := m.tmux.Capture(s.TmuxName)

@@ -7,7 +7,12 @@ import (
 )
 
 func TestBranchPickerEmptyQueryKeepsOrder(t *testing.T) {
-	p := NewBranchPicker(testTheme(), []string{"main", "feature/x", "fix/y"}, 60, 14)
+	p := NewBranchPicker(
+		testTheme(),
+		[]string{"main", "feature/x", "fix/y"},
+		60,
+		14,
+	)
 	if len(p.matches) != 3 {
 		t.Fatalf("got %d matches, want 3", len(p.matches))
 	}

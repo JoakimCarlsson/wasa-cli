@@ -18,14 +18,40 @@ import (
 // fixed pane content, so the preview render path can be exercised end to end.
 type previewColorBackend struct{ content string }
 
-func (b *previewColorBackend) SpawnEnv(string, string, []string, ...string) error {
+func (b *previewColorBackend) SpawnEnv(
+	string,
+	string,
+	[]string,
+	...string,
+) error {
 	return nil
 }
-func (b *previewColorBackend) AttachCmd(string) (*exec.Cmd, error) { return nil, nil }
-func (b *previewColorBackend) Capture(string) (string, error)      { return b.content, nil }
-func (b *previewColorBackend) Has(string) (bool, error)            { return true, nil }
-func (b *previewColorBackend) List() ([]string, error)             { return nil, nil }
-func (b *previewColorBackend) Kill(string) error                   { return nil }
+
+func (b *previewColorBackend) AttachCmd(
+	string,
+) (*exec.Cmd, error) {
+	return nil, nil
+}
+
+func (b *previewColorBackend) Capture(
+	string,
+) (string, error) {
+	return b.content, nil
+}
+
+func (b *previewColorBackend) Has(
+	string,
+) (bool, error) {
+	return true, nil
+}
+
+func (b *previewColorBackend) List() ([]string, error) { return nil, nil }
+
+func (b *previewColorBackend) Kill(
+	string,
+) error {
+	return nil
+}
 
 // initGitRepo initializes a throwaway git repository at dir with one empty
 // commit so worktree and remote resolution have something to read.
@@ -572,8 +598,8 @@ func TestPreviewPreservesColor(t *testing.T) {
 	}
 	m.tmux = be
 	m.stream = nil
-	m.preview = pane.NewPreview(nil, be)
-	m.preview.PollOrReconnect(m.previewTarget())
+	m.tabbed.Preview = pane.NewPreview(nil, be)
+	m.tabbed.Preview.PollOrReconnect(m.previewTarget())
 
 	out := m.View()
 	if !strings.Contains(out, "\x1b[38;2;255;0;0m") {
