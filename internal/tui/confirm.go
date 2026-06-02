@@ -5,6 +5,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/joakimcarlsson/wasa/internal/tui/component"
 )
 
 // confirmResult is what a confirmDialog update reports back to its parent.
@@ -23,7 +25,7 @@ const (
 // state; the parent decides what confirming means. The cancel button starts
 // focused so a stray enter on a destructive prompt cancels rather than confirms.
 type confirmDialog struct {
-	theme       Theme
+	theme       component.Theme
 	title       string
 	body        string
 	confirmText string
@@ -33,7 +35,7 @@ type confirmDialog struct {
 }
 
 func newConfirmDialog(
-	theme Theme,
+	theme component.Theme,
 	title, body, confirmText, cancelText string,
 	danger bool,
 ) confirmDialog {

@@ -1,4 +1,4 @@
-package tui
+package component
 
 import (
 	"testing"
@@ -11,7 +11,7 @@ import (
 // TestDefaultThemeIsHistoricalPalette pins the resolved default styles to the
 // historical colours, so the zero-config cockpit keeps its exact appearance.
 func TestDefaultThemeIsHistoricalPalette(t *testing.T) {
-	th := newTheme(config.Default().Theme)
+	th := NewTheme(config.Default().Theme)
 
 	if got := th.TitleStyle.GetForeground(); got != (lipgloss.AdaptiveColor{Light: "#874BFD", Dark: "#7D56F4"}) {
 		t.Errorf("accent: got %v", got)
@@ -31,7 +31,7 @@ func TestDefaultThemeIsHistoricalPalette(t *testing.T) {
 func TestNewThemeOverridesAccent(t *testing.T) {
 	cfg := config.Default().Theme
 	cfg.Accent = config.Color{Light: "#abcdef", Dark: "#abcdef"}
-	th := newTheme(cfg)
+	th := NewTheme(cfg)
 
 	want := lipgloss.Color("#abcdef")
 	for name, got := range map[string]lipgloss.TerminalColor{

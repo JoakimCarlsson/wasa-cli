@@ -196,7 +196,7 @@ func TestApplyConfigPersistsAndAppliesLive(t *testing.T) {
 	if got.mode != modeConfig {
 		t.Fatal("apply should keep the panel open")
 	}
-	if got.keys.action("x") != config.ActionNew {
+	if got.keys.Action("x") != config.ActionNew {
 		t.Fatal("apply did not apply the new binding live")
 	}
 	if got.theme.TitleStyle.GetForeground() != lipgloss.Color("#abcdef") {

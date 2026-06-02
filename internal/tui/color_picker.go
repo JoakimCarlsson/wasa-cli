@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/joakimcarlsson/wasa/internal/config"
+	"github.com/joakimcarlsson/wasa/internal/tui/component"
 )
 
 // colorEditor edits one theme colour with RGB sliders. A colour carries a light
@@ -17,7 +18,7 @@ import (
 // "#hex" value (or "#light / #dark" when the variants differ) on commit, which the
 // config editor parses back through parseColor.
 type colorEditor struct {
-	theme   Theme
+	theme   component.Theme
 	light   [3]int
 	dark    [3]int
 	variant int // 0 = light, 1 = dark
@@ -27,7 +28,7 @@ type colorEditor struct {
 	repeat  int    // consecutive presses of lastKey
 }
 
-func newColorEditor(theme Theme, c config.Color) colorEditor {
+func newColorEditor(theme component.Theme, c config.Color) colorEditor {
 	return colorEditor{
 		theme: theme,
 		light: parseRGB(c.Light),
@@ -126,11 +127,11 @@ func (e colorEditor) view(label string) string {
 		active := i == e.channel
 		marker := "  "
 		label := e.theme.DimStyle.Render(name)
-		value := e.theme.DimStyle.Render(pad(strconv.Itoa(cur[i]), 3))
+		value := e.theme.DimStyle.Render(component.Pad(strconv.Itoa(cur[i]), 3))
 		if active {
 			marker = e.theme.FocusedLabelStyle.Render("▸ ")
 			label = e.theme.FocusedLabelStyle.Render(name)
-			value = e.theme.FocusedLabelStyle.Render(pad(strconv.Itoa(cur[i]), 3))
+			value = e.theme.FocusedLabelStyle.Render(component.Pad(strconv.Itoa(cur[i]), 3))
 		}
 		rows = append(rows, fmt.Sprintf(
 			"%s%s %s %s", marker, label, e.channelBar(cur[i], active), value,

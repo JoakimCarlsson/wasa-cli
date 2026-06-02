@@ -72,7 +72,7 @@ func TestPaneTabGatesPreviewTarget(t *testing.T) {
 
 func TestPaneTabKeyCyclesPane(t *testing.T) {
 	m := paneModel(t)
-	ctrlT := m.keys.primary(config.ActionPaneTab)
+	ctrlT := m.keys.Primary(config.ActionPaneTab)
 	if ctrlT == "" {
 		t.Fatal("pane-tab action is unbound")
 	}

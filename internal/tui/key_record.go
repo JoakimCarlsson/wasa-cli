@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/joakimcarlsson/wasa/internal/config"
+	"github.com/joakimcarlsson/wasa/internal/tui/component"
 )
 
 // recordEditor captures a key binding by listening for keypresses: each key the
@@ -14,7 +15,7 @@ import (
 // backspace are reserved by the editor as commit/cancel/remove, so they cannot be
 // recorded here.
 type recordEditor struct {
-	theme  Theme
+	theme  component.Theme
 	action string
 	keys   []string
 	other  map[string]string // key -> the other action that already binds it
@@ -22,7 +23,7 @@ type recordEditor struct {
 }
 
 func newRecordEditor(
-	theme Theme, action string, working config.Config,
+	theme component.Theme, action string, working config.Config,
 ) recordEditor {
 	other := make(map[string]string)
 	for a, ks := range working.Keys {
@@ -68,7 +69,7 @@ func (e recordEditor) view() string {
 	if len(e.keys) > 0 {
 		labels := make([]string, len(e.keys))
 		for i, k := range e.keys {
-			labels[i] = e.theme.MatchStyle.Render(keyLabel(k))
+			labels[i] = e.theme.MatchStyle.Render(component.KeyLabel(k))
 		}
 		captured = strings.Join(labels, " ")
 	}

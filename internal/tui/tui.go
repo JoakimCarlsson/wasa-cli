@@ -29,6 +29,7 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/registry"
 	"github.com/joakimcarlsson/wasa/internal/repo"
 	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
+	"github.com/joakimcarlsson/wasa/internal/tui/component"
 	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
@@ -79,8 +80,8 @@ type Model struct {
 	tmux   backend.SessionBackend
 	stream backend.StreamingBackend
 	cfg    config.Config
-	keys   keymap
-	theme  Theme
+	keys   component.Keymap
+	theme  component.Theme
 
 	workspaces []*registry.Workspace
 	activeID   string
@@ -90,8 +91,8 @@ type Model struct {
 	pane    paneTab
 	form    createForm
 	confirm confirmDialog
-	picker  dirPicker
-	branch  branchPicker
+	picker  component.DirectoryPicker
+	branch  component.BranchPicker
 	editor  configEditor
 
 	confirmCmd tea.Cmd
@@ -143,8 +144,8 @@ func New(
 		reg:          reg,
 		tmux:         be,
 		cfg:          cfg,
-		keys:         newKeymap(cfg.Keys),
-		theme:        newTheme(cfg.Theme),
+		keys:         component.NewKeymap(cfg.Keys),
+		theme:        component.NewTheme(cfg.Theme),
 		now:          time.Now,
 		statuses:     sessionstatus.NewTracker(time.Now),
 		notify:       makeNotifier(cfg.Notify),
@@ -325,15 +326,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.refresh()
 
-	case filterTickMsg:
+	case component.FilterTickMsg:
 		if m.mode == modePick {
-			return m, m.picker.tickFilter(msg.gen)
+			return m, m.picker.TickFilter(msg.Gen)
 		}
 		return m, nil
 
-	case filterResultMsg:
+	case component.FilterResultMsg:
 		if m.mode == modePick {
-			m.picker.applyFilterResult(msg)
+			m.picker.ApplyFilterResult(msg)
 		}
 		return m, nil
 	}
@@ -364,7 +365,7 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.diffVP, _ = m.diffVP.Update(msg)
 	}
 
-	switch m.keys.action(key.String()) {
+	switch m.keys.Action(key.String()) {
 	case config.ActionQuit:
 		m.closeWatcher()
 		m.closeTerms()
@@ -546,7 +547,7 @@ func (m Model) enterPick() (tea.Model, tea.Cmd) {
 			rootPath = cwd
 		}
 	}
-	m.picker = newDirPicker(
+	m.picker = component.NewDirectoryPicker(
 		m.theme, rootPath, sel, m.osHome, m.recentDirs(),
 		m.pickerWidth(), m.pickerHeight(),
 	)
@@ -557,7 +558,7 @@ func (m Model) enterPick() (tea.Model, tea.Cmd) {
 // recentDirs gathers the most-recently-used directories for the picker's recent
 // pane: each workspace's repository (by last use) and each session's working
 // directory (by creation), merged newest-first, deduplicated and capped.
-func (m Model) recentDirs() []recentDir {
+func (m Model) recentDirs() []component.RecentDir {
 	type item struct {
 		path string
 		at   time.Time
@@ -578,15 +579,18 @@ func (m Model) recentDirs() []recentDir {
 	})
 
 	seen := make(map[string]bool)
-	var out []recentDir
+	var out []component.RecentDir
 	for _, it := range items {
 		p := filepath.Clean(it.path)
 		if p == "" || p == "." || seen[p] {
 			continue
 		}
 		seen[p] = true
-		out = append(out, recentDir{path: p, display: homeRel(p, m.osHome)})
-		if len(out) >= maxRecents {
+		out = append(
+			out,
+			component.RecentDir{Path: p, Display: component.HomeRel(p, m.osHome)},
+		)
+		if len(out) >= component.MaxRecents {
 			break
 		}
 	}
@@ -597,14 +601,14 @@ func (m Model) recentDirs() []recentDir {
 // writes it into the form's Directory field and returns to the form; cancelling
 // returns to the form unchanged.
 func (m Model) updatePick(msg tea.Msg) (tea.Model, tea.Cmd) {
-	picker, result, cmd := m.picker.update(msg)
+	picker, result, cmd := m.picker.Update(msg)
 	m.picker = picker
 	switch result {
-	case pickCancel:
+	case component.PickCancel:
 		m.mode = modeCreate
 		return m, textinput.Blink
-	case pickChoose:
-		m.form.setDir(picker.chosen)
+	case component.PickChoose:
+		m.form.setDir(picker.Chosen)
 		m.form.setProfiles(m.profilesFor(m.form.branchRepo))
 		m.mode = modeCreate
 		return m, textinput.Blink
@@ -624,7 +628,7 @@ func (m Model) enterBranchPick() (tea.Model, tea.Cmd) {
 	if !m.form.branchEnabled() {
 		return m, nil
 	}
-	m.branch = newBranchPicker(
+	m.branch = component.NewBranchPicker(
 		m.theme, repoBranches(m.form.branchRepo),
 		m.pickerWidth(), m.pickerHeight(),
 	)
@@ -636,14 +640,14 @@ func (m Model) enterBranchPick() (tea.Model, tea.Cmd) {
 // branch writes it into the form's Branch field and returns to the form;
 // cancelling returns unchanged.
 func (m Model) updateBranchPick(msg tea.Msg) (tea.Model, tea.Cmd) {
-	picker, result, cmd := m.branch.update(msg)
+	picker, result, cmd := m.branch.Update(msg)
 	m.branch = picker
 	switch result {
-	case pickCancel:
+	case component.PickCancel:
 		m.mode = modeCreate
 		return m, textinput.Blink
-	case pickChoose:
-		m.form.setBranch(picker.chosen)
+	case component.PickChoose:
+		m.form.setBranch(picker.Chosen)
 		m.mode = modeCreate
 		return m, textinput.Blink
 	}
@@ -670,7 +674,7 @@ func (m Model) pickerWidth() int {
 // pickerHeight is how many tree rows the browser may show, bounded by the
 // terminal height and the picker's own row cap.
 func (m Model) pickerHeight() int {
-	return min(max(m.height-8, 3), pickerRows)
+	return min(max(m.height-8, 3), component.PickerRows)
 }
 
 // enterConfirmDelete opens the delete-confirmation modal for the selected
@@ -791,8 +795,8 @@ func (m Model) applyConfig(cfg config.Config) (tea.Model, tea.Cmd) {
 	}
 	cfg.Path = config.Path(m.home)
 	m.cfg = cfg
-	m.theme = newTheme(cfg.Theme)
-	m.keys = newKeymap(cfg.Keys)
+	m.theme = component.NewTheme(cfg.Theme)
+	m.keys = component.NewKeymap(cfg.Keys)
 	m.notify = makeNotifier(cfg.Notify)
 	m.err = nil
 	m.status = "config saved"

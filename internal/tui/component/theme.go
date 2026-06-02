@@ -1,4 +1,4 @@
-package tui
+package component
 
 import (
 	"github.com/charmbracelet/lipgloss"
@@ -7,14 +7,14 @@ import (
 )
 
 // Theme is the cockpit's resolved set of lipgloss styles. Its colours are not
-// fixed: newTheme rebuilds every style from a config.Theme, so the zero-config
+// fixed: NewTheme rebuilds every style from a config.Theme, so the zero-config
 // cockpit reproduces the historical palette while a config.json recolours the
 // whole cockpit. The aesthetic, adapted from claude-squad / agent-deck: a purple
 // accent on borders and the active tab, a green status dot for running and a dim
 // grey one for exited, and a light selection band that flips the row text dark.
 //
-// The fields are exported so a later stage can move Theme to another package
-// without renaming the references the view code reads them through.
+// The fields are exported so the root view code and the bespoke editors that
+// hold a Theme can read them across the package boundary.
 type Theme struct {
 	PaneStyle      lipgloss.Style
 	PaneTitleStyle lipgloss.Style
@@ -75,9 +75,9 @@ func themeColor(c config.Color) lipgloss.TerminalColor {
 	return lipgloss.AdaptiveColor{Light: c.Light, Dark: c.Dark}
 }
 
-// newTheme builds the cockpit's styles from t. New calls it with the resolved
+// NewTheme builds the cockpit's styles from t. New calls it with the resolved
 // theme at startup and applyConfig calls it again when the config changes live.
-func newTheme(t config.Theme) Theme {
+func NewTheme(t config.Theme) Theme {
 	accent := themeColor(t.Accent)
 	running := themeColor(t.Running)
 	waiting := themeColor(t.Waiting)
@@ -205,12 +205,3 @@ func tabBorderWithBottom(left, middle, right string) lipgloss.Border {
 	b.BottomRight = right
 	return b
 }
-
-const (
-	branchIcon  = "Ꮧ"
-	runningIcon = "●"
-	waitingIcon = "◆"
-	idleIcon    = "○"
-	exitedIcon  = "●"
-	menuSep     = " • "
-)

@@ -1,4 +1,4 @@
-package tui
+package component
 
 import (
 	"sort"
@@ -17,13 +17,13 @@ type branchMatch struct {
 	positions []int
 }
 
-// branchPicker is the branch counterpart to the directory browser: a flat,
+// BranchPicker is the branch counterpart to the directory browser: a flat,
 // fuzzy-filtered list of the workspace repository's branches shown over the
 // create form. Unlike the directory tree it is a single synchronous list — a
 // repository's branches are few and already in memory — and it doubles as a
 // new-branch entry: with a query that matches nothing, enter chooses the typed
 // text so a worktree can be created on a fresh branch.
-type branchPicker struct {
+type BranchPicker struct {
 	theme   Theme
 	query   textinput.Model
 	all     []string
@@ -32,12 +32,16 @@ type branchPicker struct {
 	offset  int
 	width   int
 	height  int
-	chosen  string
+
+	// Chosen is the branch the picker reports when an update returns PickChoose.
+	Chosen string
 }
 
-func newBranchPicker(
+// NewBranchPicker builds the branch picker over branches, sized to width and
+// height, with an empty filter so the full list shows in incoming order.
+func NewBranchPicker(
 	theme Theme, branches []string, width, height int,
-) branchPicker {
+) BranchPicker {
 	q := textinput.New()
 	q.Prompt = "> "
 	q.Placeholder = "filter, or type a new branch"
@@ -47,7 +51,7 @@ func newBranchPicker(
 		q.Width = width - 4
 	}
 
-	p := branchPicker{
+	p := BranchPicker{
 		theme:  theme,
 		query:  q,
 		all:    branches,
@@ -58,49 +62,51 @@ func newBranchPicker(
 	return p
 }
 
-func (p branchPicker) update(
+// Update handles a key message, returning the updated picker, the result it
+// reports to the parent model, and any command to run.
+func (p BranchPicker) Update(
 	msg tea.Msg,
-) (branchPicker, dirPickerResult, tea.Cmd) {
+) (BranchPicker, PickResult, tea.Cmd) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
-		return p, pickNone, nil
+		return p, PickNone, nil
 	}
 
 	switch key.String() {
 	case "esc":
-		return p, pickCancel, nil
+		return p, PickCancel, nil
 	case "enter":
 		if m := p.selected(); m != nil {
-			p.chosen = m.name
-			return p, pickChoose, nil
+			p.Chosen = m.name
+			return p, PickChoose, nil
 		}
 		if q := strings.TrimSpace(p.query.Value()); q != "" {
-			p.chosen = q
-			return p, pickChoose, nil
+			p.Chosen = q
+			return p, PickChoose, nil
 		}
-		return p, pickNone, nil
+		return p, PickNone, nil
 	case "up", "ctrl+p":
 		p.move(-1)
-		return p, pickNone, nil
+		return p, PickNone, nil
 	case "down", "ctrl+n":
 		p.move(1)
-		return p, pickNone, nil
+		return p, PickNone, nil
 	}
 
 	var cmd tea.Cmd
 	p.query, cmd = p.query.Update(msg)
 	p.filter()
-	return p, pickNone, cmd
+	return p, PickNone, cmd
 }
 
-func (p *branchPicker) selected() *branchMatch {
+func (p *BranchPicker) selected() *branchMatch {
 	if p.cursor < 0 || p.cursor >= len(p.matches) {
 		return nil
 	}
 	return &p.matches[p.cursor]
 }
 
-func (p *branchPicker) move(delta int) {
+func (p *BranchPicker) move(delta int) {
 	if len(p.matches) == 0 {
 		return
 	}
@@ -112,7 +118,7 @@ func (p *branchPicker) move(delta int) {
 // branches in their incoming order — git's most-recently-committed first — while
 // a non-empty query fuzzy-matches and ranks by score, so the order only reorders
 // when the user is actually searching.
-func (p *branchPicker) filter() {
+func (p *BranchPicker) filter() {
 	q := strings.TrimSpace(p.query.Value())
 	matches := make([]branchMatch, 0, len(p.all))
 	if q == "" {
@@ -147,7 +153,7 @@ func (p *branchPicker) filter() {
 	p.cursor, p.offset = 0, 0
 }
 
-func (p *branchPicker) ensureVisible() {
+func (p *BranchPicker) ensureVisible() {
 	rows := p.rows()
 	if p.cursor < p.offset {
 		p.offset = p.cursor
@@ -160,11 +166,13 @@ func (p *branchPicker) ensureVisible() {
 	}
 }
 
-func (p branchPicker) rows() int {
-	return min(pickerRows, max(p.height, 3))
+func (p BranchPicker) rows() int {
+	return min(PickerRows, max(p.height, 3))
 }
 
-func (p branchPicker) view() string {
+// View renders the picker box: the title and filter input, the matched branch
+// list (or an empty state), and the footer hint.
+func (p BranchPicker) View() string {
 	inner := max(p.width, 24)
 	rows := p.rows()
 
@@ -198,7 +206,7 @@ func (p branchPicker) view() string {
 	return p.theme.PickerStyle.Render(b.String())
 }
 
-func (p branchPicker) footer() string {
+func (p BranchPicker) footer() string {
 	return strconv.Itoa(len(p.matches)) +
 		"/" + strconv.Itoa(len(p.all)) +
 		" · ↑↓ move · ↵ pick/create · esc"
@@ -206,9 +214,9 @@ func (p branchPicker) footer() string {
 
 // row renders one branch line: a selection band when current, otherwise the
 // branch name with its matched characters highlighted.
-func (p branchPicker) row(m branchMatch, current bool, w int) string {
+func (p BranchPicker) row(m branchMatch, current bool, w int) string {
 	if current {
-		return p.theme.SelRowTitleStyle.Render(pad("▌ "+m.name, w))
+		return p.theme.SelRowTitleStyle.Render(Pad("▌ "+m.name, w))
 	}
 	line := "  " + highlight(p.theme, m.name, m.positions)
 	return ansi.Truncate(line, w, "…") + "\x1b[0m"

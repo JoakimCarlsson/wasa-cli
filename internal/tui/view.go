@@ -7,11 +7,11 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/mattn/go-runewidth"
 
 	"github.com/joakimcarlsson/wasa/internal/config"
 	"github.com/joakimcarlsson/wasa/internal/registry"
 	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
+	"github.com/joakimcarlsson/wasa/internal/tui/component"
 )
 
 // chromeRows is the number of rows the tab bar, menu and status line take from
@@ -30,19 +30,19 @@ func (m Model) View() string {
 			max(m.width, m.cfg.Layout.CompactWidth), max(m.height-1, 1),
 			lipgloss.Left, lipgloss.Top, m.form.view(),
 		)
-		overlay := m.picker.view()
+		overlay := m.picker.View()
 		if m.mode == modePickBranch {
-			overlay = m.branch.view()
+			overlay = m.branch.View()
 		}
-		return placeOverlay(overlay, bg) + "\n" + m.statusLine()
+		return component.PlaceOverlay(overlay, bg) + "\n" + m.statusLine()
 	}
 
 	base := m.listView()
 	if m.mode == modeConfirm {
-		return placeOverlay(m.confirm.view(), base)
+		return component.PlaceOverlay(m.confirm.view(), base)
 	}
 	if m.mode == modeConfig {
-		return placeOverlay(m.editor.view(), base)
+		return component.PlaceOverlay(m.editor.view(), base)
 	}
 	return base
 }
@@ -150,8 +150,8 @@ func (m Model) sessionRow(i int, s *registry.Session, w int) string {
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
-		titleS.Render(pad(head, w)),
-		descS.Render(pad(sub, w)),
+		titleS.Render(component.Pad(head, w)),
+		descS.Render(component.Pad(sub, w)),
 	)
 }
 
@@ -168,40 +168,9 @@ const tabRowRows = 3
 // the full body height the pane must fill so it lines up with the sessions
 // pane.
 func (m Model) tabbedRightPane(contentW, bodyH int) string {
-	outerW := contentW + 2
 	contentH := max(bodyH-(tabRowRows-1), 1)
 
-	n := len(paneTabNames)
-	tabW := outerW / n
-	lastW := outerW - tabW*(n-1)
-
-	tabs := make([]string, n)
-	for i, name := range paneTabNames {
-		w := tabW
-		if i == n-1 {
-			w = lastW
-		}
-
-		style := m.theme.PaneTabInactiveStyle
-		if paneTab(i) == m.pane {
-			style = m.theme.PaneTabActiveStyle
-		}
-		border, _, _, _, _ := style.GetBorder()
-		switch {
-		case i == 0 && paneTab(i) == m.pane:
-			border.BottomLeft = "│"
-		case i == 0:
-			border.BottomLeft = "├"
-		case i == n-1 && paneTab(i) == m.pane:
-			border.BottomRight = "│"
-		case i == n-1:
-			border.BottomRight = "┤"
-		}
-		style = style.Border(border)
-		tabs[i] = style.Width(w - style.GetHorizontalFrameSize()).Render(name)
-	}
-
-	row := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
+	row := component.TabStrip(m.theme, paneTabNames[:], int(m.pane), contentW+2)
 	window := m.theme.PaneWindowStyle.Width(contentW).Height(contentH).Render(
 		m.paneBody(contentW, contentH),
 	)
@@ -255,7 +224,7 @@ func (m Model) diffBody(w, h int) string {
 
 // diffSummaryLine renders the "N additions(+) / M deletions(-)" header above the
 // diff, the additions in the add colour and the deletions in the delete colour.
-func diffSummaryLine(theme Theme, added, removed int) string {
+func diffSummaryLine(theme component.Theme, added, removed int) string {
 	return theme.DiffAddStyle.Render(fmt.Sprintf("%d additions(+)", added)) +
 		theme.DimStyle.Render(" / ") +
 		theme.DiffDelStyle.Render(fmt.Sprintf("%d deletions(-)", removed))
@@ -265,7 +234,7 @@ func diffSummaryLine(theme Theme, added, removed int) string {
 // accent, additions green and deletions red, and the file/metadata lines dimmed.
 // The context lines are left unstyled. git emits the diff without colour, so the
 // cockpit colours it itself to match the theme.
-func colorizeDiff(theme Theme, text string) string {
+func colorizeDiff(theme component.Theme, text string) string {
 	lines := strings.Split(text, "\n")
 	for i, line := range lines {
 		lines[i] = styleDiffLine(theme, line)
@@ -273,7 +242,7 @@ func colorizeDiff(theme Theme, text string) string {
 	return strings.Join(lines, "\n")
 }
 
-func styleDiffLine(theme Theme, line string) string {
+func styleDiffLine(theme component.Theme, line string) string {
 	switch {
 	case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
 		return theme.DiffMetaStyle.Render(line)
@@ -377,7 +346,7 @@ func (m Model) menuBar() string {
 // menuKey is the glyph the menu bar shows for an action: the effective primary
 // binding, so a remapped key is reflected in the hint.
 func (m Model) menuKey(action string) string {
-	return keyLabel(m.keys.primary(action))
+	return component.KeyLabel(m.keys.Primary(action))
 }
 
 func (m Model) statusLine() string {
@@ -421,14 +390,14 @@ func sessionLabel(s *registry.Session) (title, ref string) {
 
 // confirmBody composes a confirm-modal body: the prompt followed by the dimmed
 // branch · profile line that identifies the target session.
-func confirmBody(theme Theme, prompt string, s *registry.Session) string {
+func confirmBody(theme component.Theme, prompt string, s *registry.Session) string {
 	_, ref := sessionLabel(s)
 	return prompt + "\n\n" + theme.DimStyle.Render(
 		fmt.Sprintf("%s %s · %s", branchIcon, ref, s.ProfileName),
 	)
 }
 
-func statusDot(theme Theme, s sessionstatus.Status) string {
+func statusDot(theme component.Theme, s sessionstatus.Status) string {
 	switch s {
 	case sessionstatus.Waiting:
 		return theme.WaitingDotStyle.Render(waitingIcon)
@@ -441,18 +410,7 @@ func statusDot(theme Theme, s sessionstatus.Status) string {
 	}
 }
 
-func pad(s string, w int) string {
-	if w <= 0 {
-		return s
-	}
-	s = runewidth.Truncate(s, w, "…")
-	if gap := w - runewidth.StringWidth(s); gap > 0 {
-		s += strings.Repeat(" ", gap)
-	}
-	return s
-}
-
-func noWorkspaceBanner(theme Theme) string {
+func noWorkspaceBanner(theme component.Theme) string {
 	return theme.BannerStyle.Render("No workspaces yet.") + "\n\n" +
 		theme.DimStyle.Render(
 			"Press n to start a plain session here.\n\n"+
@@ -461,7 +419,7 @@ func noWorkspaceBanner(theme Theme) string {
 		)
 }
 
-func noSessionBanner(theme Theme, name string) string {
+func noSessionBanner(theme component.Theme, name string) string {
 	title := "No sessions here."
 	if name != "" {
 		title = fmt.Sprintf("No sessions in %s.", name)

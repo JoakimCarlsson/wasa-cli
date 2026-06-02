@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/joakimcarlsson/wasa/internal/config"
+	"github.com/joakimcarlsson/wasa/internal/tui/component"
 )
 
 // cfgResult is what a configEditor update reports back to the cockpit.
@@ -60,7 +61,7 @@ type cfgField struct {
 // are edited with RGB sliders, bindings by recording keypresses, layout values as
 // numbers; every edit funnels back through the same string setters as config.json.
 type configEditor struct {
-	theme   Theme
+	theme   component.Theme
 	working config.Config
 	fields  []cfgField
 	cursor  int
@@ -76,7 +77,7 @@ type configEditor struct {
 }
 
 func newConfigEditor(
-	theme Theme, cfg config.Config, width, height int,
+	theme component.Theme, cfg config.Config, width, height int,
 ) configEditor {
 	working := cfg
 	working.Keys = make(config.Keys, len(cfg.Keys))
@@ -497,11 +498,11 @@ func (e configEditor) row(i int, f cfgField) string {
 	}
 	if i == e.cursor {
 		return e.theme.SelRowTitleStyle.Render(
-			pad("> "+f.label, 18),
+			component.Pad("> "+f.label, 18),
 		) + "  " + value
 	}
 	return e.theme.LabelStyle.Render(
-		pad("  "+f.label, 18),
+		component.Pad("  "+f.label, 18),
 	) + "  " + e.theme.DimStyle.Render(
 		value,
 	)

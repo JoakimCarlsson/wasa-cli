@@ -10,48 +10,6 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/registry"
 )
 
-func TestNewKeymapResolvesDefaults(t *testing.T) {
-	km := newKeymap(config.Default().Keys)
-
-	cases := map[string]string{
-		"n":      config.ActionNew,
-		"enter":  config.ActionAttach,
-		"k":      config.ActionKill,
-		"d":      config.ActionDelete,
-		"tab":    config.ActionTabNext,
-		"]":      config.ActionTabNext,
-		"left":   config.ActionTabPrev,
-		"up":     config.ActionCursorUp,
-		"down":   config.ActionCursorDown,
-		"q":      config.ActionQuit,
-		"ctrl+c": config.ActionQuit,
-	}
-	for key, want := range cases {
-		if got := km.action(key); got != want {
-			t.Errorf("action(%q) = %q, want %q", key, got, want)
-		}
-	}
-	if got := km.action("z"); got != "" {
-		t.Errorf("unbound key resolved to %q", got)
-	}
-}
-
-func TestNewKeymapHonoursOverride(t *testing.T) {
-	keys := config.Default().Keys
-	keys[config.ActionNew] = config.KeyList{"x"}
-	km := newKeymap(keys)
-
-	if got := km.action("x"); got != config.ActionNew {
-		t.Errorf("remapped key x = %q, want new", got)
-	}
-	if got := km.action("n"); got == config.ActionNew {
-		t.Error("old key n still triggers new after remap")
-	}
-	if got := km.primary(config.ActionNew); got != "x" {
-		t.Errorf("primary(new) = %q, want x", got)
-	}
-}
-
 // remapModel builds a one-workspace cockpit whose config remaps "new" to the
 // given key, for asserting the cockpit acts on the resolved binding.
 func remapModel(t *testing.T, key string) Model {

@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/joakimcarlsson/wasa/internal/launch"
+	"github.com/joakimcarlsson/wasa/internal/tui/component"
 	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
@@ -50,7 +51,7 @@ const (
 // detected on PATH plus a bare-shell entry as a visible menu; ←/→ move the
 // selection and typing overrides it with any program name outside the known set.
 type createForm struct {
-	theme      Theme
+	theme      component.Theme
 	inputs     []textinput.Model
 	branchRepo string
 	profiles   []string
@@ -63,7 +64,7 @@ type createForm struct {
 	err        string
 }
 
-func newCreateForm(theme Theme, profiles []string) createForm {
+func newCreateForm(theme component.Theme, profiles []string) createForm {
 	dir := textinput.New()
 	dir.Placeholder = "ctrl+f to browse, or empty for here"
 	dir.CharLimit = 4096
