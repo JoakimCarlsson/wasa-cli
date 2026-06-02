@@ -49,6 +49,11 @@ type Theme struct {
 	DiffHunkStyle lipgloss.Style
 	DiffMetaStyle lipgloss.Style
 
+	DiffAddLineStyle lipgloss.Style
+	DiffDelLineStyle lipgloss.Style
+	DiffGutterStyle  lipgloss.Style
+	DiffFileStyle    lipgloss.Style
+
 	ModalStyle  lipgloss.Style
 	PickerStyle lipgloss.Style
 	MatchStyle  lipgloss.Style
@@ -154,6 +159,17 @@ func NewTheme(t config.Theme) Theme {
 	th.DiffDelStyle = lipgloss.NewStyle().Foreground(danger)
 	th.DiffHunkStyle = lipgloss.NewStyle().Foreground(accent)
 	th.DiffMetaStyle = lipgloss.NewStyle().Foreground(desc)
+
+	addBg := themeColor(t.DiffAddBg)
+	delBg := themeColor(t.DiffDelBg)
+	th.DiffAddLineStyle = lipgloss.NewStyle().
+		Foreground(title).
+		Background(addBg)
+	th.DiffDelLineStyle = lipgloss.NewStyle().
+		Foreground(title).
+		Background(delBg)
+	th.DiffGutterStyle = lipgloss.NewStyle().Foreground(desc)
+	th.DiffFileStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
 
 	th.ModalStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).

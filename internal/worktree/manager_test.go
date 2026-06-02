@@ -191,6 +191,68 @@ func TestDiff(t *testing.T) {
 	}
 }
 
+func TestDiffNumstat(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available on PATH")
+	}
+	home := t.TempDir()
+	repo := t.TempDir()
+	initRepo(t, repo)
+
+	m := New(repo, home, "demo")
+	base, err := m.HeadSHA()
+	if err != nil {
+		t.Fatalf("HeadSHA: %v", err)
+	}
+	wt, err := m.Add("feature/numstat")
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	// A clean worktree against its base commit churns nothing.
+	added, removed, err := m.DiffNumstat(wt, base)
+	if err != nil {
+		t.Fatalf("DiffNumstat (clean): %v", err)
+	}
+	if added != 0 || removed != 0 {
+		t.Fatalf("clean worktree churn = +%d/-%d, want +0/-0", added, removed)
+	}
+
+	// An untracked file is counted via git add -N .
+	if err := os.WriteFile(
+		filepath.Join(wt, "new.txt"), []byte("alpha\nbeta\ngamma\n"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	added, removed, err = m.DiffNumstat(wt, base)
+	if err != nil {
+		t.Fatalf("DiffNumstat (changed): %v", err)
+	}
+	if added != 3 || removed != 0 {
+		t.Fatalf("changed worktree churn = +%d/-%d, want +3/-0", added, removed)
+	}
+
+	// A binary-only change reports "-" in both numstat columns and counts zero.
+	// It runs in its own worktree so the earlier intent-to-add of new.txt does
+	// not bleed into the count.
+	binWt, err := m.Add("feature/binary")
+	if err != nil {
+		t.Fatalf("Add (binary): %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(binWt, "blob.bin"), []byte{0x00, 0x01, 0x02, 0x00}, 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	added, removed, err = m.DiffNumstat(binWt, base)
+	if err != nil {
+		t.Fatalf("DiffNumstat (binary): %v", err)
+	}
+	if added != 0 || removed != 0 {
+		t.Fatalf("binary-only churn = +%d/-%d, want +0/-0", added, removed)
+	}
+}
+
 func containsAll(s string, subs ...string) bool {
 	for _, sub := range subs {
 		if !strings.Contains(s, sub) {

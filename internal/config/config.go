@@ -94,6 +94,8 @@ type Theme struct {
 	Desc          Color `json:"desc"`
 	SelectionFg   Color `json:"selectionFg"`
 	SelectionBg   Color `json:"selectionBg"`
+	DiffAddBg     Color `json:"diffAddBg"`
+	DiffDelBg     Color `json:"diffDelBg"`
 	Danger        Color `json:"danger"`
 	OnAccent      Color `json:"onAccent"`
 	InactiveBtnBg Color `json:"inactiveBtnBg"`
@@ -201,6 +203,8 @@ func Default() Config {
 			Desc:          Color{Light: "#A49FA5", Dark: "#777777"},
 			SelectionFg:   both("#1a1a1a"),
 			SelectionBg:   both("#dde4f0"),
+			DiffAddBg:     Color{Light: "#e6ffec", Dark: "#1d2b22"},
+			DiffDelBg:     Color{Light: "#ffebe9", Dark: "#33232a"},
 			Danger:        both("#de613e"),
 			OnAccent:      both("230"),
 			InactiveBtnBg: both("236"),
