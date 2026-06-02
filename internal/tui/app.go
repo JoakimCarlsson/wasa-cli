@@ -14,8 +14,6 @@ package tui
 import (
 	"fmt"
 	"os"
-	"path/filepath"
-	"slices"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -30,7 +28,6 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/tui/component"
 	"github.com/joakimcarlsson/wasa/internal/tui/modal"
 	"github.com/joakimcarlsson/wasa/internal/tui/pane"
-	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
 // mode is the model's interaction mode: browsing the session list or filling in
@@ -45,21 +42,6 @@ const (
 	modePickBranch
 	modeConfig
 )
-
-// paneTab selects which view the right pane shows: the live preview (today's
-// default), a git diff of the session's work, or a companion shell. Only the
-// active tab does per-tick work; the others are idle, so cycling away from
-// Preview tears its stream down and cycling back resumes it.
-type paneTab int
-
-const (
-	panePreview paneTab = iota
-	paneDiff
-	paneTerminal
-)
-
-// paneTabNames is the tab strip's labels in paneTab order.
-var paneTabNames = [...]string{"Preview", "Diff", "Terminal"}
 
 // Model is the cockpit's Bubble Tea model. It holds the registry it drives, the
 // most-recently-used workspaces snapshot, the active workspace (tracked by id so
@@ -345,22 +327,6 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, m.afterListChange()
 }
 
-// afterListChange is the command run after a list-mode key that may have moved
-// the selection or switched the active pane tab. It re-targets the preview
-// stream (tearing it down off the Preview tab) and, on the Terminal tab, kicks
-// an immediate companion ensure+capture so switching to it or moving the cursor
-// shows the shell without waiting for the next tick.
-func (m *Model) afterListChange() tea.Cmd {
-	cmd := m.preview.SetTarget(m.previewTarget())
-	switch m.pane {
-	case paneTerminal:
-		cmd = tea.Batch(cmd, m.ensureTermCmd())
-	case paneDiff:
-		cmd = tea.Batch(cmd, m.ensureDiffCmd())
-	}
-	return cmd
-}
-
 func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	prevBranchRepo := m.form.BranchRepo
 	form, result, cmd := m.form.Update(msg)
@@ -474,154 +440,6 @@ func validProfile(ws *registry.Workspace, name string) string {
 		}
 	}
 	return ""
-}
-
-// enterPick opens the directory tree browser over the create form. It roots the
-// tree at the parent of whatever the Directory field currently holds — so the
-// browser opens among that directory's siblings with the cursor on it — falling
-// back to $HOME, then the working directory, when the field is empty or names no
-// real directory.
-func (m Model) enterPick() (tea.Model, tea.Cmd) {
-	sel := m.form.Dir()
-	rootPath := m.osHome
-	if sel != "" {
-		if fi, err := os.Stat(sel); err == nil && fi.IsDir() {
-			rootPath = filepath.Dir(sel)
-		}
-	}
-	if rootPath == "" {
-		if cwd, err := os.Getwd(); err == nil {
-			rootPath = cwd
-		}
-	}
-	m.picker = component.NewDirectoryPicker(
-		m.theme, rootPath, sel, m.osHome, m.recentDirs(),
-		m.pickerWidth(), m.pickerHeight(),
-	)
-	m.mode = modePick
-	return m, textinput.Blink
-}
-
-// recentDirs gathers the most-recently-used directories for the picker's recent
-// pane: each workspace's repository (by last use) and each session's working
-// directory (by creation), merged newest-first, deduplicated and capped.
-func (m Model) recentDirs() []component.RecentDir {
-	type item struct {
-		path string
-		at   time.Time
-	}
-	var items []item
-	for _, w := range m.workspaces {
-		if w.RepoPath != "" {
-			items = append(items, item{w.RepoPath, w.LastUsedAt})
-		}
-	}
-	for _, s := range m.reg.ListSessions() {
-		if s.WorkingDir != "" {
-			items = append(items, item{s.WorkingDir, s.CreatedAt})
-		}
-	}
-	slices.SortStableFunc(items, func(a, b item) int {
-		return b.at.Compare(a.at)
-	})
-
-	seen := make(map[string]bool)
-	var out []component.RecentDir
-	for _, it := range items {
-		p := filepath.Clean(it.path)
-		if p == "" || p == "." || seen[p] {
-			continue
-		}
-		seen[p] = true
-		out = append(
-			out,
-			component.RecentDir{Path: p, Display: component.HomeRel(p, m.osHome)},
-		)
-		if len(out) >= component.MaxRecents {
-			break
-		}
-	}
-	return out
-}
-
-// updatePick routes input for the open directory browser. Choosing a directory
-// writes it into the form's Directory field and returns to the form; cancelling
-// returns to the form unchanged.
-func (m Model) updatePick(msg tea.Msg) (tea.Model, tea.Cmd) {
-	picker, result, cmd := m.picker.Update(msg)
-	m.picker = picker
-	switch result {
-	case component.PickCancel:
-		m.mode = modeCreate
-		return m, textinput.Blink
-	case component.PickChoose:
-		m.form.SetDir(picker.Chosen)
-		m.form.SetProfiles(m.profilesFor(m.form.BranchRepo))
-		m.mode = modeCreate
-		return m, textinput.Blink
-	}
-	return m, cmd
-}
-
-// enterBranchPick opens the branch picker over the create form, listing the
-// branches of the repository that contains the Directory field's current value
-// (or the launch repository when that field is empty). It re-resolves that repo
-// on open so the list reflects the directory as currently chosen. When the chosen
-// directory is not inside a git repository it is a no-op — the form disables the
-// Branch field there, so this should not be reached, but it guards the path
-// rather than assuming it.
-func (m Model) enterBranchPick() (tea.Model, tea.Cmd) {
-	m.form.SyncBranchRepo()
-	if !m.form.BranchEnabled() {
-		return m, nil
-	}
-	m.branch = component.NewBranchPicker(
-		m.theme, repoBranches(m.form.BranchRepo),
-		m.pickerWidth(), m.pickerHeight(),
-	)
-	m.mode = modePickBranch
-	return m, textinput.Blink
-}
-
-// updateBranchPick routes input for the open branch picker. Choosing or typing a
-// branch writes it into the form's Branch field and returns to the form;
-// cancelling returns unchanged.
-func (m Model) updateBranchPick(msg tea.Msg) (tea.Model, tea.Cmd) {
-	picker, result, cmd := m.branch.Update(msg)
-	m.branch = picker
-	switch result {
-	case component.PickCancel:
-		m.mode = modeCreate
-		return m, textinput.Blink
-	case component.PickChoose:
-		m.form.SetBranch(picker.Chosen)
-		m.mode = modeCreate
-		return m, textinput.Blink
-	}
-	return m, cmd
-}
-
-// repoBranches lists the local branches of the repository at repoPath, newest
-// first, for the branch picker. Errors are swallowed to an empty list: the
-// picker still lets a new branch name be typed.
-func repoBranches(repoPath string) []string {
-	branches, err := worktree.New(repoPath, "", "").Branches()
-	if err != nil {
-		return nil
-	}
-	return branches
-}
-
-// pickerWidth sizes the browser box to the terminal, clamped to a comfortable
-// range so it neither overflows a narrow window nor sprawls on a wide one.
-func (m Model) pickerWidth() int {
-	return min(max(m.width-8, 48), 96)
-}
-
-// pickerHeight is how many tree rows the browser may show, bounded by the
-// terminal height and the picker's own row cap.
-func (m Model) pickerHeight() int {
-	return min(max(m.height-8, 3), component.PickerRows)
 }
 
 // enterConfirmDelete opens the delete-confirmation modal for the selected
@@ -752,12 +570,6 @@ func (m Model) applyConfig(cfg config.Config) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// configRows is how many rows the settings panel may show; the editor scrolls its
-// field list within this height.
-func (m Model) configRows() int {
-	return max(m.height-8, 5)
-}
-
 // enterCreate opens the create form. With a current workspace the form is seeded
 // with that workspace's profiles; with no workspace — wasa launched outside any
 // git repository — it opens with no profiles. The Directory field always starts
@@ -832,15 +644,6 @@ func (m Model) attachTerm(s *registry.Session) (tea.Model, tea.Cmd) {
 	})
 }
 
-// sessionDir is the directory a session's companion shell runs in: its worktree
-// for a worktree session, or its working directory for a plain one.
-func sessionDir(s *registry.Session) string {
-	if s.WorktreePath != "" {
-		return s.WorktreePath
-	}
-	return s.WorkingDir
-}
-
 func (m Model) createCmd(ws *registry.Workspace, params launch.Params) tea.Cmd {
 	home, reg := m.home, m.reg
 	return func() tea.Msg {
@@ -906,129 +709,6 @@ func (m *Model) refresh() tea.Cmd {
 	}
 	m.cursor = max(m.cursor, 0)
 	return m.preview.SetTarget(m.previewTarget())
-}
-
-// previewTarget is the tmux name the preview should track: the selected
-// session's, or "" when nothing running is selected or the Preview tab is not
-// the active right-pane tab. Gating on the active tab is what keeps the
-// streaming preview's cost off the other tabs — when Diff or Terminal is shown
-// the watcher tears down and no per-tick capture runs for the preview.
-func (m Model) previewTarget() string {
-	if m.pane != panePreview {
-		return ""
-	}
-	s := m.selectedSession()
-	if s == nil || s.Status != registry.StatusRunning {
-		return ""
-	}
-	return s.TmuxName
-}
-
-// paneTick is the per-tick work for the active right-pane tab. The Preview and
-// Diff tabs poll-or-reconnect the preview stream — a near no-op off the Preview
-// tab, since previewTarget is then empty — while the Terminal tab ensures the
-// selected session's companion shell exists and re-captures it.
-func (m *Model) paneTick() tea.Cmd {
-	if m.pane == paneTerminal {
-		return m.ensureTermCmd()
-	}
-	return m.preview.PollOrReconnect(m.previewTarget())
-}
-
-// ensureTermCmd ensures and captures the selected session's companion shell for
-// the Terminal tab. With no session selected it clears the body via an empty
-// target.
-func (m *Model) ensureTermCmd() tea.Cmd {
-	s := m.selectedSession()
-	if s == nil {
-		return m.term.EnsureCmd("", "", m.tmux)
-	}
-	return m.term.EnsureCmd(s.TmuxName, sessionDir(s), m.tmux)
-}
-
-// applyTerm routes a companion capture to the Terminal pane, passing the
-// expected companion of the current selection so a stale delivery is dropped,
-// and surfaces a spawn or address error on the status line.
-func (m *Model) applyTerm(msg pane.TermMsg) tea.Cmd {
-	expected := ""
-	if s := m.selectedSession(); s != nil {
-		expected = companionName(s.TmuxName)
-	}
-	cmd, err := m.term.Apply(msg, expected)
-	if err != nil {
-		m.err = err
-	}
-	return cmd
-}
-
-// companionName is the deterministic tmux name of a session's companion shell:
-// its agent TmuxName with a _term suffix. Deriving it from the stable TmuxName
-// keeps it identical across cockpit restarts and distinct from the agent
-// session, so the two never collide.
-func companionName(sessionTmux string) string {
-	return sessionTmux + "_term"
-}
-
-// rightPaneSize is the inner width and height of the right pane's body, below
-// the tab strip — the area the Preview, Diff and Terminal tabs render into. It
-// mirrors the sizing listView applies to the pane.
-func (m Model) rightPaneSize() (w, h int) {
-	bodyH := max(m.height-chromeRows, 3)
-	return m.width - m.listColWidth() - 4, max(bodyH-(tabRowRows-1), 1)
-}
-
-// sizeDiffViewport sizes the diff viewport to the pane body, so its paging math
-// and render match what the Diff body draws. It runs on resize and whenever a
-// diff is loaded, never per tick.
-func (m *Model) sizeDiffViewport() {
-	w, h := m.rightPaneSize()
-	m.diff.Size(w, h)
-}
-
-// ensureDiffCmd returns a command that computes the selected worktree session's
-// diff against its recorded base commit, when that diff is not already loaded.
-// It is a no-op (nil) when the diff for the selection is already shown, so it
-// fires only on a selection change or a switch to the Diff tab, never per tick.
-// The root resolves the session's workspace repository here and passes the
-// worktree inputs to the Diff pane, which keeps the already-loaded guard and
-// runs the diff. A worktree session whose workspace it cannot resolve surfaces
-// that as the diff error rather than running a diff against an empty repo path.
-func (m *Model) ensureDiffCmd() tea.Cmd {
-	s := m.selectedSession()
-	if s == nil {
-		return nil
-	}
-	if s.Branch != "" && s.WorktreePath != "" && s.BaseCommit != "" {
-		ws, ok := m.reg.Workspace(s.WorkspaceID)
-		if !ok {
-			if m.diff.SID() == s.ID {
-				return nil
-			}
-			sid := s.ID
-			return func() tea.Msg {
-				return pane.NewDiffErr(sid, fmt.Errorf("workspace not found"))
-			}
-		}
-		return m.diff.EnsureCmd(
-			s.ID, ws.RepoPath, m.home, s.WorkspaceID,
-			s.WorktreePath, s.BaseCommit,
-		)
-	}
-	return m.diff.EnsureCmd(
-		s.ID, "", m.home, s.WorkspaceID, s.WorktreePath, s.BaseCommit,
-	)
-}
-
-// applyDiff routes a computed diff to the Diff pane, dropping a delivery whose
-// session is no longer selected so a slow diff cannot overwrite the body after
-// the cursor moved. It sizes the viewport before applying so the paging math
-// matches the current pane.
-func (m *Model) applyDiff(msg pane.DiffMsg) tea.Cmd {
-	if s := m.selectedSession(); s == nil || s.ID != msg.SessionID() {
-		return nil
-	}
-	m.sizeDiffViewport()
-	return m.diff.Apply(msg)
 }
 
 // sweepStatuses refreshes the derived runtime status of every running session
@@ -1163,69 +843,4 @@ func (m Model) runtimeStatus(s *registry.Session) sessionstatus.Status {
 		return st
 	}
 	return sessionstatus.Working
-}
-
-func (m *Model) cycleTab(delta int) {
-	n := len(m.workspaces)
-	if n == 0 {
-		return
-	}
-	i := max(m.tabIndex(), 0)
-	i = (i + delta%n + n) % n
-	m.activeID = m.workspaces[i].ID
-	m.cursor = 0
-}
-
-// cyclePaneTab advances the active right-pane tab by delta, wrapping. The list
-// update that calls it then re-runs ensureWatcher, which tears the preview
-// stream down when the new tab is not Preview and re-establishes it on return.
-func (m *Model) cyclePaneTab(delta int) {
-	n := len(paneTabNames)
-	m.pane = paneTab(((int(m.pane)+delta)%n + n) % n)
-}
-
-func (m Model) tabIndex() int {
-	for i, w := range m.workspaces {
-		if w.ID == m.activeID {
-			return i
-		}
-	}
-	return -1
-}
-
-func (m Model) currentWorkspace() *registry.Workspace {
-	for _, w := range m.workspaces {
-		if w.ID == m.activeID {
-			return w
-		}
-	}
-	return nil
-}
-
-func (m Model) hasWorkspace(id string) bool {
-	for _, w := range m.workspaces {
-		if w.ID == id {
-			return true
-		}
-	}
-	return false
-}
-
-// sessions returns the active workspace's sessions in storage order.
-func (m Model) sessions() []*registry.Session {
-	var out []*registry.Session
-	for _, s := range m.reg.ListSessions() {
-		if s.WorkspaceID == m.activeID {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-func (m Model) selectedSession() *registry.Session {
-	ss := m.sessions()
-	if m.cursor < 0 || m.cursor >= len(ss) {
-		return nil
-	}
-	return ss[m.cursor]
 }
