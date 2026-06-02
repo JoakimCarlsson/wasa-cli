@@ -9,6 +9,18 @@ on **Linux and macOS**; on **Windows** it runs inside **WSL2** with tmux install
 
 ## Installation
 
+### Install script (Linux / macOS)
+
+Download the prebuilt binary for your platform and put it on your `PATH`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/JoakimCarlsson/wasa/main/install.sh | bash
+```
+
+This installs `wasa` into `~/.local/bin` (override with `BIN_DIR`) and adds that
+directory to your `PATH`. Set `VERSION` to pin a specific release. On Windows, run
+this inside your WSL2 distribution.
+
 ### With `go install`
 
 Install the `wasa` binary into your Go bin directory:
