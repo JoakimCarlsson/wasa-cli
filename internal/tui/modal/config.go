@@ -1,4 +1,4 @@
-package tui
+package modal
 
 import (
 	"fmt"
@@ -13,13 +13,16 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/tui/component"
 )
 
-// cfgResult is what a configEditor update reports back to the cockpit.
-type cfgResult int
+// CfgResult is what a ConfigEditor update reports back to the cockpit.
+type CfgResult int
 
 const (
-	cfgNone  cfgResult = iota
-	cfgApply           // a field was committed; persist it and apply it live
-	cfgClose           // leave the panel
+	// CfgNone means the editor has nothing to report this update.
+	CfgNone CfgResult = iota
+	// CfgApply means a field was committed; persist it and apply it live.
+	CfgApply
+	// CfgClose means leave the panel.
+	CfgClose
 )
 
 // fieldKind selects how a setting is edited: a free-text input for numbers, the
@@ -55,12 +58,12 @@ type cfgField struct {
 	set     func(c *config.Config, s string) error
 }
 
-// configEditor is the in-cockpit settings panel. It edits a working copy of the
+// ConfigEditor is the in-cockpit settings panel. It edits a working copy of the
 // resolved config — theme colours, key bindings and layout — and on save hands
 // that copy back to the cockpit, which persists it and applies it live. Colours
 // are edited with RGB sliders, bindings by recording keypresses, layout values as
 // numbers; every edit funnels back through the same string setters as config.json.
-type configEditor struct {
+type ConfigEditor struct {
 	theme   component.Theme
 	working config.Config
 	fields  []cfgField
@@ -76,9 +79,11 @@ type configEditor struct {
 	height int
 }
 
-func newConfigEditor(
+// NewConfigEditor builds the settings panel over a working copy of cfg, sized to
+// width and height and styled with theme.
+func NewConfigEditor(
 	theme component.Theme, cfg config.Config, width, height int,
-) configEditor {
+) ConfigEditor {
 	working := cfg
 	working.Keys = make(config.Keys, len(cfg.Keys))
 	for action, keys := range cfg.Keys {
@@ -86,7 +91,7 @@ func newConfigEditor(
 		copy(cp, keys)
 		working.Keys[action] = cp
 	}
-	return configEditor{
+	return ConfigEditor{
 		theme:   theme,
 		working: working,
 		fields:  configFields(),
@@ -287,7 +292,9 @@ func parseKeys(s string) (config.KeyList, error) {
 	return keys, nil
 }
 
-func (e configEditor) update(msg tea.Msg) (configEditor, cfgResult, tea.Cmd) {
+// Update routes a message into the panel — the field list or the active
+// sub-editor — reporting what the cockpit should do next via CfgResult.
+func (e ConfigEditor) Update(msg tea.Msg) (ConfigEditor, CfgResult, tea.Cmd) {
 	switch e.phase {
 	case editText:
 		return e.updateText(msg)
@@ -301,16 +308,16 @@ func (e configEditor) update(msg tea.Msg) (configEditor, cfgResult, tea.Cmd) {
 
 // updateList routes input for the field list: navigation, opening the focused
 // field's editor, save and cancel.
-func (e configEditor) updateList(
+func (e ConfigEditor) updateList(
 	msg tea.Msg,
-) (configEditor, cfgResult, tea.Cmd) {
+) (ConfigEditor, CfgResult, tea.Cmd) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
-		return e, cfgNone, nil
+		return e, CfgNone, nil
 	}
 	switch key.String() {
 	case "esc", "q":
-		return e, cfgClose, nil
+		return e, CfgClose, nil
 	case "up", "k":
 		if e.cursor > 0 {
 			e.cursor--
@@ -322,11 +329,11 @@ func (e configEditor) updateList(
 	case "enter":
 		return e.beginEdit()
 	}
-	return e, cfgNone, nil
+	return e, CfgNone, nil
 }
 
 // beginEdit opens the sub-editor for the focused field, chosen by its kind.
-func (e configEditor) beginEdit() (configEditor, cfgResult, tea.Cmd) {
+func (e ConfigEditor) beginEdit() (ConfigEditor, CfgResult, tea.Cmd) {
 	f := e.fields[e.cursor]
 	e.err = ""
 	switch f.kind {
@@ -334,11 +341,11 @@ func (e configEditor) beginEdit() (configEditor, cfgResult, tea.Cmd) {
 		col, _ := parseColor(f.get(e.working))
 		e.color = newColorEditor(e.theme, col)
 		e.phase = editColor
-		return e, cfgNone, nil
+		return e, CfgNone, nil
 	case kindKeys:
 		e.record = newRecordEditor(e.theme, f.label, e.working)
 		e.phase = editKeys
-		return e, cfgNone, nil
+		return e, CfgNone, nil
 	default:
 		e.input = textinput.New()
 		e.input.CharLimit = 200
@@ -346,13 +353,13 @@ func (e configEditor) beginEdit() (configEditor, cfgResult, tea.Cmd) {
 		e.input.CursorEnd()
 		e.input.Focus()
 		e.phase = editText
-		return e, cfgNone, textinput.Blink
+		return e, CfgNone, textinput.Blink
 	}
 }
 
-func (e configEditor) updateText(
+func (e ConfigEditor) updateText(
 	msg tea.Msg,
-) (configEditor, cfgResult, tea.Cmd) {
+) (ConfigEditor, CfgResult, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.String() {
 		case "enter":
@@ -360,20 +367,20 @@ func (e configEditor) updateText(
 		case "esc":
 			e.phase = editNone
 			e.err = ""
-			return e, cfgNone, nil
+			return e, CfgNone, nil
 		}
 	}
 	var cmd tea.Cmd
 	e.input, cmd = e.input.Update(msg)
-	return e, cfgNone, cmd
+	return e, CfgNone, cmd
 }
 
-func (e configEditor) updateColor(
+func (e ConfigEditor) updateColor(
 	msg tea.Msg,
-) (configEditor, cfgResult, tea.Cmd) {
+) (ConfigEditor, CfgResult, tea.Cmd) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
-		return e, cfgNone, nil
+		return e, CfgNone, nil
 	}
 	switch key.String() {
 	case "enter":
@@ -381,18 +388,18 @@ func (e configEditor) updateColor(
 	case "esc":
 		e.phase = editNone
 		e.err = ""
-		return e, cfgNone, nil
+		return e, CfgNone, nil
 	}
 	e.color = e.color.update(key)
-	return e, cfgNone, nil
+	return e, CfgNone, nil
 }
 
-func (e configEditor) updateKeys(
+func (e ConfigEditor) updateKeys(
 	msg tea.Msg,
-) (configEditor, cfgResult, tea.Cmd) {
+) (ConfigEditor, CfgResult, tea.Cmd) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
-		return e, cfgNone, nil
+		return e, CfgNone, nil
 	}
 	switch key.String() {
 	case "enter":
@@ -400,32 +407,40 @@ func (e configEditor) updateKeys(
 	case "esc":
 		e.phase = editNone
 		e.err = ""
-		return e, cfgNone, nil
+		return e, CfgNone, nil
 	case "backspace", "ctrl+h":
 		e.record = e.record.removeLast()
-		return e, cfgNone, nil
+		return e, CfgNone, nil
 	}
 	e.record = e.record.add(key.String())
-	return e, cfgNone, nil
+	return e, CfgNone, nil
 }
 
 // commit parses value into the focused field's setter. A parse error keeps the
 // sub-editor open with the message; success returns to the field list.
-func (e configEditor) commit(value string) (configEditor, cfgResult, tea.Cmd) {
+func (e ConfigEditor) commit(value string) (ConfigEditor, CfgResult, tea.Cmd) {
 	if err := e.fields[e.cursor].set(&e.working, value); err != nil {
 		e.err = err.Error()
-		return e, cfgNone, nil
+		return e, CfgNone, nil
 	}
 	e.phase = editNone
 	e.err = ""
-	return e, cfgApply, nil
+	return e, CfgApply, nil
 }
 
-// config returns the editor's working configuration, for the cockpit to persist
+// Config returns the editor's working configuration, for the cockpit to persist
 // and apply on save.
-func (e configEditor) config() config.Config { return e.working }
+func (e ConfigEditor) Config() config.Config { return e.working }
 
-func (e configEditor) view() string {
+// Err is the editor's current inline error message, if any.
+func (e ConfigEditor) Err() string { return e.err }
+
+// SetErr sets the editor's inline error message, so the cockpit can surface a
+// persist failure on the panel without reopening it.
+func (e *ConfigEditor) SetErr(msg string) { e.err = msg }
+
+// View renders the settings panel.
+func (e ConfigEditor) View() string {
 	var body string
 	switch e.phase {
 	case editColor:
@@ -447,7 +462,7 @@ func (e configEditor) view() string {
 	)
 }
 
-func (e configEditor) hint() string {
+func (e ConfigEditor) hint() string {
 	switch e.phase {
 	case editColor:
 		return e.theme.DimStyle.Render(
@@ -466,7 +481,7 @@ func (e configEditor) hint() string {
 	}
 }
 
-func (e configEditor) listBody() string {
+func (e ConfigEditor) listBody() string {
 	var lines []string
 	cursorLine := 0
 	lastSection := ""
@@ -486,7 +501,7 @@ func (e configEditor) listBody() string {
 	return strings.Join(window(lines, cursorLine, e.height), "\n")
 }
 
-func (e configEditor) row(i int, f cfgField) string {
+func (e ConfigEditor) row(i int, f cfgField) string {
 	if e.phase == editText && i == e.cursor {
 		return e.theme.FocusedLabelStyle.Render(
 			"> "+f.label,
@@ -533,4 +548,302 @@ func window(lines []string, focus, h int) []string {
 		start = len(lines) - h
 	}
 	return lines[start : start+h]
+}
+
+// colorEditor edits one theme colour with RGB sliders. A colour carries a light
+// and a dark variant; the editor edits one variant at a time (tab toggles) with
+// three channel sliders, and previews both variants live as swatches. It emits a
+// "#hex" value (or "#light / #dark" when the variants differ) on commit, which the
+// config editor parses back through parseColor.
+type colorEditor struct {
+	theme   component.Theme
+	light   [3]int
+	dark    [3]int
+	variant int
+	channel int
+
+	lastKey string
+	repeat  int
+}
+
+func newColorEditor(theme component.Theme, c config.Color) colorEditor {
+	return colorEditor{
+		theme: theme,
+		light: parseRGB(c.Light),
+		dark:  parseRGB(c.Dark),
+	}
+}
+
+func (e colorEditor) update(key tea.KeyMsg) colorEditor {
+	k := key.String()
+	if k == e.lastKey {
+		e.repeat++
+	} else {
+		e.repeat = 0
+	}
+	e.lastKey = k
+
+	switch k {
+	case "left":
+		e.adjust(-accelStep(e.repeat))
+	case "right":
+		e.adjust(accelStep(e.repeat))
+	case "[":
+		e.adjust(-16)
+	case "]":
+		e.adjust(16)
+	case "tab", "shift+tab":
+		e.variant ^= 1
+	case "up", "k":
+		e.channel = (e.channel + 2) % 3
+	case "down", "j":
+		e.channel = (e.channel + 1) % 3
+	}
+	return e
+}
+
+// accelStep grows the adjustment step as a direction key is held: a terminal
+// reports a held key as a stream of repeats, so the longer the streak the larger
+// the step, letting a value sweep its full range quickly while a single tap still
+// nudges by one.
+func accelStep(repeat int) int {
+	switch {
+	case repeat < 3:
+		return 1
+	case repeat < 8:
+		return 5
+	default:
+		return 15
+	}
+}
+
+func (e *colorEditor) adjust(delta int) {
+	ch := e.active()
+	ch[e.channel] = clamp(ch[e.channel]+delta, 0, 255)
+}
+
+func (e *colorEditor) active() *[3]int {
+	if e.variant == 1 {
+		return &e.dark
+	}
+	return &e.light
+}
+
+// value renders the edited colour for commit: a single hex when both variants
+// match, "light / dark" hex when they differ.
+func (e colorEditor) value() string {
+	l, d := hexOf(e.light), hexOf(e.dark)
+	if l == d {
+		return l
+	}
+	return l + " / " + d
+}
+
+func (e colorEditor) view(label string) string {
+	swatch := func(rgb [3]int) string {
+		return lipgloss.NewStyle().
+			Background(lipgloss.Color(hexOf(rgb))).
+			Render("      ")
+	}
+	variantTag := func(name string, v int) string {
+		if e.variant == v {
+			return e.theme.FocusedLabelStyle.Render("● " + name)
+		}
+		return e.theme.DimStyle.Render("  " + name)
+	}
+
+	header := fmt.Sprintf(
+		"%s  %s    %s  %s",
+		variantTag("light", 0), swatch(e.light),
+		variantTag("dark", 1), swatch(e.dark),
+	)
+
+	names := [3]string{"R", "G", "B"}
+	cur := *e.active()
+	var rows []string
+	for i, name := range names {
+		active := i == e.channel
+		marker := "  "
+		label := e.theme.DimStyle.Render(name)
+		value := e.theme.DimStyle.Render(component.Pad(strconv.Itoa(cur[i]), 3))
+		if active {
+			marker = e.theme.FocusedLabelStyle.Render("▸ ")
+			label = e.theme.FocusedLabelStyle.Render(name)
+			value = e.theme.FocusedLabelStyle.Render(component.Pad(strconv.Itoa(cur[i]), 3))
+		}
+		rows = append(rows, fmt.Sprintf(
+			"%s%s %s %s", marker, label, e.channelBar(cur[i], active), value,
+		))
+	}
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		e.theme.TitleStyle.Render(label),
+		"",
+		header,
+		"",
+		strings.Join(rows, "\n"),
+	)
+}
+
+// channelBar renders a 0–255 channel value as a 24-cell filled bar. The active
+// channel's fill uses the accent so the focused row reads at a glance; inactive
+// rows are dimmed.
+func (e colorEditor) channelBar(v int, active bool) string {
+	const n = 24
+	filled := v * n / 255
+	fill := e.theme.DimStyle
+	if active {
+		fill = e.theme.MatchStyle
+	}
+	return fill.Render(strings.Repeat("█", filled)) +
+		e.theme.DimStyle.Render(strings.Repeat("░", n-filled))
+}
+
+func clamp(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+func hexOf(rgb [3]int) string {
+	return fmt.Sprintf("#%02x%02x%02x", rgb[0], rgb[1], rgb[2])
+}
+
+// parseRGB resolves a stored colour value to RGB for editing. It accepts #rgb and
+// #rrggbb hex and an ANSI-256 index (converted to its RGB), falling back to mid
+// grey for anything it cannot read so the sliders still open on a sane value.
+func parseRGB(s string) [3]int {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "#") {
+		if rgb, ok := parseHex(s[1:]); ok {
+			return rgb
+		}
+		return [3]int{128, 128, 128}
+	}
+	if n, err := strconv.Atoi(s); err == nil && n >= 0 && n <= 255 {
+		return ansi256RGB(n)
+	}
+	return [3]int{128, 128, 128}
+}
+
+func parseHex(h string) ([3]int, bool) {
+	if len(h) == 3 {
+		h = string([]byte{h[0], h[0], h[1], h[1], h[2], h[2]})
+	}
+	if len(h) != 6 {
+		return [3]int{}, false
+	}
+	v, err := strconv.ParseUint(h, 16, 32)
+	if err != nil {
+		return [3]int{}, false
+	}
+	return [3]int{int(v >> 16 & 0xff), int(v >> 8 & 0xff), int(v & 0xff)}, true
+}
+
+// ansi256Base holds the RGB of the 16 standard ANSI colours, which do not follow
+// the cube/grayscale formula used for indices 16–255.
+var ansi256Base = [16][3]int{
+	{0, 0, 0}, {128, 0, 0}, {0, 128, 0}, {128, 128, 0},
+	{0, 0, 128}, {128, 0, 128}, {0, 128, 128}, {192, 192, 192},
+	{128, 128, 128}, {255, 0, 0}, {0, 255, 0}, {255, 255, 0},
+	{0, 0, 255}, {255, 0, 255}, {0, 255, 255}, {255, 255, 255},
+}
+
+// ansi256RGB converts an ANSI-256 colour index to its RGB triple: the 16 base
+// colours from a table, the 6×6×6 cube (16–231) and the grayscale ramp (232–255)
+// from their standard formulae.
+func ansi256RGB(n int) [3]int {
+	switch {
+	case n < 16:
+		return ansi256Base[n]
+	case n < 232:
+		steps := [6]int{0, 95, 135, 175, 215, 255}
+		c := n - 16
+		return [3]int{steps[c/36%6], steps[c/6%6], steps[c%6]}
+	default:
+		v := 8 + 10*(n-232)
+		return [3]int{v, v, v}
+	}
+}
+
+// recordEditor captures a key binding by listening for keypresses: each key the
+// user presses is appended to the binding, like rebinding a control in a game.
+// It knows the keys bound to every other action so it can warn the instant a
+// captured key collides, before save validation would reject it. enter, esc and
+// backspace are reserved by the editor as commit/cancel/remove, so they cannot be
+// recorded here.
+type recordEditor struct {
+	theme  component.Theme
+	action string
+	keys   []string
+	other  map[string]string
+	warn   string
+}
+
+func newRecordEditor(
+	theme component.Theme, action string, working config.Config,
+) recordEditor {
+	other := make(map[string]string)
+	for a, ks := range working.Keys {
+		if a == action {
+			continue
+		}
+		for _, k := range ks {
+			other[k] = a
+		}
+	}
+	return recordEditor{theme: theme, action: action, other: other}
+}
+
+// add records a pressed key, ignoring an exact repeat of the last one, and warns
+// when the key is already bound to another action.
+func (e recordEditor) add(key string) recordEditor {
+	if n := len(e.keys); n > 0 && e.keys[n-1] == key {
+		return e
+	}
+	e.keys = append(e.keys, key)
+	if a, ok := e.other[key]; ok {
+		e.warn = fmt.Sprintf("%q is also bound to %q", key, a)
+	} else {
+		e.warn = ""
+	}
+	return e
+}
+
+func (e recordEditor) removeLast() recordEditor {
+	if len(e.keys) > 0 {
+		e.keys = e.keys[:len(e.keys)-1]
+	}
+	e.warn = ""
+	return e
+}
+
+// value renders the recorded keys for commit as the comma-separated list the key
+// field setter parses.
+func (e recordEditor) value() string { return strings.Join(e.keys, ", ") }
+
+func (e recordEditor) view() string {
+	captured := e.theme.DimStyle.Render("(press a key)")
+	if len(e.keys) > 0 {
+		labels := make([]string, len(e.keys))
+		for i, k := range e.keys {
+			labels[i] = e.theme.MatchStyle.Render(component.KeyLabel(k))
+		}
+		captured = strings.Join(labels, " ")
+	}
+
+	lines := []string{
+		e.theme.TitleStyle.Render("Bind " + e.action),
+		"",
+		captured,
+	}
+	if e.warn != "" {
+		lines = append(lines, "", e.theme.ErrorStyle.Render(e.warn))
+	}
+	return strings.Join(lines, "\n")
 }

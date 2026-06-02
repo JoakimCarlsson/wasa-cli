@@ -28,6 +28,7 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/repo"
 	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
 	"github.com/joakimcarlsson/wasa/internal/tui/component"
+	"github.com/joakimcarlsson/wasa/internal/tui/modal"
 	"github.com/joakimcarlsson/wasa/internal/tui/pane"
 	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
@@ -87,11 +88,11 @@ type Model struct {
 
 	mode    mode
 	pane    paneTab
-	form    createForm
-	confirm confirmDialog
+	form    modal.CreateForm
+	confirm modal.ConfirmDialog
 	picker  component.DirectoryPicker
 	branch  component.BranchPicker
-	editor  configEditor
+	editor  modal.ConfigEditor
 
 	confirmCmd tea.Cmd
 
@@ -361,21 +362,21 @@ func (m *Model) afterListChange() tea.Cmd {
 }
 
 func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
-	prevBranchRepo := m.form.branchRepo
-	form, result, cmd := m.form.update(msg)
+	prevBranchRepo := m.form.BranchRepo
+	form, result, cmd := m.form.Update(msg)
 	m.form = form
-	if m.form.branchRepo != prevBranchRepo {
-		m.form.setProfiles(m.profilesFor(m.form.branchRepo))
+	if m.form.BranchRepo != prevBranchRepo {
+		m.form.SetProfiles(m.profilesFor(m.form.BranchRepo))
 	}
 	switch result {
-	case formCancel:
+	case modal.Cancel:
 		m.mode = modeList
 		return m, nil
-	case formPickDir:
+	case modal.PickDir:
 		return m.enterPick()
-	case formPickBranch:
+	case modal.PickBranch:
 		return m.enterBranchPick()
-	case formSubmit:
+	case modal.Submit:
 		return m.submitCreate()
 	}
 	return m, cmd
@@ -390,7 +391,7 @@ func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 // defaulting to the current working directory when no directory was given.
 func (m Model) submitCreate() (tea.Model, tea.Cmd) {
 	ws := m.currentWorkspace()
-	params := m.form.params()
+	params := m.form.Params()
 	if params.Branch != "" {
 		target, err := m.worktreeWorkspace()
 		if err != nil {
@@ -416,7 +417,7 @@ func (m Model) submitCreate() (tea.Model, tea.Cmd) {
 // workspace when it is not yet known so the session lands in the picked repo
 // even when wasa was launched elsewhere; createCmd persists reg afterwards.
 func (m Model) worktreeWorkspace() (*registry.Workspace, error) {
-	repoPath, remoteURL, err := repo.Resolve(m.form.branchRepo)
+	repoPath, remoteURL, err := repo.Resolve(m.form.BranchRepo)
 	if err != nil {
 		return nil, err
 	}
@@ -481,7 +482,7 @@ func validProfile(ws *registry.Workspace, name string) string {
 // back to $HOME, then the working directory, when the field is empty or names no
 // real directory.
 func (m Model) enterPick() (tea.Model, tea.Cmd) {
-	sel := m.form.dir()
+	sel := m.form.Dir()
 	rootPath := m.osHome
 	if sel != "" {
 		if fi, err := os.Stat(sel); err == nil && fi.IsDir() {
@@ -554,8 +555,8 @@ func (m Model) updatePick(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mode = modeCreate
 		return m, textinput.Blink
 	case component.PickChoose:
-		m.form.setDir(picker.Chosen)
-		m.form.setProfiles(m.profilesFor(m.form.branchRepo))
+		m.form.SetDir(picker.Chosen)
+		m.form.SetProfiles(m.profilesFor(m.form.BranchRepo))
 		m.mode = modeCreate
 		return m, textinput.Blink
 	}
@@ -570,12 +571,12 @@ func (m Model) updatePick(msg tea.Msg) (tea.Model, tea.Cmd) {
 // Branch field there, so this should not be reached, but it guards the path
 // rather than assuming it.
 func (m Model) enterBranchPick() (tea.Model, tea.Cmd) {
-	m.form.syncBranchRepo()
-	if !m.form.branchEnabled() {
+	m.form.SyncBranchRepo()
+	if !m.form.BranchEnabled() {
 		return m, nil
 	}
 	m.branch = component.NewBranchPicker(
-		m.theme, repoBranches(m.form.branchRepo),
+		m.theme, repoBranches(m.form.BranchRepo),
 		m.pickerWidth(), m.pickerHeight(),
 	)
 	m.mode = modePickBranch
@@ -593,7 +594,7 @@ func (m Model) updateBranchPick(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mode = modeCreate
 		return m, textinput.Blink
 	case component.PickChoose:
-		m.form.setBranch(picker.Chosen)
+		m.form.SetBranch(picker.Chosen)
 		m.mode = modeCreate
 		return m, textinput.Blink
 	}
@@ -636,7 +637,7 @@ func (m Model) enterConfirmDelete() (tea.Model, tea.Cmd) {
 		m.theme, fmt.Sprintf("Delete %q?\nThis cannot be undone.", title), s,
 	)
 	return m.enterConfirm(
-		newConfirmDialog(
+		modal.NewConfirmDialog(
 			m.theme, "Delete session", body, "Delete", "Cancel", true,
 		),
 		m.deleteCmd(s),
@@ -658,7 +659,7 @@ func (m Model) enterConfirmKill() (tea.Model, tea.Cmd) {
 		), s,
 	)
 	return m.enterConfirm(
-		newConfirmDialog(
+		modal.NewConfirmDialog(
 			m.theme, "Kill session", body, "Kill", "Cancel", true,
 		),
 		m.killCmd(s),
@@ -668,7 +669,7 @@ func (m Model) enterConfirmKill() (tea.Model, tea.Cmd) {
 // enterConfirm opens dialog as a modal and stores onConfirm as the command to
 // run if it is accepted.
 func (m Model) enterConfirm(
-	dialog confirmDialog,
+	dialog modal.ConfirmDialog,
 	onConfirm tea.Cmd,
 ) (tea.Model, tea.Cmd) {
 	m.confirm = dialog
@@ -682,15 +683,15 @@ func (m Model) enterConfirm(
 // updateConfirm routes key input for the active confirm modal. Accepting it runs
 // the stored command; cancelling returns to the list with no change.
 func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
-	dialog, result := m.confirm.update(msg)
+	dialog, result := m.confirm.Update(msg)
 	m.confirm = dialog
 	switch result {
-	case confirmYes:
+	case modal.ConfirmYes:
 		cmd := m.confirmCmd
 		m.mode = modeList
 		m.confirmCmd = nil
 		return m, cmd
-	case confirmNo:
+	case modal.ConfirmNo:
 		m.mode = modeList
 		m.confirmCmd = nil
 		return m, nil
@@ -702,7 +703,7 @@ func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 // with a working copy of the current config. Saving (ctrl+s) persists and applies
 // it live; cancelling (esc) discards the edits.
 func (m Model) enterConfig() (tea.Model, tea.Cmd) {
-	m.editor = newConfigEditor(
+	m.editor = modal.NewConfigEditor(
 		m.theme, m.cfg, m.pickerWidth(), m.configRows(),
 	)
 	m.mode = modeConfig
@@ -712,17 +713,18 @@ func (m Model) enterConfig() (tea.Model, tea.Cmd) {
 }
 
 // updateConfig routes input for the open settings panel. Each committed field
-// (cfgApply) is validated, persisted and applied to the running cockpit in place,
-// so an edit takes effect and survives a restart with no separate save step; a
-// commit that fails validation keeps the panel open with the error. Closing
-// (cfgClose) returns to the list — by then every committed edit is already saved.
+// (modal.CfgApply) is validated, persisted and applied to the running cockpit in
+// place, so an edit takes effect and survives a restart with no separate save
+// step; a commit that fails validation keeps the panel open with the error.
+// Closing (modal.CfgClose) returns to the list — by then every committed edit is
+// already saved.
 func (m Model) updateConfig(msg tea.Msg) (tea.Model, tea.Cmd) {
-	editor, result, cmd := m.editor.update(msg)
+	editor, result, cmd := m.editor.Update(msg)
 	m.editor = editor
 	switch result {
-	case cfgApply:
-		return m.applyConfig(editor.config())
-	case cfgClose:
+	case modal.CfgApply:
+		return m.applyConfig(editor.Config())
+	case modal.CfgClose:
 		m.mode = modeList
 		return m, m.preview.SetTarget(m.previewTarget())
 	}
@@ -736,7 +738,7 @@ func (m Model) updateConfig(msg tea.Msg) (tea.Model, tea.Cmd) {
 // panel rather than writing a bad file.
 func (m Model) applyConfig(cfg config.Config) (tea.Model, tea.Cmd) {
 	if err := config.Save(m.home, cfg); err != nil {
-		m.editor.err = err.Error()
+		m.editor.SetErr(err.Error())
 		return m, nil
 	}
 	cfg.Path = config.Path(m.home)
@@ -774,7 +776,7 @@ func (m Model) enterCreate() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	m.form = newCreateForm(m.theme, names)
+	m.form = modal.NewCreateForm(m.theme, names)
 	m.mode = modeCreate
 	m.err = nil
 	m.status = ""

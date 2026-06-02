@@ -1,4 +1,4 @@
-package tui
+package modal
 
 import (
 	"strings"
@@ -9,37 +9,43 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/tui/component"
 )
 
-// confirmResult is what a confirmDialog update reports back to its parent.
-type confirmResult int
+// ConfirmResult is what a ConfirmDialog update reports back to its parent.
+type ConfirmResult int
 
 const (
-	confirmNone confirmResult = iota
-	confirmYes
-	confirmNo
+	// ConfirmNone means the dialog has nothing to report this update.
+	ConfirmNone ConfirmResult = iota
+	// ConfirmYes means the user accepted the prompt.
+	ConfirmYes
+	// ConfirmNo means the user declined or dismissed the prompt.
+	ConfirmNo
 )
 
-// confirmDialog is a reusable yes/no modal: a titled, bordered box with a body
+// ConfirmDialog is a reusable yes/no modal: a titled, bordered box with a body
 // prompt and two focusable buttons rendered like a web dialog. Left/right (or
 // tab) move focus between the buttons, enter chooses the focused one, and the
 // y/n/esc shortcuts choose directly. It owns only its presentation and focus
 // state; the parent decides what confirming means. The cancel button starts
 // focused so a stray enter on a destructive prompt cancels rather than confirms.
-type confirmDialog struct {
+type ConfirmDialog struct {
 	theme       component.Theme
 	title       string
 	body        string
 	confirmText string
 	cancelText  string
-	onConfirm   bool // which button is focused; false is the cancel button
-	danger      bool // style the title and confirm button as destructive
+	onConfirm   bool
+	danger      bool
 }
 
-func newConfirmDialog(
+// NewConfirmDialog builds a yes/no dialog with the given title, prebuilt body,
+// button labels and destructive styling, styled with theme. The cancel button
+// starts focused.
+func NewConfirmDialog(
 	theme component.Theme,
 	title, body, confirmText, cancelText string,
 	danger bool,
-) confirmDialog {
-	return confirmDialog{
+) ConfirmDialog {
+	return ConfirmDialog{
 		theme:       theme,
 		title:       title,
 		body:        body,
@@ -49,29 +55,32 @@ func newConfirmDialog(
 	}
 }
 
-func (d confirmDialog) update(msg tea.Msg) (confirmDialog, confirmResult) {
+// Update routes a key message into the dialog, reporting the user's choice via
+// ConfirmResult.
+func (d ConfirmDialog) Update(msg tea.Msg) (ConfirmDialog, ConfirmResult) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
-		return d, confirmNone
+		return d, ConfirmNone
 	}
 	switch key.String() {
 	case "left", "right", "tab", "shift+tab", "h", "l":
 		d.onConfirm = !d.onConfirm
-		return d, confirmNone
+		return d, ConfirmNone
 	case "enter":
 		if d.onConfirm {
-			return d, confirmYes
+			return d, ConfirmYes
 		}
-		return d, confirmNo
+		return d, ConfirmNo
 	case "y":
-		return d, confirmYes
+		return d, ConfirmYes
 	case "n", "esc", "q":
-		return d, confirmNo
+		return d, ConfirmNo
 	}
-	return d, confirmNone
+	return d, ConfirmNone
 }
 
-func (d confirmDialog) view() string {
+// View renders the dialog box.
+func (d ConfirmDialog) View() string {
 	heading := d.theme.TitleStyle
 	if d.danger {
 		heading = d.theme.ErrorStyle.Bold(true)
@@ -87,7 +96,7 @@ func (d confirmDialog) view() string {
 
 // buttons renders the cancel/confirm pair, filling the focused one and dimming
 // the other. The confirm button fills red when the dialog is destructive.
-func (d confirmDialog) buttons() string {
+func (d ConfirmDialog) buttons() string {
 	cancelStyle, confirmStyle := d.theme.BtnInactiveStyle, d.theme.BtnInactiveStyle
 	if d.onConfirm {
 		confirmStyle = d.theme.BtnConfirmStyle

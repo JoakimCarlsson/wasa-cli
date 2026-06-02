@@ -172,14 +172,12 @@ func TestEnterCreatePreselectsDefaultProfile(t *testing.T) {
 	if got.mode != modeCreate {
 		t.Fatal("enterCreate did not switch to create mode")
 	}
-	if len(got.form.profiles) == 0 {
-		t.Fatal("create form has no profiles")
+	prof := got.form.Params().Profile
+	if prof == "" {
+		t.Fatal("create form preselected no profile")
 	}
-	if got.form.profIdx != 0 {
-		t.Fatalf(
-			"profIdx = %d, want default profile preselected (0)",
-			got.form.profIdx,
-		)
+	if want := registry.DefaultProfileName; prof != want {
+		t.Fatalf("preselected profile = %q, want default %q", prof, want)
 	}
 }
 
@@ -198,14 +196,13 @@ func TestEnterCreateWithNoWorkspaceOpensPlainForm(t *testing.T) {
 	if got.mode != modeCreate {
 		t.Fatal("enterCreate did not open the form when there is no workspace")
 	}
-	if len(got.form.profiles) != 0 {
+	params := got.form.Params()
+	if params.Profile != "" {
 		t.Fatalf(
-			"form profiles = %v, want none without a workspace",
-			got.form.profiles,
+			"form profile = %q, want none without a workspace",
+			params.Profile,
 		)
 	}
-
-	params := got.form.params()
 	if params.Branch != "" {
 		t.Fatalf(
 			"default params carried a branch %q, want a plain session",
@@ -275,9 +272,9 @@ func TestWorktreeWorkspaceTargetsPickedDirRepo(t *testing.T) {
 
 	next, _ := m.enterCreate()
 	m = next.(Model)
-	m.form.setDir(repoB)
+	m.form.SetDir(repoB)
 
-	if got := m.profilesFor(m.form.branchRepo); len(got) != 1 ||
+	if got := m.profilesFor(m.form.BranchRepo); len(got) != 1 ||
 		got[0] != registry.DefaultProfileName {
 		t.Fatalf(
 			"profiles for unregistered repoB = %v, want [%s]",

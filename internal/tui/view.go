@@ -22,13 +22,13 @@ const chromeRows = 6
 // View implements tea.Model.
 func (m Model) View() string {
 	if m.mode == modeCreate {
-		return m.form.view() + "\n" + m.statusLine()
+		return m.form.View() + "\n" + m.statusLine()
 	}
 
 	if m.mode == modePick || m.mode == modePickBranch {
 		bg := lipgloss.Place(
 			max(m.width, m.cfg.Layout.CompactWidth), max(m.height-1, 1),
-			lipgloss.Left, lipgloss.Top, m.form.view(),
+			lipgloss.Left, lipgloss.Top, m.form.View(),
 		)
 		overlay := m.picker.View()
 		if m.mode == modePickBranch {
@@ -39,10 +39,10 @@ func (m Model) View() string {
 
 	base := m.listView()
 	if m.mode == modeConfirm {
-		return component.PlaceOverlay(m.confirm.view(), base)
+		return component.PlaceOverlay(m.confirm.View(), base)
 	}
 	if m.mode == modeConfig {
-		return component.PlaceOverlay(m.editor.view(), base)
+		return component.PlaceOverlay(m.editor.View(), base)
 	}
 	return base
 }
