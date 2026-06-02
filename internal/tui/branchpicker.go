@@ -24,6 +24,7 @@ type branchMatch struct {
 // new-branch entry: with a query that matches nothing, enter chooses the typed
 // text so a worktree can be created on a fresh branch.
 type branchPicker struct {
+	theme   Theme
 	query   textinput.Model
 	all     []string
 	matches []branchMatch
@@ -34,7 +35,9 @@ type branchPicker struct {
 	chosen  string
 }
 
-func newBranchPicker(branches []string, width, height int) branchPicker {
+func newBranchPicker(
+	theme Theme, branches []string, width, height int,
+) branchPicker {
 	q := textinput.New()
 	q.Prompt = "> "
 	q.Placeholder = "filter, or type a new branch"
@@ -44,7 +47,13 @@ func newBranchPicker(branches []string, width, height int) branchPicker {
 		q.Width = width - 4
 	}
 
-	p := branchPicker{query: q, all: branches, width: width, height: height}
+	p := branchPicker{
+		theme:  theme,
+		query:  q,
+		all:    branches,
+		width:  width,
+		height: height,
+	}
 	p.filter()
 	return p
 }
@@ -160,16 +169,20 @@ func (p branchPicker) view() string {
 	rows := p.rows()
 
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Pick branch"))
+	b.WriteString(p.theme.TitleStyle.Render("Pick branch"))
 	b.WriteString("\n")
 	b.WriteString(p.query.View())
 	b.WriteString("\n\n")
 
 	switch {
 	case len(p.all) == 0 && len(p.matches) == 0:
-		b.WriteString(dimStyle.Render("  no branches — type to create one"))
+		b.WriteString(
+			p.theme.DimStyle.Render("  no branches — type to create one"),
+		)
 	case len(p.matches) == 0:
-		b.WriteString(dimStyle.Render("  no match — ↵ creates this branch"))
+		b.WriteString(
+			p.theme.DimStyle.Render("  no match — ↵ creates this branch"),
+		)
 	default:
 		end := min(p.offset+rows, len(p.matches))
 		for i := p.offset; i < end; i++ {
@@ -181,8 +194,8 @@ func (p branchPicker) view() string {
 	}
 
 	b.WriteString("\n\n")
-	b.WriteString(dimStyle.Render(p.footer()))
-	return pickerStyle.Render(b.String())
+	b.WriteString(p.theme.DimStyle.Render(p.footer()))
+	return p.theme.PickerStyle.Render(b.String())
 }
 
 func (p branchPicker) footer() string {
@@ -195,8 +208,8 @@ func (p branchPicker) footer() string {
 // branch name with its matched characters highlighted.
 func (p branchPicker) row(m branchMatch, current bool, w int) string {
 	if current {
-		return selRowTitleStyle.Render(pad("▌ "+m.name, w))
+		return p.theme.SelRowTitleStyle.Render(pad("▌ "+m.name, w))
 	}
-	line := "  " + highlight(m.name, m.positions)
+	line := "  " + highlight(p.theme, m.name, m.positions)
 	return ansi.Truncate(line, w, "…") + "\x1b[0m"
 }

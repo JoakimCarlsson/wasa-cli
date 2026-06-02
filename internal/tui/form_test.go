@@ -12,7 +12,7 @@ import (
 // Branch field is skipped in tab order and a stray branch value is ignored, so a
 // plain session is produced.
 func TestFormBranchDisabledWithoutRepo(t *testing.T) {
-	f := newCreateForm(nil)
+	f := newCreateForm(testTheme(), nil)
 	if f.branchEnabled() {
 		t.Fatal("branch should be disabled before a directory is chosen")
 	}
@@ -47,7 +47,7 @@ func TestFormBranchEnabledWithRepo(t *testing.T) {
 	repo := t.TempDir()
 	initRepo(t, repo)
 
-	f := newCreateForm(nil)
+	f := newCreateForm(testTheme(), nil)
 	f.setDir(repo)
 	if !f.branchEnabled() {
 		t.Fatal(
@@ -86,7 +86,7 @@ func TestFormBranchRepoFollowsChosenDirectory(t *testing.T) {
 
 	plain := t.TempDir()
 
-	f := newCreateForm(nil)
+	f := newCreateForm(testTheme(), nil)
 	if f.branchEnabled() {
 		t.Fatal("branch should be disabled before a directory is chosen")
 	}
@@ -131,7 +131,7 @@ func runGit(t *testing.T, dir string, args ...string) {
 // TestFormAutonomousInjectsFlag checks that with a known agent selected, toggling
 // autonomous on bakes that agent's skip-permissions flag into the spawned program.
 func TestFormAutonomousInjectsFlag(t *testing.T) {
-	f := newCreateForm(nil)
+	f := newCreateForm(testTheme(), nil)
 	f.inputs[fieldProgram].SetValue("claude")
 
 	if !f.autonomousEnabled() {
@@ -152,7 +152,7 @@ func TestFormAutonomousInjectsFlag(t *testing.T) {
 // the toggle disabled, skipped in tab order, and never injects a flag even if the
 // toggle state was set on.
 func TestFormAutonomousDisabledForShell(t *testing.T) {
-	f := newCreateForm(nil)
+	f := newCreateForm(testTheme(), nil)
 	f.inputs[fieldProgram].SetValue("/bin/bash")
 
 	if f.autonomousEnabled() {
@@ -175,7 +175,7 @@ func TestFormAutonomousDisabledForShell(t *testing.T) {
 // for a known agent and then switching to the shell omits the flag, since the
 // toggle is gated on the current program supporting it.
 func TestFormAutonomousDropsFlagWhenProgramChanges(t *testing.T) {
-	f := newCreateForm(nil)
+	f := newCreateForm(testTheme(), nil)
 	f.inputs[fieldProgram].SetValue("claude")
 	f.toggleAutonomous()
 
@@ -195,7 +195,7 @@ func TestFormCtrlFRoutesByField(t *testing.T) {
 	repo := t.TempDir()
 	initRepo(t, repo)
 
-	f := newCreateForm(nil)
+	f := newCreateForm(testTheme(), nil)
 	ctrlF := tea.KeyMsg{Type: tea.KeyCtrlF}
 
 	if _, result, _ := f.update(ctrlF); result != formPickDir {

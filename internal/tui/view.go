@@ -62,7 +62,7 @@ func (m Model) listView() string {
 	listW := m.listColWidth()
 	previewW := m.width - listW - 4
 
-	list := paneStyle.Width(listW).Height(bodyH).Render(
+	list := m.theme.PaneStyle.Width(listW).Height(bodyH).Render(
 		m.paneTitle("sessions") + "\n" + m.sessionList(listW),
 	)
 	right := m.tabbedRightPane(previewW, bodyH)
@@ -88,20 +88,20 @@ func (m Model) listColWidth() int {
 }
 
 func (m Model) paneTitle(name string) string {
-	return paneTitleStyle.Render(name)
+	return m.theme.PaneTitleStyle.Render(name)
 }
 
 func (m Model) tabBar() string {
 	if len(m.workspaces) == 0 {
-		return inactiveTabStyle.Render("no workspaces")
+		return m.theme.InactiveTabStyle.Render("no workspaces")
 	}
 	active := m.tabIndex()
 	parts := make([]string, len(m.workspaces))
 	for i, w := range m.workspaces {
 		if i == active {
-			parts[i] = activeTabStyle.Render(w.Name)
+			parts[i] = m.theme.ActiveTabStyle.Render(w.Name)
 		} else {
-			parts[i] = inactiveTabStyle.Render(w.Name)
+			parts[i] = m.theme.InactiveTabStyle.Render(w.Name)
 		}
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Bottom, parts...)
@@ -111,14 +111,14 @@ func (m Model) sessionList(paneW int) string {
 	ss := m.sessions()
 	if len(ss) == 0 {
 		if len(m.workspaces) == 0 {
-			return noWorkspaceBanner()
+			return noWorkspaceBanner(m.theme)
 		}
 		ws := m.currentWorkspace()
 		name := ""
 		if ws != nil {
 			name = ws.Name
 		}
-		return noSessionBanner(name)
+		return noSessionBanner(m.theme, name)
 	}
 
 	inner := paneW - 2
@@ -135,15 +135,15 @@ func (m Model) sessionList(paneW int) string {
 
 func (m Model) sessionRow(i int, s *registry.Session, w int) string {
 	selected := i == m.cursor
-	titleS, descS := rowTitleStyle, rowDescStyle
+	titleS, descS := m.theme.RowTitleStyle, m.theme.RowDescStyle
 	if selected {
-		titleS, descS = selRowTitleStyle, selRowDescStyle
+		titleS, descS = m.theme.SelRowTitleStyle, m.theme.SelRowDescStyle
 	}
 
 	title, ref := sessionLabel(s)
 	rs := m.runtimeStatus(s)
 	prefix := fmt.Sprintf(" %d ", i+1)
-	head := fmt.Sprintf("%s%s %s", prefix, statusDot(rs), title)
+	head := fmt.Sprintf("%s%s %s", prefix, statusDot(m.theme, rs), title)
 	sub := fmt.Sprintf(
 		"   %s %s · %s · %s", branchIcon, ref, s.ProfileName, rs.Label(),
 	)
@@ -182,9 +182,9 @@ func (m Model) tabbedRightPane(contentW, bodyH int) string {
 			w = lastW
 		}
 
-		style := paneTabInactiveStyle
+		style := m.theme.PaneTabInactiveStyle
 		if paneTab(i) == m.pane {
-			style = paneTabActiveStyle
+			style = m.theme.PaneTabActiveStyle
 		}
 		border, _, _, _, _ := style.GetBorder()
 		switch {
@@ -202,7 +202,7 @@ func (m Model) tabbedRightPane(contentW, bodyH int) string {
 	}
 
 	row := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
-	window := paneWindowStyle.Width(contentW).Height(contentH).Render(
+	window := m.theme.PaneWindowStyle.Width(contentW).Height(contentH).Render(
 		m.paneBody(contentW, contentH),
 	)
 	return lipgloss.JoinVertical(lipgloss.Left, row, window)
@@ -229,64 +229,67 @@ func (m Model) paneBody(w, h int) string {
 func (m Model) diffBody(w, h int) string {
 	s := m.selectedSession()
 	if s == nil {
-		return dimStyle.Render("No session selected.")
+		return m.theme.DimStyle.Render("No session selected.")
 	}
 	if s.Branch == "" || s.WorktreePath == "" || s.BaseCommit == "" {
-		return dimStyle.Render("Diff is only available for worktree sessions.")
+		return m.theme.DimStyle.Render(
+			"Diff is only available for worktree sessions.",
+		)
 	}
 	if m.diffSID != s.ID {
-		return dimStyle.Render("Loading diff…")
+		return m.theme.DimStyle.Render("Loading diff…")
 	}
 	if m.diffErr != nil {
-		return errorStyle.Render("diff error: " + m.diffErr.Error())
+		return m.theme.ErrorStyle.Render("diff error: " + m.diffErr.Error())
 	}
 	if strings.TrimSpace(m.diffText) == "" {
-		return dimStyle.Render("No changes.")
+		return m.theme.DimStyle.Render("No changes.")
 	}
 
 	vp := m.diffVP
 	vp.Width = max(w, 1)
 	vp.Height = max(h-1, 1)
-	return diffSummaryLine(m.diffAdded, m.diffRemoved) + "\n" + vp.View()
+	return diffSummaryLine(m.theme, m.diffAdded, m.diffRemoved) +
+		"\n" + vp.View()
 }
 
 // diffSummaryLine renders the "N additions(+) / M deletions(-)" header above the
 // diff, the additions in the add colour and the deletions in the delete colour.
-func diffSummaryLine(added, removed int) string {
-	return diffAddStyle.Render(fmt.Sprintf("%d additions(+)", added)) +
-		dimStyle.Render(" / ") +
-		diffDelStyle.Render(fmt.Sprintf("%d deletions(-)", removed))
+func diffSummaryLine(theme Theme, added, removed int) string {
+	return theme.DiffAddStyle.Render(fmt.Sprintf("%d additions(+)", added)) +
+		theme.DimStyle.Render(" / ") +
+		theme.DiffDelStyle.Render(fmt.Sprintf("%d deletions(-)", removed))
 }
 
 // colorizeDiff styles a plain unified diff line by line: hunk headers in the
 // accent, additions green and deletions red, and the file/metadata lines dimmed.
 // The context lines are left unstyled. git emits the diff without colour, so the
 // cockpit colours it itself to match the theme.
-func colorizeDiff(text string) string {
+func colorizeDiff(theme Theme, text string) string {
 	lines := strings.Split(text, "\n")
 	for i, line := range lines {
-		lines[i] = styleDiffLine(line)
+		lines[i] = styleDiffLine(theme, line)
 	}
 	return strings.Join(lines, "\n")
 }
 
-func styleDiffLine(line string) string {
+func styleDiffLine(theme Theme, line string) string {
 	switch {
 	case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
-		return diffMetaStyle.Render(line)
+		return theme.DiffMetaStyle.Render(line)
 	case strings.HasPrefix(line, "@@"):
-		return diffHunkStyle.Render(line)
+		return theme.DiffHunkStyle.Render(line)
 	case strings.HasPrefix(line, "+"):
-		return diffAddStyle.Render(line)
+		return theme.DiffAddStyle.Render(line)
 	case strings.HasPrefix(line, "-"):
-		return diffDelStyle.Render(line)
+		return theme.DiffDelStyle.Render(line)
 	case strings.HasPrefix(line, "diff "),
 		strings.HasPrefix(line, "index "),
 		strings.HasPrefix(line, "new file"),
 		strings.HasPrefix(line, "deleted file"),
 		strings.HasPrefix(line, "rename "),
 		strings.HasPrefix(line, "similarity "):
-		return diffMetaStyle.Render(line)
+		return theme.DiffMetaStyle.Render(line)
 	default:
 		return line
 	}
@@ -299,11 +302,11 @@ func styleDiffLine(line string) string {
 func (m Model) terminalBody(w, h int) string {
 	s := m.selectedSession()
 	if s == nil {
-		return dimStyle.Render("No session selected.")
+		return m.theme.DimStyle.Render("No session selected.")
 	}
 	if m.termShown != companionName(s) ||
 		strings.TrimSpace(ansi.Strip(m.termContent)) == "" {
-		return dimStyle.Render("Starting shell…")
+		return m.theme.DimStyle.Render("Starting shell…")
 	}
 	return renderCapture(m.termContent, w, h)
 }
@@ -311,15 +314,15 @@ func (m Model) terminalBody(w, h int) string {
 func (m Model) previewBody(w, h int) string {
 	s := m.selectedSession()
 	if s == nil {
-		return dimStyle.Render("No session selected.")
+		return m.theme.DimStyle.Render("No session selected.")
 	}
 	if s.Status != registry.StatusRunning {
-		return dimStyle.Render("Session exited — nothing to preview.")
+		return m.theme.DimStyle.Render("Session exited — nothing to preview.")
 	}
 	// The capture carries the agent's own escape sequences (tmux capture-pane
 	// -e), so emptiness must be judged on the visible text, not the raw bytes.
 	if strings.TrimSpace(ansi.Strip(m.preview)) == "" {
-		return dimStyle.Render("Waiting for output…")
+		return m.theme.DimStyle.Render("Waiting for output…")
 	}
 	return renderCapture(m.preview, w, h)
 }
@@ -362,13 +365,13 @@ func (m Model) menuBar() string {
 	}
 	parts := make([]string, len(items))
 	for i, it := range items {
-		parts[i] = menuKeyStyle.Render(
+		parts[i] = m.theme.MenuKeyStyle.Render(
 			it[0],
-		) + " " + menuDescStyle.Render(
+		) + " " + m.theme.MenuDescStyle.Render(
 			it[1],
 		)
 	}
-	return " " + strings.Join(parts, menuSepStyle.Render(menuSep))
+	return " " + strings.Join(parts, m.theme.MenuSepStyle.Render(menuSep))
 }
 
 // menuKey is the glyph the menu bar shows for an action: the effective primary
@@ -379,10 +382,10 @@ func (m Model) menuKey(action string) string {
 
 func (m Model) statusLine() string {
 	if m.err != nil {
-		return errorStyle.Render(" error: " + m.err.Error())
+		return m.theme.ErrorStyle.Render(" error: " + m.err.Error())
 	}
 	if m.status != "" {
-		return dimStyle.Render(" " + m.status)
+		return m.theme.DimStyle.Render(" " + m.status)
 	}
 	return ""
 }
@@ -418,23 +421,23 @@ func sessionLabel(s *registry.Session) (title, ref string) {
 
 // confirmBody composes a confirm-modal body: the prompt followed by the dimmed
 // branch · profile line that identifies the target session.
-func confirmBody(prompt string, s *registry.Session) string {
+func confirmBody(theme Theme, prompt string, s *registry.Session) string {
 	_, ref := sessionLabel(s)
-	return prompt + "\n\n" + dimStyle.Render(
+	return prompt + "\n\n" + theme.DimStyle.Render(
 		fmt.Sprintf("%s %s · %s", branchIcon, ref, s.ProfileName),
 	)
 }
 
-func statusDot(s sessionstatus.Status) string {
+func statusDot(theme Theme, s sessionstatus.Status) string {
 	switch s {
 	case sessionstatus.Waiting:
-		return waitingDotStyle.Render(waitingIcon)
+		return theme.WaitingDotStyle.Render(waitingIcon)
 	case sessionstatus.Idle:
-		return idleDotStyle.Render(idleIcon)
+		return theme.IdleDotStyle.Render(idleIcon)
 	case sessionstatus.Exited:
-		return exitedDotStyle.Render(exitedIcon)
+		return theme.ExitedDotStyle.Render(exitedIcon)
 	default:
-		return runningDotStyle.Render(runningIcon)
+		return theme.RunningDotStyle.Render(runningIcon)
 	}
 }
 
@@ -449,20 +452,20 @@ func pad(s string, w int) string {
 	return s
 }
 
-func noWorkspaceBanner() string {
-	return bannerStyle.Render("No workspaces yet.") + "\n\n" +
-		dimStyle.Render(
+func noWorkspaceBanner(theme Theme) string {
+	return theme.BannerStyle.Render("No workspaces yet.") + "\n\n" +
+		theme.DimStyle.Render(
 			"Press n to start a plain session here.\n\n"+
 				"Or add a repo with\nwasa workspace add <path>\n"+
 				"or run wasa inside a git repo.",
 		)
 }
 
-func noSessionBanner(name string) string {
+func noSessionBanner(theme Theme, name string) string {
 	title := "No sessions here."
 	if name != "" {
 		title = fmt.Sprintf("No sessions in %s.", name)
 	}
-	return bannerStyle.Render(title) + "\n\n" +
-		dimStyle.Render("Press n to create one.")
+	return theme.BannerStyle.Render(title) + "\n\n" +
+		theme.DimStyle.Render("Press n to create one.")
 }

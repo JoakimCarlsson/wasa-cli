@@ -107,6 +107,7 @@ type filterResultMsg struct {
 // and schedules a filterTickMsg, the tick spawns the walk, and a filterResultMsg
 // is applied only while its gen is still current.
 type dirPicker struct {
+	theme      Theme
 	root       *treeNode
 	filterRoot *treeNode
 	query      textinput.Model
@@ -135,6 +136,7 @@ type dirPicker struct {
 // starts on it. recents seeds the recent pane; with none the picker shows the
 // tree alone.
 func newDirPicker(
+	theme Theme,
 	rootPath, selectPath, home string,
 	recents []recentDir,
 	width, height int,
@@ -157,6 +159,7 @@ func newDirPicker(
 	loadChildren(root)
 
 	p := dirPicker{
+		theme:   theme,
 		root:    root,
 		query:   q,
 		recents: recents,
@@ -451,11 +454,11 @@ func (p dirPicker) view() string {
 	inner := max(p.width, 32)
 	rows := p.rows()
 
-	head := titleStyle.Render("Pick directory") + "\n" + p.query.View()
+	head := p.theme.TitleStyle.Render("Pick directory") + "\n" + p.query.View()
 	body := p.bodyView(inner, rows)
-	footer := dimStyle.Render(p.footer())
+	footer := p.theme.DimStyle.Render(p.footer())
 
-	return pickerStyle.Render(head + "\n\n" + body + "\n\n" + footer)
+	return p.theme.PickerStyle.Render(head + "\n\n" + body + "\n\n" + footer)
 }
 
 // bodyView lays out the tree pane, and a recent pane beside it when there are
@@ -476,7 +479,7 @@ func (p dirPicker) bodyView(inner, rows int) string {
 	recent := fitColumn(p.recentLines(recentW, rows), recentW, rows)
 	sep := make([]string, rows)
 	for i := range sep {
-		sep[i] = dimStyle.Render(" │ ")
+		sep[i] = p.theme.DimStyle.Render(" │ ")
 	}
 
 	return lipgloss.JoinHorizontal(
@@ -492,11 +495,11 @@ func (p dirPicker) bodyView(inner, rows int) string {
 func (p dirPicker) treeLines(w, rows int) []string {
 	switch {
 	case p.pending && len(p.visible) == 0:
-		return []string{dimStyle.Render("  searching…")}
+		return []string{p.theme.DimStyle.Render("  searching…")}
 	case p.filtering && !p.pending && p.matchCount == 0:
-		return []string{dimStyle.Render("  no matches")}
+		return []string{p.theme.DimStyle.Render("  no matches")}
 	case len(p.visible) == 0:
-		return []string{dimStyle.Render("  (empty)")}
+		return []string{p.theme.DimStyle.Render("  (empty)")}
 	}
 	end := min(p.offset+rows, len(p.visible))
 	lines := make([]string, 0, end-p.offset)
@@ -510,7 +513,7 @@ func (p dirPicker) treeLines(w, rows int) []string {
 // recentLines renders the recent pane: a header followed by the recent
 // directories, the focused one drawn as a selection band.
 func (p dirPicker) recentLines(w, rows int) []string {
-	lines := []string{focusedLabelStyle.Render("Recent")}
+	lines := []string{p.theme.FocusedLabelStyle.Render("Recent")}
 	limit := rows - 1
 	for i, rec := range p.recents {
 		if i >= limit {
@@ -518,7 +521,9 @@ func (p dirPicker) recentLines(w, rows int) []string {
 		}
 		disp := tailTrunc(rec.display, w-2)
 		if p.focus == focusRecent && i == p.recentCursor {
-			lines = append(lines, selRowTitleStyle.Render(pad("▌ "+disp, w)))
+			lines = append(
+				lines, p.theme.SelRowTitleStyle.Render(pad("▌ "+disp, w)),
+			)
 			continue
 		}
 		lines = append(lines, "  "+disp)
@@ -564,19 +569,21 @@ func (p dirPicker) row(r visRow, current bool, w int) string {
 	}
 
 	if current {
-		return selRowTitleStyle.Render(pad("▌ "+indent+marker+label, w))
+		return p.theme.SelRowTitleStyle.Render(
+			pad("▌ "+indent+marker+label, w),
+		)
 	}
 
 	var styledLabel string
 	switch {
 	case n.matched:
-		styledLabel = highlight(label, n.positions)
+		styledLabel = highlight(p.theme, label, n.positions)
 	case n.isRepo:
-		styledLabel = focusedLabelStyle.Render(label)
+		styledLabel = p.theme.FocusedLabelStyle.Render(label)
 	default:
 		styledLabel = label
 	}
-	line := "  " + indent + dimStyle.Render(marker) + styledLabel
+	line := "  " + indent + p.theme.DimStyle.Render(marker) + styledLabel
 	return ansi.Truncate(line, w, "…") + "\x1b[0m"
 }
 
@@ -619,7 +626,7 @@ func tailTrunc(s string, w int) string {
 // highlight styles label rune by rune, accenting the byte offsets listed in
 // positions and leaving the rest plain, so a fuzzy match reads as the query
 // characters lit up inside the name.
-func highlight(label string, positions []int) string {
+func highlight(theme Theme, label string, positions []int) string {
 	if len(positions) == 0 {
 		return label
 	}
@@ -630,7 +637,7 @@ func highlight(label string, positions []int) string {
 	var b strings.Builder
 	for i, r := range label {
 		if set[i] {
-			b.WriteString(matchStyle.Render(string(r)))
+			b.WriteString(theme.MatchStyle.Render(string(r)))
 		} else {
 			b.WriteString(string(r))
 		}

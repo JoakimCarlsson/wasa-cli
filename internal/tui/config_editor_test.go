@@ -50,7 +50,7 @@ func fieldIndex(e configEditor, section, label string) int {
 }
 
 func TestEditorRecordKeyCommitsOnApply(t *testing.T) {
-	e := newConfigEditor(config.Default(), 60, 20)
+	e := newConfigEditor(testTheme(), config.Default(), 60, 20)
 	e.cursor = fieldIndex(e, "Keys", config.ActionNew)
 	if e.cursor < 0 {
 		t.Fatal("new key field not found")
@@ -76,7 +76,7 @@ func TestEditorRecordKeyCommitsOnApply(t *testing.T) {
 }
 
 func TestEditorColorSliderAdjustsAndCommits(t *testing.T) {
-	e := newConfigEditor(config.Default(), 60, 20)
+	e := newConfigEditor(testTheme(), config.Default(), 60, 20)
 	e.cursor = fieldIndex(e, "Theme", "accent")
 
 	e, _, _ = e.update(tea.KeyMsg{Type: tea.KeyEnter}) // open sliders
@@ -99,7 +99,7 @@ func TestEditorColorSliderAdjustsAndCommits(t *testing.T) {
 }
 
 func TestEditorInvalidLayoutKeepsEditing(t *testing.T) {
-	e := newConfigEditor(config.Default(), 60, 20)
+	e := newConfigEditor(testTheme(), config.Default(), 60, 20)
 	e.cursor = fieldIndex(e, "Layout", "listColFrac")
 
 	e, _, _ = e.update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -115,7 +115,7 @@ func TestEditorInvalidLayoutKeepsEditing(t *testing.T) {
 }
 
 func TestRecordConflictWarns(t *testing.T) {
-	r := newRecordEditor(config.ActionNew, config.Default())
+	r := newRecordEditor(testTheme(), config.ActionNew, config.Default())
 	r = r.add("k") // already bound to kill
 	if r.warn == "" {
 		t.Fatal("recording a bound key did not warn")
@@ -123,7 +123,7 @@ func TestRecordConflictWarns(t *testing.T) {
 }
 
 func TestColorEditorAcceleratesOnHeldKey(t *testing.T) {
-	e := newColorEditor(config.Color{Light: "#000000", Dark: "#000000"})
+	e := newColorEditor(testTheme(), config.Color{Light: "#000000", Dark: "#000000"})
 	right := tea.KeyMsg{Type: tea.KeyRight}
 
 	e = e.update(right) // first press: +1
@@ -144,7 +144,7 @@ func TestColorEditorAcceleratesOnHeldKey(t *testing.T) {
 }
 
 func TestColorEditorResetsAccelOnDirectionChange(t *testing.T) {
-	e := newColorEditor(config.Color{Light: "#808080", Dark: "#808080"})
+	e := newColorEditor(testTheme(), config.Color{Light: "#808080", Dark: "#808080"})
 	for range 10 {
 		e = e.update(tea.KeyMsg{Type: tea.KeyRight})
 	}
@@ -155,7 +155,7 @@ func TestColorEditorResetsAccelOnDirectionChange(t *testing.T) {
 }
 
 func TestColorEditorHexRoundTrip(t *testing.T) {
-	e := newColorEditor(config.Color{Light: "#7d56f4", Dark: "#7d56f4"})
+	e := newColorEditor(testTheme(), config.Color{Light: "#7d56f4", Dark: "#7d56f4"})
 	if got := e.value(); got != "#7d56f4" {
 		t.Fatalf("round-trip changed colour: %q", got)
 	}
@@ -182,8 +182,6 @@ func TestConfigActionOpensPanel(t *testing.T) {
 }
 
 func TestApplyConfigPersistsAndAppliesLive(t *testing.T) {
-	defer applyTheme(config.Default().Theme)
-
 	home := t.TempDir()
 	m := editorModel(t, home)
 
@@ -201,7 +199,7 @@ func TestApplyConfigPersistsAndAppliesLive(t *testing.T) {
 	if got.keys.action("x") != config.ActionNew {
 		t.Fatal("apply did not apply the new binding live")
 	}
-	if titleStyle.GetForeground() != lipgloss.Color("#abcdef") {
+	if got.theme.TitleStyle.GetForeground() != lipgloss.Color("#abcdef") {
 		t.Fatal("save did not recolour live")
 	}
 
@@ -219,7 +217,7 @@ func TestApplyConfigPersistsAndAppliesLive(t *testing.T) {
 }
 
 func TestEditorViewRendersFields(t *testing.T) {
-	e := newConfigEditor(config.Default(), 60, 100)
+	e := newConfigEditor(testTheme(), config.Default(), 60, 100)
 	out := e.view()
 	for _, want := range []string{"Settings", "Theme", "Keys", "Layout", "accent"} {
 		if !strings.Contains(out, want) {

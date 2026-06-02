@@ -17,6 +17,7 @@ import (
 // "#hex" value (or "#light / #dark" when the variants differ) on commit, which the
 // config editor parses back through parseColor.
 type colorEditor struct {
+	theme   Theme
 	light   [3]int
 	dark    [3]int
 	variant int // 0 = light, 1 = dark
@@ -26,8 +27,12 @@ type colorEditor struct {
 	repeat  int    // consecutive presses of lastKey
 }
 
-func newColorEditor(c config.Color) colorEditor {
-	return colorEditor{light: parseRGB(c.Light), dark: parseRGB(c.Dark)}
+func newColorEditor(theme Theme, c config.Color) colorEditor {
+	return colorEditor{
+		theme: theme,
+		light: parseRGB(c.Light),
+		dark:  parseRGB(c.Dark),
+	}
 }
 
 func (e colorEditor) update(key tea.KeyMsg) colorEditor {
@@ -103,9 +108,9 @@ func (e colorEditor) view(label string) string {
 	}
 	variantTag := func(name string, v int) string {
 		if e.variant == v {
-			return focusedLabelStyle.Render("● " + name)
+			return e.theme.FocusedLabelStyle.Render("● " + name)
 		}
-		return dimStyle.Render("  " + name)
+		return e.theme.DimStyle.Render("  " + name)
 	}
 
 	header := fmt.Sprintf(
@@ -120,21 +125,21 @@ func (e colorEditor) view(label string) string {
 	for i, name := range names {
 		active := i == e.channel
 		marker := "  "
-		label := dimStyle.Render(name)
-		value := dimStyle.Render(pad(strconv.Itoa(cur[i]), 3))
+		label := e.theme.DimStyle.Render(name)
+		value := e.theme.DimStyle.Render(pad(strconv.Itoa(cur[i]), 3))
 		if active {
-			marker = focusedLabelStyle.Render("▸ ")
-			label = focusedLabelStyle.Render(name)
-			value = focusedLabelStyle.Render(pad(strconv.Itoa(cur[i]), 3))
+			marker = e.theme.FocusedLabelStyle.Render("▸ ")
+			label = e.theme.FocusedLabelStyle.Render(name)
+			value = e.theme.FocusedLabelStyle.Render(pad(strconv.Itoa(cur[i]), 3))
 		}
 		rows = append(rows, fmt.Sprintf(
-			"%s%s %s %s", marker, label, channelBar(cur[i], active), value,
+			"%s%s %s %s", marker, label, e.channelBar(cur[i], active), value,
 		))
 	}
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
-		titleStyle.Render(label),
+		e.theme.TitleStyle.Render(label),
 		"",
 		header,
 		"",
@@ -145,15 +150,15 @@ func (e colorEditor) view(label string) string {
 // channelBar renders a 0–255 channel value as a 24-cell filled bar. The active
 // channel's fill uses the accent so the focused row reads at a glance; inactive
 // rows are dimmed.
-func channelBar(v int, active bool) string {
+func (e colorEditor) channelBar(v int, active bool) string {
 	const n = 24
 	filled := v * n / 255
-	fill := dimStyle
+	fill := e.theme.DimStyle
 	if active {
-		fill = matchStyle
+		fill = e.theme.MatchStyle
 	}
 	return fill.Render(strings.Repeat("█", filled)) +
-		dimStyle.Render(strings.Repeat("░", n-filled))
+		e.theme.DimStyle.Render(strings.Repeat("░", n-filled))
 }
 
 func clamp(v, lo, hi int) int {
