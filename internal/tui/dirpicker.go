@@ -821,7 +821,7 @@ func fuzzyScore(query, target string) (int, []int, bool) {
 
 	positions := make([]int, 0, len(q))
 	score, ti, prev := 0, 0, -2
-	for qi := 0; qi < len(q); qi++ {
+	for qi := range len(q) {
 		idx := strings.IndexByte(t[ti:], q[qi])
 		if idx < 0 {
 			return 0, nil, false
