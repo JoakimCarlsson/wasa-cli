@@ -519,6 +519,87 @@ func TestWorkspaceDeleteCmdRemovesTabAndSessions(t *testing.T) {
 	}
 }
 
+// TestOrphanSessionRendersInList is the regression guard for the bug: a plain
+// session that belongs to no workspace must be visible in the cockpit, not
+// hidden behind the no-workspace banner. It must surface under a synthetic
+// "(no workspace)" tab.
+func TestOrphanSessionRendersInList(t *testing.T) {
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	reg.AddSession(&registry.Session{
+		ID: "o1", Title: "scratch", WorkingDir: "/tmp/x",
+		TmuxName: "wasa_o1", Status: registry.StatusRunning,
+	})
+
+	m := New(t.TempDir(), reg, "", config.Default())
+	if m.activeID != "" {
+		t.Fatalf("activeID = %q, want the orphan tab", m.activeID)
+	}
+	if got := m.tabList(); len(got) != 1 || got[0].name != orphanTabName {
+		t.Fatalf("tabList = %+v, want a single orphan tab", got)
+	}
+	if got := len(m.sessions()); got != 1 {
+		t.Fatalf("orphan tab lists %d sessions, want 1", got)
+	}
+
+	m.width, m.height = 100, 30
+	view := m.View()
+	if strings.Contains(view, "No workspaces yet.") {
+		t.Fatalf(
+			"orphan session hidden behind the no-workspace banner:\n%s",
+			view,
+		)
+	}
+	if !strings.Contains(view, "scratch") {
+		t.Fatalf("orphan session title not rendered:\n%s", view)
+	}
+	if !strings.Contains(view, orphanTabName) {
+		t.Fatalf("orphan tab not rendered:\n%s", view)
+	}
+}
+
+func TestOrphanTabReachableByCyclingPastWorkspaces(t *testing.T) {
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	ws, _ := reg.EnsureWorkspace("/repo-a", "", "repo-a")
+	reg.AddSession(&registry.Session{ID: "a1", WorkspaceID: ws.ID, Branch: "x"})
+	reg.AddSession(&registry.Session{ID: "o1", WorkingDir: "/tmp/x"})
+
+	m := New(t.TempDir(), reg, ws.ID, config.Default())
+	if m.activeID != ws.ID {
+		t.Fatalf("precondition: active = %q, want %q", m.activeID, ws.ID)
+	}
+	if got := m.tabList(); len(got) != 2 {
+		t.Fatalf("tabList = %+v, want workspace + orphan tab", got)
+	}
+
+	m.cycleTab(1)
+	if m.activeID != "" {
+		t.Fatalf("after cycle active = %q, want orphan tab", m.activeID)
+	}
+	if ss := m.sessions(); len(ss) != 1 || ss[0].ID != "o1" {
+		t.Fatalf("orphan tab sessions = %+v, want [o1]", ss)
+	}
+
+	m.cycleTab(1)
+	if m.activeID != ws.ID {
+		t.Fatalf("cycle wrap active = %q, want %q", m.activeID, ws.ID)
+	}
+}
+
+func TestNoOrphanTabWhenEverySessionHasWorkspace(t *testing.T) {
+	m, _, _ := testModel(t)
+	for _, tab := range m.tabList() {
+		if tab.id == "" {
+			t.Fatal("orphan tab present though every session has a workspace")
+		}
+	}
+}
+
 func TestListCursorNavigation(t *testing.T) {
 	m, _, _ := testModel(t)
 

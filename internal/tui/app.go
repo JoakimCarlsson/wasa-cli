@@ -861,15 +861,15 @@ func (m Model) deleteCmd(s *registry.Session) tea.Cmd {
 }
 
 // refresh re-reads the most-recently-used workspaces and clamps the cursor. It
-// preserves the active workspace by id, falling back to the first workspace when
-// the active one has gone away. It returns a command to re-target the preview
-// stream at whatever session ends up selected.
+// preserves the active tab by id — a workspace or the synthetic orphan tab —
+// falling back to the first tab when the active one has gone away. It returns a
+// command to re-target the preview stream at whatever session ends up selected.
 func (m *Model) refresh() tea.Cmd {
 	m.workspaces = m.reg.ListWorkspaces()
-	if !m.hasWorkspace(m.activeID) {
+	if !m.hasTab(m.activeID) {
 		m.activeID = ""
-		if len(m.workspaces) > 0 {
-			m.activeID = m.workspaces[0].ID
+		if tabs := m.tabList(); len(tabs) > 0 {
+			m.activeID = tabs[0].id
 		}
 		m.cursor = 0
 	}

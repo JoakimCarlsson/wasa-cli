@@ -102,23 +102,24 @@ func (m Model) paneTitle(name string) string {
 }
 
 func (m Model) tabBar() string {
-	if len(m.workspaces) == 0 {
+	tabs := m.tabList()
+	if len(tabs) == 0 {
 		return m.theme.InactiveTabStyle.Render("no workspaces")
 	}
 	active := m.tabIndex()
-	parts := make([]string, len(m.workspaces))
-	for i, w := range m.workspaces {
+	parts := make([]string, len(tabs))
+	for i, t := range tabs {
 		if i == active {
-			parts[i] = m.theme.ActiveTabStyle.Render(w.Name)
+			parts[i] = m.theme.ActiveTabStyle.Render(t.name)
 		} else {
-			parts[i] = m.theme.InactiveTabStyle.Render(w.Name)
+			parts[i] = m.theme.InactiveTabStyle.Render(t.name)
 		}
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Bottom, parts...)
 }
 
 func (m Model) sessionList(paneW int) string {
-	if len(m.workspaces) == 0 {
+	if len(m.tabList()) == 0 {
 		return noWorkspaceBanner(m.theme, m.menuKey(config.ActionWorkspaceAdd))
 	}
 
@@ -653,20 +654,60 @@ func (m *Model) applyDiff(msg pane.DiffMsg) tea.Cmd {
 	return m.tabbed.Diff.Apply(msg)
 }
 
+// orphanTabName labels the synthetic tab that collects sessions belonging to no
+// workspace — plain sessions launched outside any registered repository. Its id
+// is the empty string, the WorkspaceID those sessions carry, so selecting it
+// lists exactly them through the same workspaceSessions filter.
+const orphanTabName = "(no workspace)"
+
+// tabInfo is one cockpit tab: a workspace, or the synthetic orphan tab. id is the
+// workspace id ("" for the orphan tab) that workspaceSessions filters sessions by.
+type tabInfo struct {
+	id   string
+	name string
+}
+
+// tabList is the ordered set of cockpit tabs: one per workspace (most-recently-
+// used first), followed by the synthetic "(no workspace)" tab when any session
+// belongs to no workspace, so those sessions are reachable instead of hidden. It
+// is empty only when there are neither workspaces nor orphan sessions.
+func (m Model) tabList() []tabInfo {
+	tabs := make([]tabInfo, 0, len(m.workspaces)+1)
+	for _, w := range m.workspaces {
+		tabs = append(tabs, tabInfo{id: w.ID, name: w.Name})
+	}
+	if m.hasOrphanSessions() {
+		tabs = append(tabs, tabInfo{id: "", name: orphanTabName})
+	}
+	return tabs
+}
+
+// hasOrphanSessions reports whether any session belongs to no workspace, which is
+// what makes the synthetic orphan tab appear.
+func (m Model) hasOrphanSessions() bool {
+	for _, s := range m.reg.ListSessions() {
+		if s.WorkspaceID == "" {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *Model) cycleTab(delta int) {
-	n := len(m.workspaces)
+	tabs := m.tabList()
+	n := len(tabs)
 	if n == 0 {
 		return
 	}
 	i := max(m.tabIndex(), 0)
 	i = (i + delta%n + n) % n
-	m.activeID = m.workspaces[i].ID
+	m.activeID = tabs[i].id
 	m.cursor = 0
 }
 
 func (m Model) tabIndex() int {
-	for i, w := range m.workspaces {
-		if w.ID == m.activeID {
+	for i, t := range m.tabList() {
+		if t.id == m.activeID {
 			return i
 		}
 	}
@@ -685,6 +726,18 @@ func (m Model) currentWorkspace() *registry.Workspace {
 func (m Model) hasWorkspace(id string) bool {
 	for _, w := range m.workspaces {
 		if w.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// hasTab reports whether id names a current tab — a workspace or, for "", the
+// orphan tab when it exists. refresh uses it to decide whether the active tab
+// survived a registry change before falling back to the first tab.
+func (m Model) hasTab(id string) bool {
+	for _, t := range m.tabList() {
+		if t.id == id {
 			return true
 		}
 	}
