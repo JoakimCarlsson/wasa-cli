@@ -2,6 +2,7 @@ package launch
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/joakimcarlsson/wasa/internal/hook"
@@ -13,15 +14,21 @@ import (
 // session must touch neither, so any call is a test failure rather than a
 // silently recorded one.
 type recordingOps struct {
-	addCalled   bool
-	addBranch   string
-	hookCalled  bool
-	hookCommand string
-	spawnDir    string
-	spawnEnv    []string
-	spawnName   string
-	worktree    string
-	baseCommit  string
+	addCalled    bool
+	addBranch    string
+	applyRepo    string
+	applyTree    string
+	applyProfile registry.Profile
+	portCalled   bool
+	port         int
+	hookCalled   bool
+	hookCommand  string
+	hookEnv      []string
+	spawnDir     string
+	spawnEnv     []string
+	spawnName    string
+	worktree     string
+	baseCommit   string
 }
 
 func (o *recordingOps) ops() ops {
@@ -31,9 +38,22 @@ func (o *recordingOps) ops() ops {
 			o.addBranch = branch
 			return o.worktree, o.baseCommit, nil
 		},
+		applyPaths: func(
+			repoPath, worktreePath string, prof registry.Profile,
+		) error {
+			o.applyRepo = repoPath
+			o.applyTree = worktreePath
+			o.applyProfile = prof
+			return nil
+		},
+		allocatePort: func() (int, error) {
+			o.portCalled = true
+			return o.port, nil
+		},
 		runHook: func(h hook.Hook) error {
 			o.hookCalled = true
 			o.hookCommand = h.Command
+			o.hookEnv = h.Env
 			return nil
 		},
 		spawn: func(name, dir string, env []string, _ string) error {
@@ -192,6 +212,82 @@ func TestCreateSessionWorktreeStillAddsAndHooks(t *testing.T) {
 	}
 	if o.spawnDir != "/wt/feature-x" {
 		t.Fatalf("spawned in %q, want the worktree /wt/feature-x", o.spawnDir)
+	}
+}
+
+func TestCreateSessionWorktreeAppliesPaths(t *testing.T) {
+	reg := testRegistry(t)
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	ws.Profiles[0].LinkPaths = []string{"node_modules"}
+	ws.Profiles[0].CopyPaths = []string{".env"}
+
+	o := &recordingOps{worktree: "/wt/feature-x"}
+	if _, err := createSession(o.ops(), "/home", reg, ws, Params{
+		Branch:  "feature/x",
+		Program: "claude",
+	}); err != nil {
+		t.Fatalf("createSession: %v", err)
+	}
+
+	if o.applyRepo != "/repo" || o.applyTree != "/wt/feature-x" {
+		t.Fatalf(
+			"applyPaths called with repo=%q tree=%q, want /repo and the worktree",
+			o.applyRepo,
+			o.applyTree,
+		)
+	}
+	if !slices.Equal(o.applyProfile.LinkPaths, []string{"node_modules"}) ||
+		!slices.Equal(o.applyProfile.CopyPaths, []string{".env"}) {
+		t.Fatalf(
+			"applyPaths got profile %+v, want the link/copy paths",
+			o.applyProfile,
+		)
+	}
+}
+
+func TestCreateSessionWorktreePortInjectsEnv(t *testing.T) {
+	reg := testRegistry(t)
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	ws.Profiles[0].PortEnv = "PORT"
+
+	o := &recordingOps{worktree: "/wt/feature-x", port: 54321}
+	if _, err := createSession(o.ops(), "/home", reg, ws, Params{
+		Branch:  "feature/x",
+		Program: "claude",
+	}); err != nil {
+		t.Fatalf("createSession: %v", err)
+	}
+
+	if !o.portCalled {
+		t.Fatal("PortEnv set but allocatePort was not called")
+	}
+	if !slices.Contains(o.spawnEnv, "PORT=54321") {
+		t.Fatalf("spawn env = %v, want it to include PORT=54321", o.spawnEnv)
+	}
+	if !slices.Contains(o.hookEnv, "PORT=54321") {
+		t.Fatalf("hook env = %v, want the port visible to the hook", o.hookEnv)
+	}
+}
+
+func TestCreateSessionWorktreeNoPortEnvSkipsAllocation(t *testing.T) {
+	reg := testRegistry(t)
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+
+	o := &recordingOps{worktree: "/wt/feature-x", port: 54321}
+	if _, err := createSession(o.ops(), "/home", reg, ws, Params{
+		Branch:  "feature/x",
+		Program: "claude",
+	}); err != nil {
+		t.Fatalf("createSession: %v", err)
+	}
+
+	if o.portCalled {
+		t.Fatal("allocatePort called despite no PortEnv on the profile")
+	}
+	for _, e := range o.spawnEnv {
+		if strings.HasPrefix(e, "PORT=") {
+			t.Fatalf("spawn env unexpectedly carries a port: %q", e)
+		}
 	}
 }
 
