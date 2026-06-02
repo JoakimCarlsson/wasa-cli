@@ -128,6 +128,63 @@ func runGit(t *testing.T, dir string, args ...string) {
 	}
 }
 
+// TestFormAutonomousInjectsFlag checks that with a known agent selected, toggling
+// autonomous on bakes that agent's skip-permissions flag into the spawned program.
+func TestFormAutonomousInjectsFlag(t *testing.T) {
+	f := newCreateForm(nil)
+	f.inputs[fieldProgram].SetValue("claude")
+
+	if !f.autonomousEnabled() {
+		t.Fatal("autonomous should be enabled for claude")
+	}
+	f.toggleAutonomous()
+	if !f.autonomous {
+		t.Fatal("toggleAutonomous did not enable the toggle")
+	}
+
+	want := "claude --dangerously-skip-permissions"
+	if p := f.params(); p.Program != want {
+		t.Errorf("params.Program = %q, want %q", p.Program, want)
+	}
+}
+
+// TestFormAutonomousDisabledForShell checks that an unknown/shell program leaves
+// the toggle disabled, skipped in tab order, and never injects a flag even if the
+// toggle state was set on.
+func TestFormAutonomousDisabledForShell(t *testing.T) {
+	f := newCreateForm(nil)
+	f.inputs[fieldProgram].SetValue("/bin/bash")
+
+	if f.autonomousEnabled() {
+		t.Fatal("autonomous should be disabled for the shell")
+	}
+
+	f.setFocus(fieldProgram)
+	f.focusNext()
+	if f.focus == fieldAutonomous {
+		t.Error("tab landed on the disabled Autonomous field")
+	}
+
+	f.autonomous = true // even if forced on, a shell has no flag to inject
+	if p := f.params(); p.Program != "/bin/bash" {
+		t.Errorf("params.Program = %q, want the bare shell", p.Program)
+	}
+}
+
+// TestFormAutonomousDropsFlagWhenProgramChanges checks that turning the toggle on
+// for a known agent and then switching to the shell omits the flag, since the
+// toggle is gated on the current program supporting it.
+func TestFormAutonomousDropsFlagWhenProgramChanges(t *testing.T) {
+	f := newCreateForm(nil)
+	f.inputs[fieldProgram].SetValue("claude")
+	f.toggleAutonomous()
+
+	f.inputs[fieldProgram].SetValue("/bin/bash")
+	if p := f.params(); p.Program != "/bin/bash" {
+		t.Errorf("params.Program = %q, want the bare shell", p.Program)
+	}
+}
+
 // TestFormCtrlFRoutesByField checks that ctrl+f opens the directory browser from
 // the Directory field and the branch picker from the Branch field.
 func TestFormCtrlFRoutesByField(t *testing.T) {
