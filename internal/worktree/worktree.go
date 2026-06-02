@@ -13,7 +13,32 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 )
+
+// indexLocks serializes the diff commands that write a worktree's git index
+// (`git add -N .`) by worktree path, so the cockpit's per-tick churn numstat and
+// the selected session's full diff cannot collide on the same
+// .git/worktrees/<name>/index.lock. Distinct worktrees take distinct locks and
+// still run concurrently; only same-worktree operations queue. The map grows by
+// at most one entry per worktree seen in the process lifetime.
+var (
+	indexLocksMu sync.Mutex
+	indexLocks   = map[string]*sync.Mutex{}
+)
+
+// indexLock returns the lock guarding the git index of the worktree at path,
+// creating it on first use.
+func indexLock(path string) *sync.Mutex {
+	indexLocksMu.Lock()
+	defer indexLocksMu.Unlock()
+	mu, ok := indexLocks[path]
+	if !ok {
+		mu = &sync.Mutex{}
+		indexLocks[path] = mu
+	}
+	return mu
+}
 
 // Manager performs git worktree operations against a single repository. The
 // zero value is not usable; set RepoDir and prefer New for sane defaults.
@@ -194,6 +219,10 @@ func (m *Manager) Diff(worktreePath, baseCommit string) (DiffResult, error) {
 		)
 	}
 
+	lock := indexLock(worktreePath)
+	lock.Lock()
+	defer lock.Unlock()
+
 	if _, err := m.gitAt(worktreePath, "add", "-N", "."); err != nil {
 		return DiffResult{}, err
 	}
@@ -210,6 +239,39 @@ func (m *Manager) Diff(worktreePath, baseCommit string) (DiffResult, error) {
 
 	added, removed := parseNumstat(stat)
 	return DiffResult{Text: string(text), Added: added, Removed: removed}, nil
+}
+
+// DiffNumstat returns only the added and removed line totals of the worktree at
+// worktreePath against baseCommit, without the full content diff. Like Diff it
+// first runs `git add -N .` so newly created untracked files are counted, then
+// sums `git diff --numstat <baseCommit>`. It is the cheap per-tick churn stat
+// the cockpit computes for every worktree session row, where the full Diff is
+// reserved for the one selected session. A clean worktree and a binary-only
+// change both return 0, 0 (binary files report "-" in both columns and are
+// skipped by parseNumstat).
+func (m *Manager) DiffNumstat(
+	worktreePath, baseCommit string,
+) (added, removed int, err error) {
+	if worktreePath == "" || baseCommit == "" {
+		return 0, 0, errors.New("worktree path and base commit required")
+	}
+
+	lock := indexLock(worktreePath)
+	lock.Lock()
+	defer lock.Unlock()
+
+	if _, err := m.gitAt(worktreePath, "add", "-N", "."); err != nil {
+		return 0, 0, err
+	}
+	stat, err := m.gitAt(
+		worktreePath, "--no-pager", "diff", "--numstat", baseCommit,
+	)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	added, removed = parseNumstat(stat)
+	return added, removed, nil
 }
 
 // parseNumstat sums the added and removed columns of `git diff --numstat`

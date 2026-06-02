@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/joakimcarlsson/wasa/internal/config"
 	"github.com/joakimcarlsson/wasa/internal/registry"
@@ -174,15 +175,72 @@ func (m Model) sessionRow(i int, s *registry.Session, w int) string {
 	rs := m.runtimeStatus(s)
 	prefix := fmt.Sprintf(" %d ", i+1)
 	head := fmt.Sprintf("%s%s %s", prefix, statusDot(m.theme, rs), title)
-	sub := fmt.Sprintf(
-		"   %s %s · %s · %s", branchIcon, ref, s.ProfileName, rs.Label(),
-	)
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		titleS.Render(component.PadAnsi(head, w)),
-		descS.Render(component.PadAnsi(sub, w)),
+		m.subLine(s, ref, rs, descS, selected, w),
 	)
+}
+
+// subLine renders a row's detail line — the branch ref, an optional coloured
+// +N/−M churn token, then the profile and status — padded to w. The churn token
+// carries its own add/remove colours, so the line is composed from segments each
+// rendered with descS rather than one descS.Render over the whole string:
+// embedding the token's colour reset inside a single Render would cut the
+// selection band short for everything after it on the selected row. When the
+// churn token would not fit, the plain line is rendered instead so a row never
+// overflows its column.
+func (m Model) subLine(
+	s *registry.Session,
+	ref string,
+	rs sessionstatus.Status,
+	descS lipgloss.Style,
+	selected bool,
+	w int,
+) string {
+	plain := fmt.Sprintf(
+		"   %s %s · %s · %s", branchIcon, ref, s.ProfileName, rs.Label(),
+	)
+	churn := m.churnToken(s, selected)
+	if churn == "" {
+		return descS.Render(component.PadAnsi(plain, w))
+	}
+
+	pre := fmt.Sprintf("   %s %s ", branchIcon, ref)
+	post := fmt.Sprintf(" · %s · %s", s.ProfileName, rs.Label())
+	used := ansi.StringWidth(pre) + ansi.StringWidth(churn) +
+		ansi.StringWidth(post)
+	if used > w {
+		return descS.Render(component.PadAnsi(plain, w))
+	}
+	if tail := w - used; tail > 0 {
+		post += strings.Repeat(" ", tail)
+	}
+	return descS.Render(pre) + churn + descS.Render(post)
+}
+
+// churnToken renders a worktree session's +N/−M churn in the diff add/remove
+// colours, or "" when there is nothing to show: a plain session, a session whose
+// churn has not been computed yet, or a clean worktree (zero churn renders no
+// +0/−0 noise). On the selected row the add/remove styles inherit the selection
+// band's background so the coloured digits sit on the band rather than punching a
+// hole in it.
+func (m Model) churnToken(s *registry.Session, selected bool) string {
+	if s.Branch == "" || s.WorktreePath == "" || s.BaseCommit == "" {
+		return ""
+	}
+	c, ok := m.churn[s.ID]
+	if !ok || (c.added == 0 && c.removed == 0) {
+		return ""
+	}
+	add, del := m.theme.DiffAddStyle, m.theme.DiffDelStyle
+	if selected {
+		bg := m.theme.SelRowDescStyle.GetBackground()
+		add, del = add.Background(bg), del.Background(bg)
+	}
+	return add.Render(fmt.Sprintf("+%d", c.added)) + "/" +
+		del.Render(fmt.Sprintf("−%d", c.removed))
 }
 
 // highlightMatch lights up the fuzzy-matched characters of a row's title and ref
@@ -648,6 +706,32 @@ func (m *Model) ensureDiffCmd() tea.Cmd {
 	}
 	return m.tabbed.Diff.EnsureCmd(
 		s.ID, "", m.home, s.WorkspaceID, s.WorktreePath, s.BaseCommit,
+	)
+}
+
+// refreshDiffCmd recomputes the selected worktree session's diff on the churn
+// tick so the pane reflects the agent's ongoing edits in place. It runs only
+// while the Diff tab is the active right-pane tab and a worktree session is
+// selected — off the Diff tab, on a plain session, or with no selection it is a
+// no-op — and routes through the Diff pane's RefreshCmd, which bypasses the
+// already-loaded guard EnsureCmd keeps for selection changes. A worktree session
+// whose workspace cannot be resolved is left showing its last diff rather than
+// recomputed against an empty repo path.
+func (m *Model) refreshDiffCmd() tea.Cmd {
+	if m.tabbed.Active() != pane.TabDiff {
+		return nil
+	}
+	s := m.selectedSession()
+	if s == nil || s.Branch == "" || s.WorktreePath == "" ||
+		s.BaseCommit == "" {
+		return nil
+	}
+	ws, ok := m.reg.Workspace(s.WorkspaceID)
+	if !ok {
+		return nil
+	}
+	return m.tabbed.Diff.RefreshCmd(
+		s.ID, ws.RepoPath, m.home, s.WorkspaceID, s.WorktreePath, s.BaseCommit,
 	)
 }
 

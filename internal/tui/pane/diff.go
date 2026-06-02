@@ -108,6 +108,46 @@ func (d *Diff) EnsureCmd(
 	if sessionID == "" || d.sid == sessionID {
 		return nil
 	}
+	return diffCmd(
+		sessionID,
+		repoPath,
+		home,
+		workspaceID,
+		worktreePath,
+		baseCommit,
+	)
+}
+
+// RefreshCmd recomputes the diff for the already-loaded selection, bypassing the
+// EnsureCmd no-op guard so the live-refresh tick can pick up changes an agent
+// makes in the worktree without the user re-selecting the row. It is for
+// worktree sessions only: a plain session — empty base or worktree — returns nil
+// rather than reloading the empty state every tick. Apply keeps the scroll
+// position across a refresh, so the pane updates in place.
+func (d *Diff) RefreshCmd(
+	sessionID, repoPath, home, workspaceID, worktreePath, baseCommit string,
+) tea.Cmd {
+	if sessionID == "" || baseCommit == "" || worktreePath == "" {
+		return nil
+	}
+	return diffCmd(
+		sessionID,
+		repoPath,
+		home,
+		workspaceID,
+		worktreePath,
+		baseCommit,
+	)
+}
+
+// diffCmd builds the command that computes a session's diff and tags the result
+// with sessionID. A plain (non-worktree) session — empty base or worktree —
+// yields an empty DiffMsg so Body renders its explanatory state; a worktree
+// session runs the full diff against baseCommit. It is the shared body of
+// EnsureCmd (selection change) and RefreshCmd (live tick).
+func diffCmd(
+	sessionID, repoPath, home, workspaceID, worktreePath, baseCommit string,
+) tea.Cmd {
 	sid := sessionID
 	if baseCommit == "" || worktreePath == "" {
 		return func() tea.Msg { return DiffMsg{sessionID: sid} }
@@ -127,16 +167,21 @@ func (d *Diff) EnsureCmd(
 
 // Apply stores a computed diff for rendering. The root has already dropped a
 // delivery whose session is no longer selected. It loads the colorized content
-// into the viewport and scrolls it back to the top for the new session. The
-// root sizes the viewport (Size) before applying so the paging math matches the
-// current pane.
+// into the viewport, scrolling back to the top only when the diff is for a
+// different session than the one shown — a live refresh of the same session
+// keeps the scroll position so the pane updates in place rather than jumping to
+// the top each tick. The root sizes the viewport (Size) before applying so the
+// paging math matches the current pane.
 func (d *Diff) Apply(msg DiffMsg) tea.Cmd {
+	changed := d.sid != msg.sessionID
 	d.sid = msg.sessionID
 	d.err = msg.err
 	d.text = msg.text
 	d.added, d.removed = msg.added, msg.removed
 	d.vp.SetContent(colorizeDiff(d.theme, msg.text))
-	d.vp.SetYOffset(0)
+	if changed {
+		d.vp.SetYOffset(0)
+	}
 	return nil
 }
 

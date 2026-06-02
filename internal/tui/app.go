@@ -14,6 +14,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -29,6 +30,7 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/tui/modal"
 	"github.com/joakimcarlsson/wasa/internal/tui/pane"
 	"github.com/joakimcarlsson/wasa/internal/tui/theme"
+	"github.com/joakimcarlsson/wasa/internal/worktree"
 )
 
 // mode is the model's interaction mode: browsing the session list or filling in
@@ -91,6 +93,7 @@ type Model struct {
 	notify       func(title, body string)
 	lastNotifyAt map[string]time.Time
 	lastStatus   map[string]sessionstatus.Status
+	churn        map[string]churnStat
 
 	status string
 	err    error
@@ -121,6 +124,7 @@ func New(
 		notify:       makeNotifier(cfg.Notify),
 		lastNotifyAt: make(map[string]time.Time),
 		lastStatus:   make(map[string]sessionstatus.Status),
+		churn:        make(map[string]churnStat),
 	}
 	m.osHome, _ = os.UserHomeDir()
 	if s, ok := be.(backend.StreamingBackend); ok {
@@ -161,10 +165,22 @@ func Run(
 // never from this capture.
 const previewInterval = 750 * time.Millisecond
 
-// Init implements tea.Model. It fires one immediate tick so the preview opens
-// its stream (or polls) right away rather than after the first interval.
+// churnInterval is the cadence of the diff-refresh tick: the selected worktree
+// session's full diff is recomputed, and every worktree session's +N/−M churn
+// stat is refreshed, so the pane and the list rows track the agent's edits
+// without the user re-selecting the row. It is deliberately slower than the
+// preview tick — numstat is cheap but still shells out to git per session — and
+// is a no-op (no git) when there are no worktree sessions.
+const churnInterval = time.Second
+
+// Init implements tea.Model. It fires one immediate tick of each loop so the
+// preview opens its stream (or polls) and the churn stats populate right away
+// rather than after the first interval.
 func (m Model) Init() tea.Cmd {
-	return func() tea.Msg { return tickMsg{} }
+	return tea.Batch(
+		func() tea.Msg { return tickMsg{} },
+		func() tea.Msg { return churnTickMsg{} },
+	)
 }
 
 type tickMsg struct{}
@@ -173,6 +189,22 @@ func tick() tea.Cmd {
 	return tea.Tick(
 		previewInterval,
 		func(time.Time) tea.Msg { return tickMsg{} },
+	)
+}
+
+// churnTickMsg fires the diff-refresh loop; churnMsg carries the computed
+// per-session churn back to the model. They are distinct so the timer re-arms
+// and issues the git work in one step while the result lands in another.
+type churnTickMsg struct{}
+
+type churnMsg struct {
+	stats map[string]churnStat
+}
+
+func churnTick() tea.Cmd {
+	return tea.Tick(
+		churnInterval,
+		func(time.Time) tea.Msg { return churnTickMsg{} },
 	)
 }
 
@@ -206,6 +238,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		m.sweepStatuses()
 		return m, tea.Batch(tick(), m.paneTick())
+
+	case churnTickMsg:
+		return m, tea.Batch(churnTick(), m.churnCmd(), m.refreshDiffCmd())
+
+	case churnMsg:
+		m.applyChurn(msg)
+		return m, nil
 
 	case pane.PreviewMsg:
 		return m, m.tabbed.Preview.Apply(msg)
@@ -992,6 +1031,106 @@ func (m Model) focusedSessionID() string {
 		return s.ID
 	}
 	return ""
+}
+
+// churnStat is a worktree session's added/removed line totals against its base
+// commit, the +N/−M the list row shows. It is recomputed on the churn tick and
+// never persisted: it is a live view of the worktree, derived fresh each time.
+type churnStat struct {
+	added   int
+	removed int
+}
+
+// churnTarget is the minimal set of facts the churn command needs to numstat one
+// worktree session, gathered on the main goroutine (which reads the registry)
+// before the command fans out, so the workers touch only their own copies.
+type churnTarget struct {
+	sessionID    string
+	repoPath     string
+	worktreePath string
+	baseCommit   string
+	workspaceID  string
+}
+
+// churnCmd computes the +N/−M churn of every worktree session concurrently and
+// returns it as a churnMsg. It returns nil — issuing no git commands — when no
+// worktree session is present, so a user living entirely in plain sessions pays
+// nothing on the tick. Each session is numstatted in its own goroutine, joined
+// before the message is returned, so a slow repository does not serialize the
+// tick. A session whose numstat errors is omitted rather than failing the batch.
+func (m Model) churnCmd() tea.Cmd {
+	targets := m.churnTargets()
+	if len(targets) == 0 {
+		return nil
+	}
+	home := m.home
+	return func() tea.Msg {
+		stats := make(map[string]churnStat, len(targets))
+		var (
+			mu sync.Mutex
+			wg sync.WaitGroup
+		)
+		for _, t := range targets {
+			wg.Add(1)
+			go func(t churnTarget) {
+				defer wg.Done()
+				added, removed, err := worktree.New(
+					t.repoPath, home, t.workspaceID,
+				).DiffNumstat(t.worktreePath, t.baseCommit)
+				if err != nil {
+					return
+				}
+				mu.Lock()
+				stats[t.sessionID] = churnStat{added: added, removed: removed}
+				mu.Unlock()
+			}(t)
+		}
+		wg.Wait()
+		return churnMsg{stats: stats}
+	}
+}
+
+// churnTargets gathers the worktree sessions whose churn the tick recomputes: a
+// session is included only when it has the branch, worktree and base commit a
+// diff needs and its workspace (the repository the diff runs against) resolves.
+// Plain sessions and sessions whose workspace has gone away are skipped, so the
+// returned slice being empty is exactly the "no git on tick" case.
+func (m Model) churnTargets() []churnTarget {
+	var targets []churnTarget
+	for _, s := range m.reg.ListSessions() {
+		if s.Branch == "" || s.WorktreePath == "" || s.BaseCommit == "" {
+			continue
+		}
+		ws, ok := m.reg.Workspace(s.WorkspaceID)
+		if !ok {
+			continue
+		}
+		targets = append(targets, churnTarget{
+			sessionID:    s.ID,
+			repoPath:     ws.RepoPath,
+			worktreePath: s.WorktreePath,
+			baseCommit:   s.BaseCommit,
+			workspaceID:  s.WorkspaceID,
+		})
+	}
+	return targets
+}
+
+// applyChurn replaces the cached churn stats with a freshly computed batch,
+// dropping any entry whose session no longer exists so a delivery that races a
+// session deletion cannot revive a stale row.
+func (m *Model) applyChurn(msg churnMsg) {
+	existing := make(map[string]bool)
+	for _, s := range m.reg.ListSessions() {
+		existing[s.ID] = true
+	}
+	next := make(map[string]churnStat, len(msg.stats))
+	for id, c := range msg.stats {
+		if existing[id] {
+			next[id] = c
+		}
+	}
+	m.churn = next
 }
 
 // runtimeStatus is the status the list renders for a session: exited when the

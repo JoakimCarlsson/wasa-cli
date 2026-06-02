@@ -7,6 +7,7 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/config"
 	"github.com/joakimcarlsson/wasa/internal/registry"
 	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
+	"github.com/joakimcarlsson/wasa/internal/tui/pane"
 )
 
 // TestSessionListShowsRuntimeStatus renders a workspace whose running sessions
@@ -38,6 +39,148 @@ func TestSessionListShowsRuntimeStatus(t *testing.T) {
 		if !strings.Contains(out, label) {
 			t.Fatalf("list missing %q state label:\n%s", label, out)
 		}
+	}
+}
+
+// TestChurnTickIssuesNoGitForPlainSessions is the acceptance guard: with only
+// plain sessions present the refresh tick must run no git, which it expresses by
+// churnCmd returning a nil command (no work scheduled) and no targets gathered.
+func TestChurnTickIssuesNoGitForPlainSessions(t *testing.T) {
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	for _, id := range []string{"p1", "p2"} {
+		reg.AddSession(&registry.Session{
+			ID: id, WorkspaceID: ws.ID, WorkingDir: "/tmp",
+			Status: registry.StatusRunning, TmuxName: "t-" + id,
+		})
+	}
+
+	m := New(t.TempDir(), reg, ws.ID, config.Default())
+	if got := len(m.churnTargets()); got != 0 {
+		t.Fatalf("churnTargets = %d, want 0 for plain-only sessions", got)
+	}
+	if cmd := m.churnCmd(); cmd != nil {
+		t.Fatal(
+			"churn tick scheduled git work with only plain sessions present",
+		)
+	}
+}
+
+// TestChurnTargetsOnlyWorktreeSessions checks the tick gathers exactly the
+// worktree sessions whose workspace resolves, skipping plain ones.
+func TestChurnTargetsOnlyWorktreeSessions(t *testing.T) {
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	reg.AddSession(&registry.Session{
+		ID: "w1", WorkspaceID: ws.ID, Branch: "feature/w1",
+		WorktreePath: "/wt/w1", BaseCommit: "deadbeef",
+		Status: registry.StatusRunning, TmuxName: "t-w1",
+	})
+	reg.AddSession(&registry.Session{
+		ID: "p1", WorkspaceID: ws.ID, WorkingDir: "/tmp",
+		Status: registry.StatusRunning, TmuxName: "t-p1",
+	})
+
+	m := New(t.TempDir(), reg, ws.ID, config.Default())
+	targets := m.churnTargets()
+	if len(targets) != 1 || targets[0].sessionID != "w1" {
+		t.Fatalf("churnTargets = %+v, want only worktree session w1", targets)
+	}
+	if targets[0].repoPath != "/repo" {
+		t.Fatalf("target repoPath = %q, want /repo", targets[0].repoPath)
+	}
+	if m.churnCmd() == nil {
+		t.Fatal("churn tick scheduled no work despite a worktree session")
+	}
+}
+
+// TestSessionRowShowsChurn renders a worktree session with cached churn and one
+// with zero churn, asserting the non-zero one shows +N/−M and the clean one
+// shows no +0/−0 noise.
+func TestSessionRowShowsChurn(t *testing.T) {
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	reg.AddSession(&registry.Session{
+		ID: "w1", WorkspaceID: ws.ID, Branch: "feature/w1",
+		WorktreePath: "/wt/w1", BaseCommit: "deadbeef",
+		Status: registry.StatusRunning, TmuxName: "t-w1",
+	})
+	reg.AddSession(&registry.Session{
+		ID: "clean", WorkspaceID: ws.ID, Branch: "feature/clean",
+		WorktreePath: "/wt/clean", BaseCommit: "deadbeef",
+		Status: registry.StatusRunning, TmuxName: "t-clean",
+	})
+
+	m := New(t.TempDir(), reg, ws.ID, config.Default())
+	m.width, m.height = 200, 30
+	m.churn["w1"] = churnStat{added: 12, removed: 3}
+	m.churn["clean"] = churnStat{added: 0, removed: 0}
+
+	out := m.View()
+	if !strings.Contains(out, "+12/−3") {
+		t.Fatalf("row missing +12/−3 churn suffix:\n%s", out)
+	}
+	if strings.Contains(out, "+0/−0") {
+		t.Fatalf("clean worktree rendered zero-churn noise:\n%s", out)
+	}
+}
+
+// TestSessionRowPlainSessionHasNoChurn checks a plain session never grows a
+// churn suffix even if a stale stat is somehow cached against its id.
+func TestSessionRowPlainSessionHasNoChurn(t *testing.T) {
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	reg.AddSession(&registry.Session{
+		ID: "p1", WorkspaceID: ws.ID, WorkingDir: "/tmp/work",
+		Status: registry.StatusRunning, TmuxName: "t-p1",
+	})
+
+	m := New(t.TempDir(), reg, ws.ID, config.Default())
+	m.width, m.height = 200, 30
+	m.churn["p1"] = churnStat{added: 9, removed: 9}
+
+	if out := m.View(); strings.Contains(out, "+9/−9") {
+		t.Fatalf("plain session rendered a churn suffix:\n%s", out)
+	}
+}
+
+// TestRefreshDiffCmdGatedOnDiffTab checks the live diff refresh runs only while
+// the Diff tab is active for a selected worktree session.
+func TestRefreshDiffCmdGatedOnDiffTab(t *testing.T) {
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	reg.AddSession(&registry.Session{
+		ID: "w1", WorkspaceID: ws.ID, Branch: "feature/w1",
+		WorktreePath: "/wt/w1", BaseCommit: "deadbeef",
+		Status: registry.StatusRunning, TmuxName: "t-w1",
+	})
+
+	m := New(t.TempDir(), reg, ws.ID, config.Default())
+	if cmd := m.refreshDiffCmd(); cmd != nil {
+		t.Fatal("diff refresh ran while the Preview tab was active")
+	}
+
+	m.tabbed.Cycle(1)
+	if m.tabbed.Active() != pane.TabDiff {
+		t.Fatalf("expected Diff tab active, got %v", m.tabbed.Active())
+	}
+	if cmd := m.refreshDiffCmd(); cmd == nil {
+		t.Fatal("diff refresh did not run for a selected worktree session")
 	}
 }
 
