@@ -218,6 +218,55 @@ func TestWorkspaceForDirAttachesInsideRepoAndNilOutside(t *testing.T) {
 	}
 }
 
+func TestResolveWorkspaceByIDPathAndPrefix(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available on PATH")
+	}
+
+	repo := t.TempDir()
+	initGitRepo(t, repo)
+
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	ws, _, err := addWorkspace(reg, repo)
+	if err != nil {
+		t.Fatalf("addWorkspace: %v", err)
+	}
+
+	if got, err := resolveWorkspace(reg, ws.ID); err != nil || got.ID != ws.ID {
+		t.Fatalf("resolve by id = (%v, %v), want %s", got, err, ws.ID)
+	}
+	if got, err := resolveWorkspace(reg, repo); err != nil || got.ID != ws.ID {
+		t.Fatalf("resolve by path = (%v, %v), want %s", got, err, ws.ID)
+	}
+	if got, err := resolveWorkspace(reg, ws.ID[:6]); err != nil ||
+		got.ID != ws.ID {
+		t.Fatalf("resolve by id prefix = (%v, %v), want %s", got, err, ws.ID)
+	}
+	if _, err := resolveWorkspace(reg, "nope-not-a-workspace"); err == nil {
+		t.Fatal("resolveWorkspace of an unknown query returned nil error")
+	}
+}
+
+func TestWorkspaceRemoveHelpNotesCascadeAndKeepsRepo(t *testing.T) {
+	if err := workspaceRemove([]string{"--help"}); err != nil {
+		t.Fatalf("workspaceRemove --help: %v", err)
+	}
+	lower := strings.ToLower(workspaceRemoveHelp)
+	if !strings.Contains(lower, "cascade") {
+		t.Fatalf("help does not note the cascade:\n%s", workspaceRemoveHelp)
+	}
+	if !strings.Contains(lower, "never touched") &&
+		!strings.Contains(lower, "never touch") {
+		t.Fatalf(
+			"help does not reassure the repo on disk is kept:\n%s",
+			workspaceRemoveHelp,
+		)
+	}
+}
+
 func TestWorkspaceAddHelpNotesDeferral(t *testing.T) {
 	if err := workspaceAdd([]string{"--help"}); err != nil {
 		t.Fatalf("workspaceAdd --help: %v", err)

@@ -40,6 +40,7 @@ const (
 	modeCreate
 	modeConfirm
 	modePick
+	modePickWorkspace
 	modePickBranch
 	modeConfig
 )
@@ -184,6 +185,11 @@ type killedMsg struct{ err error }
 
 type deletedMsg struct{ err error }
 
+type workspaceDeletedMsg struct {
+	name string
+	err  error
+}
+
 type attachedMsg struct {
 	sessionID string
 	err       error
@@ -241,6 +247,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "deleted session"
 		return m, m.refresh()
 
+	case workspaceDeletedMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		m.err = nil
+		m.status = "deleted workspace " + msg.name
+		return m, m.refresh()
+
 	case attachedMsg:
 		if msg.err != nil {
 			m.err = msg.err
@@ -254,13 +269,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.refresh()
 
 	case component.FilterTickMsg:
-		if m.mode == modePick {
+		if m.mode == modePick || m.mode == modePickWorkspace {
 			return m, m.picker.TickFilter(msg.Gen)
 		}
 		return m, nil
 
 	case component.FilterResultMsg:
-		if m.mode == modePick {
+		if m.mode == modePick || m.mode == modePickWorkspace {
 			m.picker.ApplyFilterResult(msg)
 		}
 		return m, nil
@@ -290,12 +305,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.enterBranchPick()
 
 	case component.DirChosenMsg:
+		if m.mode == modePickWorkspace {
+			return m.addWorkspace(msg.Path)
+		}
 		m.form.SetDir(msg.Path)
 		m.form.SetProfiles(m.profilesFor(m.form.BranchRepo))
 		m.mode = modeCreate
 		return m, textinput.Blink
 
 	case component.DirCancelledMsg:
+		if m.mode == modePickWorkspace {
+			m.mode = modeList
+			return m, m.afterListChange()
+		}
 		m.mode = modeCreate
 		return m, textinput.Blink
 
@@ -321,7 +343,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateCreate(msg)
 	case modeConfirm:
 		return m.updateConfirm(msg)
-	case modePick:
+	case modePick, modePickWorkspace:
 		return m.updatePick(msg)
 	case modePickBranch:
 		return m.updateBranchPick(msg)
@@ -367,6 +389,10 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case config.ActionFilter:
 		return m.enterFilter()
+	case config.ActionWorkspaceAdd:
+		return m.enterWorkspaceAdd()
+	case config.ActionWorkspaceDelete:
+		return m.enterWorkspaceDelete()
 	case config.ActionNew:
 		return m.enterCreate()
 	case config.ActionAttach:
@@ -435,6 +461,119 @@ func (m Model) worktreeWorkspace() (*registry.Workspace, error) {
 	}
 	ws, _ := repo.Register(m.reg, repoPath, remoteURL)
 	return ws, nil
+}
+
+// enterWorkspaceAdd opens the directory browser to register a repository as a
+// workspace tab, without creating a session. Unlike the create-form picker it
+// floats over the cockpit list (modePickWorkspace). It has no Directory field to
+// seed it, so it opens at pickerRoot — the working directory wasa was launched
+// in — from which the user ascends ("-") or filters to the repo to add.
+func (m Model) enterWorkspaceAdd() (tea.Model, tea.Cmd) {
+	m.picker = component.NewDirectoryPicker(
+		m.theme, m.pickerRoot(), "", m.osHome, m.recentDirs(),
+		m.pickerWidth(), m.pickerHeight(),
+	)
+	m.mode = modePickWorkspace
+	m.err = nil
+	m.status = ""
+	return m, textinput.Blink
+}
+
+// addWorkspace registers the git repository at path as a workspace and makes it
+// the active tab, resetting the cursor to the top of its (likely empty) session
+// list. It routes through the same repo.Resolve + repo.Register path the CLI and
+// auto-registration use, so the workspace lands under the same content-addressed
+// id: picking an already-registered repository activates its existing tab rather
+// than duplicating it, and reg is persisted only when a workspace was newly
+// created. A path that is not an existing git repository creates nothing and is
+// surfaced on the status line.
+func (m Model) addWorkspace(path string) (tea.Model, tea.Cmd) {
+	m.mode = modeList
+	repoPath, remoteURL, err := repo.Resolve(path)
+	if err != nil {
+		m.err = err
+		return m, m.afterListChange()
+	}
+	ws, created := repo.Register(m.reg, repoPath, remoteURL)
+	if created {
+		if err := m.reg.Save(); err != nil {
+			m.err = err
+			return m, m.afterListChange()
+		}
+		m.status = "added workspace " + ws.Name
+	} else {
+		m.status = "workspace " + ws.Name + " already added"
+	}
+	m.err = nil
+	m.activeID = ws.ID
+	m.cursor = 0
+	return m, m.refresh()
+}
+
+// enterWorkspaceDelete opens the delete-confirmation modal for the active
+// workspace. Deleting a workspace cascades: every session it owns is torn down —
+// tmux stopped, worktree removed, branch and any uncommitted work discarded —
+// before the workspace tab is removed, so the confirm spells out how many
+// sessions go and that the work on their branches is gone. The repository on disk
+// is never touched. With no active workspace it is a no-op.
+func (m Model) enterWorkspaceDelete() (tea.Model, tea.Cmd) {
+	ws := m.currentWorkspace()
+	if ws == nil {
+		return m, nil
+	}
+	body := fmt.Sprintf("Delete workspace %q?\n", ws.Name) +
+		workspaceDeleteWarning(len(m.workspaceSessions()))
+	return m.enterConfirm(
+		modal.NewConfirmDialog(
+			m.theme, "Delete workspace", body, "Delete", "Cancel", true,
+		),
+		m.workspaceDeleteCmd(ws),
+	)
+}
+
+// workspaceDeleteWarning is the confirm-body line describing what deleting a
+// workspace with n sessions does, made specific so the user sees the blast radius
+// before confirming.
+func workspaceDeleteWarning(n int) string {
+	switch n {
+	case 0:
+		return "It has no sessions. The repository on disk is not touched."
+	case 1:
+		return "This tears down its 1 session — removing the worktree and " +
+			"discarding the branch and any uncommitted work on it. " +
+			"The repository on disk is not touched."
+	default:
+		return fmt.Sprintf(
+			"This tears down all %d sessions — removing their worktrees and "+
+				"discarding their branches and any uncommitted work on them. "+
+				"The repository on disk is not touched.", n,
+		)
+	}
+}
+
+// workspaceDeleteCmd tears down ws and removes its tab. It captures ws's
+// companion shell names up front so the bulk teardown can kill them too — they
+// are a cockpit artifact the shared launch.DeleteWorkspace path does not know
+// about — then runs the cascade, kills the companions, and persists reg.
+func (m Model) workspaceDeleteCmd(ws *registry.Workspace) tea.Cmd {
+	reg, home, be := m.reg, m.home, m.tmux
+	var companions []string
+	for _, s := range m.workspaceSessions() {
+		companions = append(companions, companionName(s.TmuxName))
+	}
+	name := ws.Name
+	return func() tea.Msg {
+		if _, err := launch.DeleteWorkspace(reg, be, home, ws); err != nil {
+			return workspaceDeletedMsg{err: err}
+		}
+		for _, c := range companions {
+			_ = be.Kill(c)
+		}
+		if err := reg.Save(); err != nil {
+			return workspaceDeletedMsg{err: err}
+		}
+		return workspaceDeletedMsg{name: name}
+	}
 }
 
 // profilesFor returns the profile names the create form should offer for a
@@ -716,15 +855,15 @@ func (m Model) deleteCmd(s *registry.Session) tea.Cmd {
 }
 
 // refresh re-reads the most-recently-used workspaces and clamps the cursor. It
-// preserves the active workspace by id, falling back to the first workspace when
-// the active one has gone away. It returns a command to re-target the preview
-// stream at whatever session ends up selected.
+// preserves the active tab by id — a workspace or the synthetic orphan tab —
+// falling back to the first tab when the active one has gone away. It returns a
+// command to re-target the preview stream at whatever session ends up selected.
 func (m *Model) refresh() tea.Cmd {
 	m.workspaces = m.reg.ListWorkspaces()
-	if !m.hasWorkspace(m.activeID) {
+	if !m.hasTab(m.activeID) {
 		m.activeID = ""
-		if len(m.workspaces) > 0 {
-			m.activeID = m.workspaces[0].ID
+		if tabs := m.tabList(); len(tabs) > 0 {
+			m.activeID = tabs[0].id
 		}
 		m.cursor = 0
 	}

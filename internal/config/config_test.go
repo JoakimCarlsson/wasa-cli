@@ -38,6 +38,38 @@ func TestLoadAbsentFileYieldsDefaults(t *testing.T) {
 	}
 }
 
+func TestDefaultBindsWorkspaceAdd(t *testing.T) {
+	def := Default()
+	if !reflect.DeepEqual(def.Keys[ActionWorkspaceAdd], KeyList{"w"}) {
+		t.Fatalf(
+			"workspace-add default binding = %v, want [w]",
+			def.Keys[ActionWorkspaceAdd],
+		)
+	}
+	if err := def.validate(); err != nil {
+		t.Fatalf("default config with workspace-add does not validate: %v", err)
+	}
+}
+
+func TestDefaultBindsWorkspaceDelete(t *testing.T) {
+	def := Default()
+	if !reflect.DeepEqual(def.Keys[ActionWorkspaceDelete], KeyList{"W"}) {
+		t.Fatalf(
+			"workspace-delete default binding = %v, want [W]",
+			def.Keys[ActionWorkspaceDelete],
+		)
+	}
+	if def.Keys[ActionWorkspaceAdd][0] == def.Keys[ActionWorkspaceDelete][0] {
+		t.Fatal("workspace add and delete share a default key")
+	}
+	if err := def.validate(); err != nil {
+		t.Fatalf(
+			"default config with workspace-delete does not validate: %v",
+			err,
+		)
+	}
+}
+
 func TestLoadPartialThemeKeepsDefaults(t *testing.T) {
 	dir := writeConfig(t, `{"theme":{"accent":"#ff0000"}}`)
 	got, err := Load(dir)

@@ -24,6 +24,7 @@ import (
 
 	"github.com/joakimcarlsson/wasa/internal/backend"
 	"github.com/joakimcarlsson/wasa/internal/bootstrap"
+	"github.com/joakimcarlsson/wasa/internal/finish"
 	"github.com/joakimcarlsson/wasa/internal/hook"
 	"github.com/joakimcarlsson/wasa/internal/profile"
 	"github.com/joakimcarlsson/wasa/internal/registry"
@@ -316,4 +317,64 @@ func DeleteSession(reg *registry.Registry, s *registry.Session) error {
 	}
 	reg.RemoveSession(s.ID)
 	return nil
+}
+
+// DeleteWorkspace tears down every session owned by ws and then removes the
+// workspace from reg. Each session is finished with force — its tmux stopped, its
+// worktree removed and its branch deleted, discarding any uncommitted changes —
+// its status file removed and its record dropped; the workspace record is removed
+// last so it never lingers without its sessions. force is used because a bulk
+// delete cannot stop to ask about a single dirty worktree; the caller is expected
+// to have warned the user that uncommitted work is discarded. reg is not saved;
+// the caller saves. It returns the number of sessions torn down. A teardown error
+// stops the cascade and is returned with the count already removed, leaving the
+// remaining sessions and the workspace in place so the caller can retry.
+func DeleteWorkspace(
+	reg *registry.Registry,
+	be backend.SessionBackend,
+	home string,
+	ws *registry.Workspace,
+) (int, error) {
+	var sessions []*registry.Session
+	for _, s := range reg.ListSessions() {
+		if s.WorkspaceID == ws.ID {
+			sessions = append(sessions, s)
+		}
+	}
+
+	ops := finishOps{tmux: be, wt: worktree.New(ws.RepoPath, home, ws.ID)}
+	for i, s := range sessions {
+		if _, err := finish.Session(ops, s, true); err != nil {
+			return i, err
+		}
+		_ = sessionstatus.Remove(home, s.ID)
+		reg.RemoveSession(s.ID)
+	}
+
+	reg.RemoveWorkspace(ws.ID)
+	return len(sessions), nil
+}
+
+// finishOps adapts the session backend and the workspace's worktree manager to
+// the finish.Ops teardown interface, so DeleteWorkspace reuses the same tmux →
+// worktree → branch sequence as `wasa finish` rather than reimplementing it.
+type finishOps struct {
+	tmux backend.SessionBackend
+	wt   *worktree.Manager
+}
+
+func (o finishOps) TmuxAlive(
+	name string,
+) (bool, error) {
+	return o.tmux.Has(name)
+}
+
+func (o finishOps) KillTmux(name string) error { return o.tmux.Kill(name) }
+
+func (o finishOps) RemoveWorktree(path string, force bool) error {
+	return o.wt.Remove(path, force)
+}
+
+func (o finishOps) DeleteBranch(branch string) error {
+	return o.wt.DeleteBranch(branch, true)
 }
