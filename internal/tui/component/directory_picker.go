@@ -590,7 +590,7 @@ func (p DirectoryPicker) row(r visRow, current bool, w int) string {
 	var styledLabel string
 	switch {
 	case n.matched:
-		styledLabel = highlight(p.theme, label, n.positions)
+		styledLabel = Highlight(p.theme, label, n.positions)
 	case n.isRepo:
 		styledLabel = p.theme.FocusedLabelStyle.Render(label)
 	default:
@@ -705,7 +705,7 @@ func collectHits(rootPath, query string) []fhit {
 				continue
 			}
 			full := filepath.Join(dir, name)
-			if _, pos, ok := fuzzyScore(query, name); ok {
+			if _, pos, ok := FuzzyScore(query, name); ok {
 				hits = append(hits, fhit{path: full, positions: pos})
 			}
 			if depth < maxFilterDepth {

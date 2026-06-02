@@ -30,11 +30,11 @@ func HomeRel(path, home string) string {
 	return path
 }
 
-// fuzzyScore matches query against target as a case-insensitive subsequence,
+// FuzzyScore matches query against target as a case-insensitive subsequence,
 // returning the match score, the byte positions in target that matched, and
 // whether every query character was found in order. Consecutive matches and
 // matches at a word boundary score higher. An empty query matches everything.
-func fuzzyScore(query, target string) (int, []int, bool) {
+func FuzzyScore(query, target string) (int, []int, bool) {
 	if query == "" {
 		return 0, nil, true
 	}
@@ -67,10 +67,10 @@ func isBoundary(b byte) bool {
 	return b == '-' || b == '_' || b == ' ' || b == os.PathSeparator
 }
 
-// highlight styles label rune by rune, accenting the byte offsets listed in
+// Highlight styles label rune by rune, accenting the byte offsets listed in
 // positions and leaving the rest plain, so a fuzzy match reads as the query
 // characters lit up inside the name.
-func highlight(theme theme.Theme, label string, positions []int) string {
+func Highlight(theme theme.Theme, label string, positions []int) string {
 	if len(positions) == 0 {
 		return label
 	}

@@ -154,7 +154,7 @@ func (p *BranchPicker) filter() {
 	}
 	var hits []scored
 	for _, name := range p.all {
-		if score, pos, ok := fuzzyScore(q, name); ok {
+		if score, pos, ok := FuzzyScore(q, name); ok {
 			hits = append(hits, scored{branchMatch{name, pos}, score})
 		}
 	}
@@ -236,6 +236,6 @@ func (p BranchPicker) row(m branchMatch, current bool, w int) string {
 	if current {
 		return p.theme.SelRowTitleStyle.Render(Pad("▌ "+m.name, w))
 	}
-	line := "  " + highlight(p.theme, m.name, m.positions)
+	line := "  " + Highlight(p.theme, m.name, m.positions)
 	return ansi.Truncate(line, w, "…") + "\x1b[0m"
 }
