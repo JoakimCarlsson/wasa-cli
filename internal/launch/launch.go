@@ -18,9 +18,12 @@ package launch
 
 import (
 	"errors"
+	"log"
 	"os"
+	"strconv"
 
 	"github.com/joakimcarlsson/wasa/internal/backend"
+	"github.com/joakimcarlsson/wasa/internal/bootstrap"
 	"github.com/joakimcarlsson/wasa/internal/hook"
 	"github.com/joakimcarlsson/wasa/internal/profile"
 	"github.com/joakimcarlsson/wasa/internal/registry"
@@ -51,8 +54,15 @@ type ops struct {
 	addWorktree func(
 		repoPath, home, workspace, branch string,
 	) (path, baseCommit string, err error)
-	runHook func(h hook.Hook) error
-	spawn   func(name, dir string, env []string, program string) error
+	// applyPaths materializes the profile's declarative bootstrap into the new
+	// worktree: symlinking its LinkPaths and copying its CopyPaths from the
+	// repository. A source that does not exist is skipped, not fatal.
+	applyPaths func(repoPath, worktreePath string, prof registry.Profile) error
+	// allocatePort returns a free local TCP port, used when a profile sets
+	// PortEnv so concurrent sessions do not collide on the same dev port.
+	allocatePort func() (int, error)
+	runHook      func(h hook.Hook) error
+	spawn        func(name, dir string, env []string, program string) error
 	// prepareHooks augments the spawn environment for a session and, for a
 	// hook-emitting agent, installs the lifecycle hook that makes it report
 	// status to wasa. It returns the environment the program is spawned with.
@@ -75,6 +85,20 @@ func defaultOps() ops {
 			}
 			return path, base, nil
 		},
+		applyPaths: func(
+			repoPath, worktreePath string, prof registry.Profile,
+		) error {
+			skipped, err := bootstrap.Apply(
+				repoPath, worktreePath, prof.LinkPaths, prof.CopyPaths,
+			)
+			for _, rel := range skipped {
+				log.Printf(
+					"wasa: worktree bootstrap skipped missing path %q", rel,
+				)
+			}
+			return err
+		},
+		allocatePort: bootstrap.FreePort,
 		runHook: func(h hook.Hook) error {
 			return hook.Run(hook.ShellRunner{}, h)
 		},
@@ -178,6 +202,18 @@ func createWorktreeSession(
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if err := o.applyPaths(ws.RepoPath, worktreePath, prof); err != nil {
+		return nil, err
+	}
+
+	if prof.PortEnv != "" {
+		port, err := o.allocatePort()
+		if err != nil {
+			return nil, err
+		}
+		env = append(env, prof.PortEnv+"="+strconv.Itoa(port))
 	}
 
 	sessionID := registry.NewSessionID()

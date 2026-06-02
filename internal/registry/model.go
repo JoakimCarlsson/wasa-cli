@@ -41,14 +41,27 @@ const (
 // persisted here, never the secret values they contain. AgentConfigDir, when
 // set, overrides the launched program's config/home directory by way of that
 // program's config-dir environment variable, enabling a per-repository account.
-// PostWorktreeHook is a command run after a worktree is created for the session;
-// the field is defined here but its execution lives in a later issue.
+// PostWorktreeHook is a command run after a worktree is created for the session.
+//
+// LinkPaths, CopyPaths and PortEnv are the declarative worktree bootstrap: when
+// a worktree session is created, each LinkPaths entry is symlinked and each
+// CopyPaths entry is copied from the repository into the new worktree (paths
+// relative to the repository root), and when PortEnv is set a free local TCP
+// port is allocated and injected into that environment variable. Link is for
+// large regenerable trees (node_modules, .venv, target) where a symlink avoids
+// a multi-GB copy; copy is for files the session edits independently (.env,
+// .npmrc). They are all opt-in: a profile with none set bootstraps a worktree
+// exactly as before. The PostWorktreeHook remains for anything not expressible
+// declaratively and sees the allocated port in its environment.
 type Profile struct {
 	Name             string            `json:"name"`
 	Env              map[string]string `json:"env,omitempty"`
 	EnvFiles         []string          `json:"envFiles,omitempty"`
 	AgentConfigDir   string            `json:"agentConfigDir,omitempty"`
 	PostWorktreeHook string            `json:"postWorktreeHook,omitempty"`
+	LinkPaths        []string          `json:"linkPaths,omitempty"`
+	CopyPaths        []string          `json:"copyPaths,omitempty"`
+	PortEnv          string            `json:"portEnv,omitempty"`
 }
 
 // Workspace is a per-repository scope. Its ID is content-addressed from the
