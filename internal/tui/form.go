@@ -20,6 +20,7 @@ const (
 	fieldBranch
 	fieldTitle
 	fieldProgram
+	fieldAutonomous
 	fieldProfile
 	fieldCount
 )
@@ -56,6 +57,7 @@ type createForm struct {
 	programs   []string
 	shell      string
 	progIdx    int
+	autonomous bool
 	focus      int
 	err        string
 }
@@ -147,6 +149,14 @@ func (f createForm) update(msg tea.Msg) (createForm, formResult, tea.Cmd) {
 			case fieldProgram:
 				f.cycleProgram(key.String() == "right")
 				return f, formNone, nil
+			case fieldAutonomous:
+				f.toggleAutonomous()
+				return f, formNone, nil
+			}
+		case " ":
+			if f.focus == fieldAutonomous {
+				f.toggleAutonomous()
+				return f, formNone, nil
 			}
 		}
 	}
@@ -208,6 +218,25 @@ func (f *createForm) cycleProgram(forward bool) {
 	f.inputs[fieldProgram].SetValue(f.programs[f.progIdx])
 }
 
+// toggleAutonomous flips the autonomous (skip-permissions) toggle, but only when
+// the selected program has a known autonomous flag — there is nothing to enable
+// for a shell or an unknown program.
+func (f *createForm) toggleAutonomous() {
+	if !f.autonomousEnabled() {
+		return
+	}
+	f.autonomous = !f.autonomous
+}
+
+// autonomousEnabled reports whether the autonomous toggle is usable: only when
+// the program as currently typed maps to a known skip-permissions flag. It reads
+// the live Program field so a free-typed agent name is honoured too.
+func (f createForm) autonomousEnabled() bool {
+	return launch.AutonomousAvailable(
+		strings.TrimSpace(f.inputs[fieldProgram].Value()),
+	)
+}
+
 // dir is the Directory field's current value, trimmed. It seeds the directory
 // browser's starting point when the picker is opened.
 func (f createForm) dir() string {
@@ -243,14 +272,19 @@ func (f *createForm) focusNext() { f.setFocus(f.stepFocus(1)) }
 func (f *createForm) focusPrev() { f.setFocus(f.stepFocus(-1)) }
 
 // stepFocus returns the next focusable field in the given direction, skipping
-// the Branch field when it is disabled so tab never lands on a dead input.
+// the Branch and Autonomous fields when they are disabled so tab never lands on a
+// dead input.
 func (f createForm) stepFocus(dir int) int {
 	i := f.focus
 	for range fieldCount {
 		i = (i + dir + fieldCount) % fieldCount
-		if i != fieldBranch || f.branchEnabled() {
-			return i
+		if i == fieldBranch && !f.branchEnabled() {
+			continue
 		}
+		if i == fieldAutonomous && !f.autonomousEnabled() {
+			continue
+		}
+		return i
 	}
 	return f.focus
 }
@@ -274,9 +308,13 @@ func (f createForm) params() launch.Params {
 	if f.profIdx < len(f.profiles) {
 		prof = f.profiles[f.profIdx]
 	}
+	program := strings.TrimSpace(f.inputs[fieldProgram].Value())
+	if f.autonomous && f.autonomousEnabled() {
+		program = launch.WithAutonomous(program)
+	}
 	p := launch.Params{
 		Title:   strings.TrimSpace(f.inputs[fieldTitle].Value()),
-		Program: strings.TrimSpace(f.inputs[fieldProgram].Value()),
+		Program: program,
 		Profile: prof,
 	}
 	branch := ""
@@ -313,6 +351,11 @@ func (f createForm) view() string {
 	b.WriteString(f.programView())
 	b.WriteString("\n\n")
 
+	b.WriteString(f.label("Autonomous", fieldAutonomous))
+	b.WriteString("\n")
+	b.WriteString(f.autonomousView())
+	b.WriteString("\n\n")
+
 	b.WriteString(f.label("Profile", fieldProfile))
 	b.WriteString("\n")
 	b.WriteString(f.profileView())
@@ -323,7 +366,7 @@ func (f createForm) view() string {
 		b.WriteString("\n\n")
 	}
 	b.WriteString(dimStyle.Render(
-		"tab/↑↓ move · ←/→ choose program/profile · " +
+		"tab/↑↓ move · ←/→/space choose/toggle · " +
 			"ctrl+f browse dir/branch · enter create · esc cancel",
 	))
 	return b.String()
@@ -367,6 +410,21 @@ func (f createForm) programLabel(p string) string {
 		return "shell"
 	}
 	return p
+}
+
+// autonomousView renders the skip-permissions toggle: a checkbox with an inline
+// hint about the consequence when the selected program supports it, or a dim
+// note that it is unavailable for a shell or unknown program.
+func (f createForm) autonomousView() string {
+	if !f.autonomousEnabled() {
+		return dimStyle.Render("  (not available for this program)")
+	}
+	box := "[ ]"
+	if f.autonomous {
+		box = "[x]"
+	}
+	hint := dimStyle.Render(" runs without approval prompts")
+	return "  " + box + " skip permissions" + hint
 }
 
 func (f createForm) profileView() string {
