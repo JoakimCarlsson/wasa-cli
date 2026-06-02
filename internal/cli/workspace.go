@@ -18,7 +18,7 @@ func init() {
 	commands = append(commands,
 		&Command{
 			Name:    "workspace",
-			Summary: "list and resolve per-repository workspaces",
+			Summary: "list, add, remove and resolve per-repository workspaces",
 			Run:     runWorkspace,
 		},
 		&Command{
