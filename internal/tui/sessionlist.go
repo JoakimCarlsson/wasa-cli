@@ -388,19 +388,14 @@ func (m *Model) afterListChange() tea.Cmd {
 // enterPick opens the directory tree browser over the create form. It roots the
 // tree at the parent of whatever the Directory field currently holds — so the
 // browser opens among that directory's siblings with the cursor on it — falling
-// back to $HOME, then the working directory, when the field is empty or names no
-// real directory.
+// back to the working directory (see pickerRoot) when the field is empty or names
+// no real directory.
 func (m Model) enterPick() (tea.Model, tea.Cmd) {
 	sel := m.form.Dir()
-	rootPath := m.osHome
+	rootPath := m.pickerRoot()
 	if sel != "" {
 		if fi, err := os.Stat(sel); err == nil && fi.IsDir() {
 			rootPath = filepath.Dir(sel)
-		}
-	}
-	if rootPath == "" {
-		if cwd, err := os.Getwd(); err == nil {
-			rootPath = cwd
 		}
 	}
 	m.picker = component.NewDirectoryPicker(
@@ -501,6 +496,20 @@ func repoBranches(repoPath string) []string {
 		return nil
 	}
 	return branches
+}
+
+// pickerRoot is the directory the browser opens at when it has no specific seed:
+// the current working directory — where wasa was launched, and the user's most
+// likely starting point — falling back to the OS home when the cwd is
+// unavailable. Rooting at the cwd matters under WSL launched from Windows, where
+// the home directory (e.g. /root) sits in a different subtree from the
+// /mnt/<drive> paths the user's repositories live under: starting at the cwd
+// keeps those repos a few "-" ascents away rather than across the whole tree.
+func (m Model) pickerRoot() string {
+	if cwd, err := os.Getwd(); err == nil && cwd != "" {
+		return cwd
+	}
+	return m.osHome
 }
 
 // pickerWidth sizes the browser box to the terminal, clamped to a comfortable

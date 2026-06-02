@@ -465,18 +465,12 @@ func (m Model) worktreeWorkspace() (*registry.Workspace, error) {
 
 // enterWorkspaceAdd opens the directory browser to register a repository as a
 // workspace tab, without creating a session. Unlike the create-form picker it
-// floats over the cockpit list (modePickWorkspace) and starts unrooted at the
-// user's home — there is no Directory field to seed it from — falling back to
-// the working directory when home is unknown.
+// floats over the cockpit list (modePickWorkspace). It has no Directory field to
+// seed it, so it opens at pickerRoot — the working directory wasa was launched
+// in — from which the user ascends ("-") or filters to the repo to add.
 func (m Model) enterWorkspaceAdd() (tea.Model, tea.Cmd) {
-	rootPath := m.osHome
-	if rootPath == "" {
-		if cwd, err := os.Getwd(); err == nil {
-			rootPath = cwd
-		}
-	}
 	m.picker = component.NewDirectoryPicker(
-		m.theme, rootPath, "", m.osHome, m.recentDirs(),
+		m.theme, m.pickerRoot(), "", m.osHome, m.recentDirs(),
 		m.pickerWidth(), m.pickerHeight(),
 	)
 	m.mode = modePickWorkspace
