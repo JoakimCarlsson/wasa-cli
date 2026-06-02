@@ -266,6 +266,56 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.picker.ApplyFilterResult(msg)
 		}
 		return m, nil
+
+	case modal.ConfirmAcceptedMsg:
+		cmd := m.confirmCmd
+		m.mode = modeList
+		m.confirmCmd = nil
+		return m, cmd
+
+	case modal.ConfirmCancelledMsg:
+		m.mode = modeList
+		m.confirmCmd = nil
+		return m, nil
+
+	case modal.FormSubmitMsg:
+		return m.submitCreate()
+
+	case modal.FormCancelMsg:
+		m.mode = modeList
+		return m, nil
+
+	case modal.FormPickDirMsg:
+		return m.enterPick()
+
+	case modal.FormPickBranchMsg:
+		return m.enterBranchPick()
+
+	case component.DirChosenMsg:
+		m.form.SetDir(msg.Path)
+		m.form.SetProfiles(m.profilesFor(m.form.BranchRepo))
+		m.mode = modeCreate
+		return m, textinput.Blink
+
+	case component.DirCancelledMsg:
+		m.mode = modeCreate
+		return m, textinput.Blink
+
+	case component.BranchChosenMsg:
+		m.form.SetBranch(msg.Branch)
+		m.mode = modeCreate
+		return m, textinput.Blink
+
+	case component.BranchCancelledMsg:
+		m.mode = modeCreate
+		return m, textinput.Blink
+
+	case modal.ConfigApplyMsg:
+		return m.applyConfig(m.editor.Config())
+
+	case modal.ConfigCloseMsg:
+		m.mode = modeList
+		return m, m.preview.SetTarget(m.previewTarget())
 	}
 
 	switch m.mode {
@@ -327,23 +377,15 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, m.afterListChange()
 }
 
+// updateCreate routes input to the create form, re-deriving the profile menu
+// when the chosen directory's repository changes, and forwards the command that
+// carries the form's decision back to the top-level Update.
 func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	prevBranchRepo := m.form.BranchRepo
-	form, result, cmd := m.form.Update(msg)
-	m.form = form
+	var cmd tea.Cmd
+	m.form, cmd = m.form.Update(msg)
 	if m.form.BranchRepo != prevBranchRepo {
 		m.form.SetProfiles(m.profilesFor(m.form.BranchRepo))
-	}
-	switch result {
-	case modal.Cancel:
-		m.mode = modeList
-		return m, nil
-	case modal.PickDir:
-		return m.enterPick()
-	case modal.PickBranch:
-		return m.enterBranchPick()
-	case modal.Submit:
-		return m.submitCreate()
 	}
 	return m, cmd
 }
@@ -498,23 +540,12 @@ func (m Model) enterConfirm(
 	return m, nil
 }
 
-// updateConfirm routes key input for the active confirm modal. Accepting it runs
-// the stored command; cancelling returns to the list with no change.
+// updateConfirm routes key input to the active confirm modal, forwarding the
+// command that carries its decision back to the top-level Update.
 func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
-	dialog, result := m.confirm.Update(msg)
-	m.confirm = dialog
-	switch result {
-	case modal.ConfirmYes:
-		cmd := m.confirmCmd
-		m.mode = modeList
-		m.confirmCmd = nil
-		return m, cmd
-	case modal.ConfirmNo:
-		m.mode = modeList
-		m.confirmCmd = nil
-		return m, nil
-	}
-	return m, nil
+	var cmd tea.Cmd
+	m.confirm, cmd = m.confirm.Update(msg)
+	return m, cmd
 }
 
 // enterConfig opens the in-cockpit settings panel over the session list, seeded
@@ -530,22 +561,11 @@ func (m Model) enterConfig() (tea.Model, tea.Cmd) {
 	return m, textinput.Blink
 }
 
-// updateConfig routes input for the open settings panel. Each committed field
-// (modal.CfgApply) is validated, persisted and applied to the running cockpit in
-// place, so an edit takes effect and survives a restart with no separate save
-// step; a commit that fails validation keeps the panel open with the error.
-// Closing (modal.CfgClose) returns to the list — by then every committed edit is
-// already saved.
+// updateConfig routes input to the open settings panel, forwarding the command
+// that carries its decision (apply or close) back to the top-level Update.
 func (m Model) updateConfig(msg tea.Msg) (tea.Model, tea.Cmd) {
-	editor, result, cmd := m.editor.Update(msg)
-	m.editor = editor
-	switch result {
-	case modal.CfgApply:
-		return m.applyConfig(editor.Config())
-	case modal.CfgClose:
-		m.mode = modeList
-		return m, m.preview.SetTarget(m.previewTarget())
-	}
+	var cmd tea.Cmd
+	m.editor, cmd = m.editor.Update(msg)
 	return m, cmd
 }
 

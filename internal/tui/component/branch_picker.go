@@ -33,9 +33,17 @@ type BranchPicker struct {
 	width   int
 	height  int
 
-	// Chosen is the branch the picker reports when an update returns PickChoose.
+	// Chosen is the branch the picker carried in its last BranchChosenMsg.
 	Chosen string
 }
+
+// BranchChosenMsg is emitted by a BranchPicker when the user picks or types a
+// branch; Branch is that branch.
+type BranchChosenMsg struct{ Branch string }
+
+// BranchCancelledMsg is emitted by a BranchPicker when the user dismisses it
+// without a choice.
+type BranchCancelledMsg struct{}
 
 // NewBranchPicker builds the branch picker over branches, sized to width and
 // height, with an empty filter so the full list shows in incoming order.
@@ -62,42 +70,50 @@ func NewBranchPicker(
 	return p
 }
 
-// Update handles a key message, returning the updated picker, the result it
-// reports to the parent model, and any command to run.
+// Update handles a key message, returning the updated picker and a command. The
+// command emits a BranchChosenMsg when a branch is picked or typed, a
+// BranchCancelledMsg when the picker is dismissed, and is otherwise nil (or the
+// query input's own command on a filter keystroke).
 func (p BranchPicker) Update(
 	msg tea.Msg,
-) (BranchPicker, PickResult, tea.Cmd) {
+) (BranchPicker, tea.Cmd) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
-		return p, PickNone, nil
+		return p, nil
 	}
 
 	switch key.String() {
 	case "esc":
-		return p, PickCancel, nil
+		return p, branchCancelled
 	case "enter":
 		if m := p.selected(); m != nil {
 			p.Chosen = m.name
-			return p, PickChoose, nil
+			return p, branchChosen(m.name)
 		}
 		if q := strings.TrimSpace(p.query.Value()); q != "" {
 			p.Chosen = q
-			return p, PickChoose, nil
+			return p, branchChosen(q)
 		}
-		return p, PickNone, nil
+		return p, nil
 	case "up", "ctrl+p":
 		p.move(-1)
-		return p, PickNone, nil
+		return p, nil
 	case "down", "ctrl+n":
 		p.move(1)
-		return p, PickNone, nil
+		return p, nil
 	}
 
 	var cmd tea.Cmd
 	p.query, cmd = p.query.Update(msg)
 	p.filter()
-	return p, PickNone, cmd
+	return p, cmd
 }
+
+func branchChosen(branch string) tea.Cmd {
+	return func() tea.Msg { return BranchChosenMsg{Branch: branch} }
+}
+
+func branchCancelled() tea.Msg { return BranchCancelledMsg{} }
 
 func (p *BranchPicker) selected() *branchMatch {
 	if p.cursor < 0 || p.cursor >= len(p.matches) {

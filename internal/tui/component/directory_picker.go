@@ -75,18 +75,13 @@ type RecentDir struct {
 	Display string
 }
 
-// PickResult is what a picker update reports back to the parent model: nothing
-// chosen yet, a directory or branch chosen, or the picker cancelled.
-type PickResult int
+// DirChosenMsg is emitted by a DirectoryPicker when the user picks a directory;
+// Path is the chosen directory.
+type DirChosenMsg struct{ Path string }
 
-const (
-	// PickNone reports that the picker has not chosen or cancelled yet.
-	PickNone PickResult = iota
-	// PickChoose reports that the picker chose its Chosen value.
-	PickChoose
-	// PickCancel reports that the picker was dismissed without a choice.
-	PickCancel
-)
+// DirCancelledMsg is emitted by a DirectoryPicker when the user dismisses it
+// without a choice.
+type DirCancelledMsg struct{}
 
 // FilterTickMsg fires after the debounce interval to start a deferred filter
 // walk; gen identifies the keystroke that scheduled it so a superseded tick is
@@ -125,7 +120,7 @@ type DirectoryPicker struct {
 	height int
 	home   string
 
-	// Chosen is the path the picker reports when an update returns PickChoose.
+	// Chosen is the path the picker carried in its last DirChosenMsg.
 	Chosen string
 
 	filtering    bool
@@ -178,38 +173,40 @@ func NewDirectoryPicker(
 	return p
 }
 
-// Update handles a key message, returning the updated picker, the result it
-// reports to the parent model, and any command to run.
-func (p DirectoryPicker) Update(msg tea.Msg) (DirectoryPicker, PickResult, tea.Cmd) {
+// Update handles a key message, returning the updated picker and a command. The
+// command emits a DirChosenMsg when a directory is picked or a DirCancelledMsg
+// when the picker is dismissed; on a query keystroke it carries the debounced
+// filter tick, and otherwise it is nil.
+func (p DirectoryPicker) Update(msg tea.Msg) (DirectoryPicker, tea.Cmd) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
-		return p, PickNone, nil
+		return p, nil
 	}
 
 	switch key.String() {
 	case "esc":
 		if p.query.Value() != "" {
 			p.query.SetValue("")
-			return p, PickNone, p.onQueryChange()
+			return p, p.onQueryChange()
 		}
-		return p, PickCancel, nil
+		return p, dirCancelled
 	case "tab":
 		if len(p.recents) > 0 {
 			p.focus = focusTree + focusRecent - p.focus
 		}
-		return p, PickNone, nil
+		return p, nil
 	case "enter":
 		if path, ok := p.currentPath(); ok {
 			p.Chosen = path
-			return p, PickChoose, nil
+			return p, dirChosen(path)
 		}
-		return p, PickNone, nil
+		return p, nil
 	case "up", "ctrl+p":
 		p.moveCursor(-1)
-		return p, PickNone, nil
+		return p, nil
 	case "down", "ctrl+n":
 		p.moveCursor(1)
-		return p, PickNone, nil
+		return p, nil
 	}
 
 	if p.focus == focusTree {
@@ -217,31 +214,37 @@ func (p DirectoryPicker) Update(msg tea.Msg) (DirectoryPicker, PickResult, tea.C
 		case "right":
 			if !p.filtering {
 				p.toggle()
-				return p, PickNone, nil
+				return p, nil
 			}
 		case "left":
 			if !p.filtering {
 				p.collapseOrParent()
-				return p, PickNone, nil
+				return p, nil
 			}
 		case "-":
 			if !p.filtering {
 				p.ascendRoot()
-				return p, PickNone, nil
+				return p, nil
 			}
 		}
 	} else {
 		switch key.String() {
 		case "left", "right", "-":
-			return p, PickNone, nil
+			return p, nil
 		}
 	}
 
 	p.focus = focusTree
 	var cmd tea.Cmd
 	p.query, cmd = p.query.Update(msg)
-	return p, PickNone, tea.Batch(cmd, p.onQueryChange())
+	return p, tea.Batch(cmd, p.onQueryChange())
 }
+
+func dirChosen(path string) tea.Cmd {
+	return func() tea.Msg { return DirChosenMsg{Path: path} }
+}
+
+func dirCancelled() tea.Msg { return DirCancelledMsg{} }
 
 // onQueryChange reacts to an edited query: it reverts to the browse tree when the
 // query is empty, otherwise bumps the filter generation and schedules a debounced

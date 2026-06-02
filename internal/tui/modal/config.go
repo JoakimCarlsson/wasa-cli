@@ -13,17 +13,16 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/tui/component"
 )
 
-// CfgResult is what a ConfigEditor update reports back to the cockpit.
-type CfgResult int
+// ConfigApplyMsg is emitted by a ConfigEditor when a field is committed; the
+// cockpit persists the working config and applies it live.
+type ConfigApplyMsg struct{}
 
-const (
-	// CfgNone means the editor has nothing to report this update.
-	CfgNone CfgResult = iota
-	// CfgApply means a field was committed; persist it and apply it live.
-	CfgApply
-	// CfgClose means leave the panel.
-	CfgClose
-)
+// ConfigCloseMsg is emitted by a ConfigEditor when the user leaves the panel.
+type ConfigCloseMsg struct{}
+
+func configApply() tea.Msg { return ConfigApplyMsg{} }
+
+func configClose() tea.Msg { return ConfigCloseMsg{} }
 
 // fieldKind selects how a setting is edited: a free-text input for numbers, the
 // RGB slider picker for colours, or the press-to-record capture for key bindings.
@@ -293,8 +292,10 @@ func parseKeys(s string) (config.KeyList, error) {
 }
 
 // Update routes a message into the panel — the field list or the active
-// sub-editor — reporting what the cockpit should do next via CfgResult.
-func (e ConfigEditor) Update(msg tea.Msg) (ConfigEditor, CfgResult, tea.Cmd) {
+// sub-editor — returning the updated editor and a command. The command emits a
+// ConfigApplyMsg when a field is committed or a ConfigCloseMsg when the panel is
+// left, and is otherwise the active sub-editor's own command or nil.
+func (e ConfigEditor) Update(msg tea.Msg) (ConfigEditor, tea.Cmd) {
 	switch e.phase {
 	case editText:
 		return e.updateText(msg)
@@ -310,14 +311,14 @@ func (e ConfigEditor) Update(msg tea.Msg) (ConfigEditor, CfgResult, tea.Cmd) {
 // field's editor, save and cancel.
 func (e ConfigEditor) updateList(
 	msg tea.Msg,
-) (ConfigEditor, CfgResult, tea.Cmd) {
+) (ConfigEditor, tea.Cmd) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
-		return e, CfgNone, nil
+		return e, nil
 	}
 	switch key.String() {
 	case "esc", "q":
-		return e, CfgClose, nil
+		return e, configClose
 	case "up", "k":
 		if e.cursor > 0 {
 			e.cursor--
@@ -329,11 +330,11 @@ func (e ConfigEditor) updateList(
 	case "enter":
 		return e.beginEdit()
 	}
-	return e, CfgNone, nil
+	return e, nil
 }
 
 // beginEdit opens the sub-editor for the focused field, chosen by its kind.
-func (e ConfigEditor) beginEdit() (ConfigEditor, CfgResult, tea.Cmd) {
+func (e ConfigEditor) beginEdit() (ConfigEditor, tea.Cmd) {
 	f := e.fields[e.cursor]
 	e.err = ""
 	switch f.kind {
@@ -341,11 +342,11 @@ func (e ConfigEditor) beginEdit() (ConfigEditor, CfgResult, tea.Cmd) {
 		col, _ := parseColor(f.get(e.working))
 		e.color = newColorEditor(e.theme, col)
 		e.phase = editColor
-		return e, CfgNone, nil
+		return e, nil
 	case kindKeys:
 		e.record = newRecordEditor(e.theme, f.label, e.working)
 		e.phase = editKeys
-		return e, CfgNone, nil
+		return e, nil
 	default:
 		e.input = textinput.New()
 		e.input.CharLimit = 200
@@ -353,13 +354,13 @@ func (e ConfigEditor) beginEdit() (ConfigEditor, CfgResult, tea.Cmd) {
 		e.input.CursorEnd()
 		e.input.Focus()
 		e.phase = editText
-		return e, CfgNone, textinput.Blink
+		return e, textinput.Blink
 	}
 }
 
 func (e ConfigEditor) updateText(
 	msg tea.Msg,
-) (ConfigEditor, CfgResult, tea.Cmd) {
+) (ConfigEditor, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.String() {
 		case "enter":
@@ -367,20 +368,20 @@ func (e ConfigEditor) updateText(
 		case "esc":
 			e.phase = editNone
 			e.err = ""
-			return e, CfgNone, nil
+			return e, nil
 		}
 	}
 	var cmd tea.Cmd
 	e.input, cmd = e.input.Update(msg)
-	return e, CfgNone, cmd
+	return e, cmd
 }
 
 func (e ConfigEditor) updateColor(
 	msg tea.Msg,
-) (ConfigEditor, CfgResult, tea.Cmd) {
+) (ConfigEditor, tea.Cmd) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
-		return e, CfgNone, nil
+		return e, nil
 	}
 	switch key.String() {
 	case "enter":
@@ -388,18 +389,18 @@ func (e ConfigEditor) updateColor(
 	case "esc":
 		e.phase = editNone
 		e.err = ""
-		return e, CfgNone, nil
+		return e, nil
 	}
 	e.color = e.color.update(key)
-	return e, CfgNone, nil
+	return e, nil
 }
 
 func (e ConfigEditor) updateKeys(
 	msg tea.Msg,
-) (ConfigEditor, CfgResult, tea.Cmd) {
+) (ConfigEditor, tea.Cmd) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
-		return e, CfgNone, nil
+		return e, nil
 	}
 	switch key.String() {
 	case "enter":
@@ -407,25 +408,26 @@ func (e ConfigEditor) updateKeys(
 	case "esc":
 		e.phase = editNone
 		e.err = ""
-		return e, CfgNone, nil
+		return e, nil
 	case "backspace", "ctrl+h":
 		e.record = e.record.removeLast()
-		return e, CfgNone, nil
+		return e, nil
 	}
 	e.record = e.record.add(key.String())
-	return e, CfgNone, nil
+	return e, nil
 }
 
 // commit parses value into the focused field's setter. A parse error keeps the
-// sub-editor open with the message; success returns to the field list.
-func (e ConfigEditor) commit(value string) (ConfigEditor, CfgResult, tea.Cmd) {
+// sub-editor open with the message; success returns to the field list and emits
+// a ConfigApplyMsg so the cockpit persists and applies the edit.
+func (e ConfigEditor) commit(value string) (ConfigEditor, tea.Cmd) {
 	if err := e.fields[e.cursor].set(&e.working, value); err != nil {
 		e.err = err.Error()
-		return e, CfgNone, nil
+		return e, nil
 	}
 	e.phase = editNone
 	e.err = ""
-	return e, CfgApply, nil
+	return e, configApply
 }
 
 // Config returns the editor's working configuration, for the cockpit to persist

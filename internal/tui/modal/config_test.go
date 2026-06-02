@@ -54,15 +54,15 @@ func TestEditorRecordKeyCommitsOnApply(t *testing.T) {
 		t.Fatal("new key field not found")
 	}
 
-	e, _, _ = e.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	e, _ = e.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if e.phase != editKeys {
 		t.Fatal("enter did not open the key recorder")
 	}
-	e, _, _ = e.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	e, _ = e.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 
-	e, result, _ := e.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if result != CfgApply {
-		t.Fatalf("commit result = %v, want apply", result)
+	e, cmd := e.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !emits[ConfigApplyMsg](cmd) {
+		t.Fatal("commit did not emit ConfigApplyMsg")
 	}
 	if e.phase != editNone {
 		t.Fatal("commit did not leave the recorder")
@@ -77,17 +77,17 @@ func TestEditorColorSliderAdjustsAndCommits(t *testing.T) {
 	e := NewConfigEditor(testTheme(), config.Default(), 60, 20)
 	e.cursor = fieldIndex(e, "Theme", "accent")
 
-	e, _, _ = e.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	e, _ = e.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if e.phase != editColor {
 		t.Fatal("enter did not open the colour picker")
 	}
 	before := e.color.value()
-	e, _, _ = e.Update(tea.KeyMsg{Type: tea.KeyRight})
+	e, _ = e.Update(tea.KeyMsg{Type: tea.KeyRight})
 	if e.color.value() == before {
 		t.Fatal("right arrow did not adjust the channel")
 	}
 
-	e, _, _ = e.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	e, _ = e.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if e.phase != editNone {
 		t.Fatal("commit did not leave the colour picker")
 	}
@@ -100,9 +100,9 @@ func TestEditorInvalidLayoutKeepsEditing(t *testing.T) {
 	e := NewConfigEditor(testTheme(), config.Default(), 60, 20)
 	e.cursor = fieldIndex(e, "Layout", "listColFrac")
 
-	e, _, _ = e.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	e, _ = e.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	e.input.SetValue("not-a-number")
-	e, _, _ = e.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	e, _ = e.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
 	if e.phase != editText {
 		t.Fatal("invalid commit should keep editing")

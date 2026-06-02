@@ -27,7 +27,7 @@ func TestBranchPickerFilters(t *testing.T) {
 		14,
 	)
 
-	p, _, _ = p.Update(keyRunes("logi"))
+	p, _ = p.Update(keyRunes("logi"))
 
 	if len(p.matches) != 1 || p.matches[0].name != "feature/login" {
 		t.Fatalf("matches = %v, want only feature/login", p.matches)
@@ -37,11 +37,15 @@ func TestBranchPickerFilters(t *testing.T) {
 func TestBranchPickerChoosesSelected(t *testing.T) {
 	p := NewBranchPicker(testTheme(), []string{"main", "develop"}, 60, 14)
 
-	p, _, _ = p.Update(keyDown()) // onto develop
-	p, result, _ := p.Update(keyEnter())
+	p, _ = p.Update(keyDown()) // onto develop
+	p, cmd := p.Update(keyEnter())
 
-	if result != PickChoose {
-		t.Fatalf("result = %v, want PickChoose", result)
+	msg, ok := runCmd(cmd).(BranchChosenMsg)
+	if !ok {
+		t.Fatalf("enter emitted %T, want BranchChosenMsg", runCmd(cmd))
+	}
+	if msg.Branch != "develop" {
+		t.Errorf("chosen branch = %q, want develop", msg.Branch)
 	}
 	if p.Chosen != "develop" {
 		t.Errorf("chosen = %q, want develop", p.Chosen)
@@ -53,14 +57,18 @@ func TestBranchPickerChoosesSelected(t *testing.T) {
 func TestBranchPickerCreatesTypedBranch(t *testing.T) {
 	p := NewBranchPicker(testTheme(), []string{"main"}, 60, 14)
 
-	p, _, _ = p.Update(keyRunes("feature/new"))
+	p, _ = p.Update(keyRunes("feature/new"))
 	if len(p.matches) != 0 {
 		t.Fatalf("expected no matches for a novel name, got %v", p.matches)
 	}
-	p, result, _ := p.Update(keyEnter())
+	p, cmd := p.Update(keyEnter())
 
-	if result != PickChoose {
-		t.Fatalf("result = %v, want PickChoose", result)
+	msg, ok := runCmd(cmd).(BranchChosenMsg)
+	if !ok {
+		t.Fatalf("enter emitted %T, want BranchChosenMsg", runCmd(cmd))
+	}
+	if msg.Branch != "feature/new" {
+		t.Errorf("chosen branch = %q, want the typed feature/new", msg.Branch)
 	}
 	if p.Chosen != "feature/new" {
 		t.Errorf("chosen = %q, want the typed feature/new", p.Chosen)
@@ -69,8 +77,8 @@ func TestBranchPickerCreatesTypedBranch(t *testing.T) {
 
 func TestBranchPickerEscCancels(t *testing.T) {
 	p := NewBranchPicker(testTheme(), []string{"main"}, 60, 14)
-	_, result, _ := p.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	if result != PickCancel {
-		t.Errorf("result = %v, want PickCancel", result)
+	_, cmd := p.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if _, ok := runCmd(cmd).(BranchCancelledMsg); !ok {
+		t.Errorf("esc emitted %T, want BranchCancelledMsg", runCmd(cmd))
 	}
 }

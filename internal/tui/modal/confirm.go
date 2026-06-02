@@ -9,17 +9,13 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/tui/component"
 )
 
-// ConfirmResult is what a ConfirmDialog update reports back to its parent.
-type ConfirmResult int
+// ConfirmAcceptedMsg is emitted by a ConfirmDialog when the user accepts the
+// prompt; the parent runs its stored confirm command in response.
+type ConfirmAcceptedMsg struct{}
 
-const (
-	// ConfirmNone means the dialog has nothing to report this update.
-	ConfirmNone ConfirmResult = iota
-	// ConfirmYes means the user accepted the prompt.
-	ConfirmYes
-	// ConfirmNo means the user declined or dismissed the prompt.
-	ConfirmNo
-)
+// ConfirmCancelledMsg is emitted by a ConfirmDialog when the user declines or
+// dismisses the prompt; the parent returns to the list with no change.
+type ConfirmCancelledMsg struct{}
 
 // ConfirmDialog is a reusable yes/no modal: a titled, bordered box with a body
 // prompt and two focusable buttons rendered like a web dialog. Left/right (or
@@ -55,29 +51,34 @@ func NewConfirmDialog(
 	}
 }
 
-// Update routes a key message into the dialog, reporting the user's choice via
-// ConfirmResult.
-func (d ConfirmDialog) Update(msg tea.Msg) (ConfirmDialog, ConfirmResult) {
+// Update routes a key message into the dialog, returning the updated dialog and
+// a command that emits ConfirmAcceptedMsg or ConfirmCancelledMsg on the key that
+// settles the choice, or nil otherwise.
+func (d ConfirmDialog) Update(msg tea.Msg) (ConfirmDialog, tea.Cmd) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
-		return d, ConfirmNone
+		return d, nil
 	}
 	switch key.String() {
 	case "left", "right", "tab", "shift+tab", "h", "l":
 		d.onConfirm = !d.onConfirm
-		return d, ConfirmNone
+		return d, nil
 	case "enter":
 		if d.onConfirm {
-			return d, ConfirmYes
+			return d, accepted
 		}
-		return d, ConfirmNo
+		return d, cancelled
 	case "y":
-		return d, ConfirmYes
+		return d, accepted
 	case "n", "esc", "q":
-		return d, ConfirmNo
+		return d, cancelled
 	}
-	return d, ConfirmNone
+	return d, nil
 }
+
+func accepted() tea.Msg { return ConfirmAcceptedMsg{} }
+
+func cancelled() tea.Msg { return ConfirmCancelledMsg{} }
 
 // View renders the dialog box.
 func (d ConfirmDialog) View() string {

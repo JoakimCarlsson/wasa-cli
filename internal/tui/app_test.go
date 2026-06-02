@@ -230,7 +230,11 @@ func TestSubmitEmptyDefaultsToWorkingDir(t *testing.T) {
 	next, _ := m.enterCreate()
 	m = next.(Model)
 
-	next, _ = m.updateCreate(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.updateCreate(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter emitted no form-submit command")
+	}
+	next, _ = next.(Model).Update(cmd())
 	got := next.(Model)
 	if got.mode != modeList {
 		t.Fatalf("submit left mode = %v, want modeList", got.mode)
@@ -380,7 +384,11 @@ func TestConfirmCancelLeavesSessionUnchanged(t *testing.T) {
 		{Type: tea.KeyRunes, Runes: []rune("n")},
 		{Type: tea.KeyRunes, Runes: []rune("q")},
 	} {
-		next, _ := m.updateConfirm(key)
+		next, cmd := m.updateConfirm(key)
+		if cmd == nil {
+			t.Fatalf("cancel key %v emitted no result command", key)
+		}
+		next, _ = next.(Model).Update(cmd())
 		got := next.(Model)
 		if got.mode != modeList {
 			t.Fatalf("cancel key %v did not return to the list", key)
@@ -409,11 +417,18 @@ func TestConfirmDeleteRemovesExitedSession(t *testing.T) {
 		tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")},
 	)
 	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("confirm produced no accept command")
+	}
+
+	// The accept message runs the stored delete command and returns to the list.
+	next, cmd = m.Update(cmd())
+	m = next.(Model)
 	if m.mode != modeList {
 		t.Fatal("confirm did not return to the list")
 	}
 	if cmd == nil {
-		t.Fatal("confirm produced no delete command")
+		t.Fatal("accept did not run the stored delete command")
 	}
 
 	// The exited-session path runs no backend; the command removes the record
@@ -441,6 +456,10 @@ func TestConfirmEnterDefaultsToCancel(t *testing.T) {
 
 	// The cancel button starts focused, so a stray enter must not delete.
 	next, cmd := m.updateConfirm(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter emitted no result command")
+	}
+	next, cmd = next.(Model).Update(cmd())
 	m = next.(Model)
 	if m.mode != modeList {
 		t.Fatal("enter did not close the modal")
@@ -465,9 +484,13 @@ func TestConfirmFocusConfirmThenEnter(t *testing.T) {
 	next, _ = m.updateConfirm(tea.KeyMsg{Type: tea.KeyTab})
 	m = next.(Model)
 	next, cmd := m.updateConfirm(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter on the confirm button emitted no result command")
+	}
+	next, cmd = next.(Model).Update(cmd())
 	m = next.(Model)
 	if cmd == nil {
-		t.Fatal("enter on the confirm button produced no delete command")
+		t.Fatal("accept did not run the stored delete command")
 	}
 	next, _ = m.Update(cmd())
 	m = next.(Model)

@@ -18,6 +18,15 @@ func testTheme() component.Theme {
 	return component.NewTheme(config.Default().Theme)
 }
 
+// emits reports whether cmd runs and yields a message of type T.
+func emits[T tea.Msg](cmd tea.Cmd) bool {
+	if cmd == nil {
+		return false
+	}
+	_, ok := cmd().(T)
+	return ok
+}
+
 // TestFormBranchDisabledWithoutRepo checks that with no directory chosen the
 // Branch field is skipped in tab order and a stray branch value is ignored, so a
 // plain session is produced.
@@ -211,13 +220,13 @@ func TestFormCtrlFRoutesByField(t *testing.T) {
 	f := NewCreateForm(testTheme(), nil)
 	ctrlF := tea.KeyMsg{Type: tea.KeyCtrlF}
 
-	if _, result, _ := f.Update(ctrlF); result != PickDir {
-		t.Errorf("on Directory, ctrl+f result = %v, want PickDir", result)
+	if _, cmd := f.Update(ctrlF); !emits[FormPickDirMsg](cmd) {
+		t.Errorf("on Directory, ctrl+f did not emit FormPickDirMsg")
 	}
 
 	f.SetDir(repo)
 	f.setFocus(fieldBranch)
-	if _, result, _ := f.Update(ctrlF); result != PickBranch {
-		t.Errorf("on Branch, ctrl+f result = %v, want PickBranch", result)
+	if _, cmd := f.Update(ctrlF); !emits[FormPickBranchMsg](cmd) {
+		t.Errorf("on Branch, ctrl+f did not emit FormPickBranchMsg")
 	}
 }

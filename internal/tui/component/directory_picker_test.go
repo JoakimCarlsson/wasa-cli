@@ -106,6 +106,14 @@ func keyDown() tea.KeyMsg  { return tea.KeyMsg{Type: tea.KeyDown} }
 func keyRight() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRight} }
 func keyEnter() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyEnter} }
 
+// runCmd runs cmd and returns its message, or nil when cmd is nil.
+func runCmd(cmd tea.Cmd) tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	return cmd()
+}
+
 // runFilter drives the picker's debounced async filter to completion: it runs
 // the deferred walk for the current generation and applies the result, the same
 // sequence the model performs in response to the tick and result messages.
@@ -127,8 +135,8 @@ func TestDirPickerExpandRevealsChildren(t *testing.T) {
 	root := pickerTree(t)
 	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
 
-	p, _, _ = p.Update(keyDown())  // onto alpha
-	p, _, _ = p.Update(keyRight()) // expand alpha
+	p, _ = p.Update(keyDown())  // onto alpha
+	p, _ = p.Update(keyRight()) // expand alpha
 
 	want := filepath.Join(root, "alpha", "nested")
 	found := false
@@ -150,10 +158,10 @@ func TestDirPickerCollapse(t *testing.T) {
 	root := pickerTree(t)
 	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
 
-	p, _, _ = p.Update(keyDown())  // alpha
-	p, _, _ = p.Update(keyRight()) // expand
+	p, _ = p.Update(keyDown())  // alpha
+	p, _ = p.Update(keyRight()) // expand
 	expanded := len(p.visible)
-	p, _, _ = p.Update(keyRight()) // collapse
+	p, _ = p.Update(keyRight()) // collapse
 
 	if len(p.visible) >= expanded {
 		t.Errorf(
@@ -168,13 +176,18 @@ func TestDirPickerChooseReportsPath(t *testing.T) {
 	root := pickerTree(t)
 	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
 
-	p, _, _ = p.Update(keyDown()) // alpha
-	p, result, _ := p.Update(keyEnter())
+	p, _ = p.Update(keyDown()) // alpha
+	p, cmd := p.Update(keyEnter())
 
-	if result != PickChoose {
-		t.Fatalf("result = %v, want PickChoose", result)
+	want := filepath.Join(root, "alpha")
+	msg, ok := runCmd(cmd).(DirChosenMsg)
+	if !ok {
+		t.Fatalf("enter emitted %T, want DirChosenMsg", runCmd(cmd))
 	}
-	if want := filepath.Join(root, "alpha"); p.Chosen != want {
+	if msg.Path != want {
+		t.Errorf("chosen path = %q, want %q", msg.Path, want)
+	}
+	if p.Chosen != want {
 		t.Errorf("chosen = %q, want %q", p.Chosen, want)
 	}
 }
@@ -184,7 +197,7 @@ func TestDirPickerAscendRoot(t *testing.T) {
 	child := filepath.Join(root, "alpha")
 	p := NewDirectoryPicker(testTheme(), child, "", child, nil, 60, 14)
 
-	p, _, _ = p.Update(keyRunes("-"))
+	p, _ = p.Update(keyRunes("-"))
 
 	if p.root.path != root {
 		t.Fatalf("root = %q, want %q", p.root.path, root)
@@ -204,7 +217,7 @@ func TestDirPickerFilterFindsNested(t *testing.T) {
 	root := pickerTree(t)
 	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
 
-	p, _, _ = p.Update(keyRunes("nested"))
+	p, _ = p.Update(keyRunes("nested"))
 
 	if !p.filtering {
 		t.Fatal("expected picker to be filtering")
@@ -239,11 +252,11 @@ func TestDirPickerFilterEscClears(t *testing.T) {
 	root := pickerTree(t)
 	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
 
-	p, _, _ = p.Update(keyRunes("beta"))
-	p, result, _ := p.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	p, _ = p.Update(keyRunes("beta"))
+	p, cmd := p.Update(tea.KeyMsg{Type: tea.KeyEsc})
 
-	if result != PickNone {
-		t.Fatalf("first esc result = %v, want PickNone (clear)", result)
+	if _, ok := runCmd(cmd).(DirCancelledMsg); ok {
+		t.Fatal("first esc cancelled instead of clearing the filter")
 	}
 	if p.filtering {
 		t.Errorf("filter should be cleared after esc")
@@ -253,9 +266,9 @@ func TestDirPickerFilterEscClears(t *testing.T) {
 func TestDirPickerEscCancels(t *testing.T) {
 	root := pickerTree(t)
 	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
-	_, result, _ := p.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	if result != PickCancel {
-		t.Errorf("result = %v, want PickCancel", result)
+	_, cmd := p.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if _, ok := runCmd(cmd).(DirCancelledMsg); !ok {
+		t.Errorf("esc emitted %T, want DirCancelledMsg", runCmd(cmd))
 	}
 }
 

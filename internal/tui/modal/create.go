@@ -1,7 +1,8 @@
 // Package modal holds the cockpit's full-screen modal screens: the create form,
 // the yes/no confirm dialog and the in-cockpit settings editor. Each owns only
 // its presentation, focus and result reporting; the root tui package constructs
-// them, routes input, and acts on the exported result enums. The package may
+// them, routes input, and acts on the exported result messages each emits. The
+// package may
 // build on internal/tui/component but never imports the root tui package nor
 // internal/tui/pane.
 package modal
@@ -32,21 +33,28 @@ const (
 	fieldCount
 )
 
-// Result is what a form update reports back to the parent model.
-type Result int
+// FormSubmitMsg is emitted when the user accepts the create form; the parent
+// builds the session.
+type FormSubmitMsg struct{}
 
-const (
-	// None means the form has nothing to report this update.
-	None Result = iota
-	// Submit means the user accepted the form; build the session.
-	Submit
-	// Cancel means the user dismissed the form.
-	Cancel
-	// PickDir means open the directory browser over the form.
-	PickDir
-	// PickBranch means open the branch picker over the form.
-	PickBranch
-)
+// FormCancelMsg is emitted when the user dismisses the create form.
+type FormCancelMsg struct{}
+
+// FormPickDirMsg is emitted when the user opens the directory browser over the
+// form.
+type FormPickDirMsg struct{}
+
+// FormPickBranchMsg is emitted when the user opens the branch picker over the
+// form.
+type FormPickBranchMsg struct{}
+
+func formSubmit() tea.Msg { return FormSubmitMsg{} }
+
+func formCancel() tea.Msg { return FormCancelMsg{} }
+
+func formPickDir() tea.Msg { return FormPickDirMsg{} }
+
+func formPickBranch() tea.Msg { return FormPickBranchMsg{} }
 
 // CreateForm collects the inputs for a new session. The two session shapes share
 // one form: leaving Branch empty creates a plain session that runs in the
@@ -134,47 +142,48 @@ func branchRepoFor(dir string) string {
 	return top
 }
 
-// Update routes a message into the form and reports what the parent should do
-// next via Result.
-func (f CreateForm) Update(msg tea.Msg) (CreateForm, Result, tea.Cmd) {
+// Update routes a message into the form, returning the updated form and a
+// command that emits a FormSubmitMsg, FormCancelMsg, FormPickDirMsg or
+// FormPickBranchMsg on the key that triggers it, or nil otherwise.
+func (f CreateForm) Update(msg tea.Msg) (CreateForm, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.String() {
 		case "esc":
-			return f, Cancel, nil
+			return f, formCancel
 		case "ctrl+f":
 			switch f.focus {
 			case fieldDir:
-				return f, PickDir, nil
+				return f, formPickDir
 			case fieldBranch:
 				if f.BranchEnabled() {
-					return f, PickBranch, nil
+					return f, formPickBranch
 				}
 			}
-			return f, None, nil
+			return f, nil
 		case "enter":
-			return f, Submit, nil
+			return f, formSubmit
 		case "tab", "down":
 			f.focusNext()
-			return f, None, nil
+			return f, nil
 		case "shift+tab", "up":
 			f.focusPrev()
-			return f, None, nil
+			return f, nil
 		case "left", "right":
 			switch f.focus {
 			case fieldProfile:
 				f.cycleProfile(key.String() == "right")
-				return f, None, nil
+				return f, nil
 			case fieldProgram:
 				f.cycleProgram(key.String() == "right")
-				return f, None, nil
+				return f, nil
 			case fieldAutonomous:
 				f.toggleAutonomous()
-				return f, None, nil
+				return f, nil
 			}
 		case " ":
 			if f.focus == fieldAutonomous {
 				f.toggleAutonomous()
-				return f, None, nil
+				return f, nil
 			}
 		}
 	}
@@ -185,9 +194,9 @@ func (f CreateForm) Update(msg tea.Msg) (CreateForm, Result, tea.Cmd) {
 		if f.focus == fieldDir {
 			f.SyncBranchRepo()
 		}
-		return f, None, cmd
+		return f, cmd
 	}
-	return f, None, nil
+	return f, nil
 }
 
 // SetProfiles replaces the profile menu with names, the profiles of the

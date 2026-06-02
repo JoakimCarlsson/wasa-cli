@@ -444,22 +444,11 @@ func (m Model) recentDirs() []component.RecentDir {
 	return out
 }
 
-// updatePick routes input for the open directory browser. Choosing a directory
-// writes it into the form's Directory field and returns to the form; cancelling
-// returns to the form unchanged.
+// updatePick routes input to the open directory browser, forwarding the command
+// that carries its decision back to the top-level Update.
 func (m Model) updatePick(msg tea.Msg) (tea.Model, tea.Cmd) {
-	picker, result, cmd := m.picker.Update(msg)
-	m.picker = picker
-	switch result {
-	case component.PickCancel:
-		m.mode = modeCreate
-		return m, textinput.Blink
-	case component.PickChoose:
-		m.form.SetDir(picker.Chosen)
-		m.form.SetProfiles(m.profilesFor(m.form.BranchRepo))
-		m.mode = modeCreate
-		return m, textinput.Blink
-	}
+	var cmd tea.Cmd
+	m.picker, cmd = m.picker.Update(msg)
 	return m, cmd
 }
 
@@ -483,21 +472,11 @@ func (m Model) enterBranchPick() (tea.Model, tea.Cmd) {
 	return m, textinput.Blink
 }
 
-// updateBranchPick routes input for the open branch picker. Choosing or typing a
-// branch writes it into the form's Branch field and returns to the form;
-// cancelling returns unchanged.
+// updateBranchPick routes input to the open branch picker, forwarding the
+// command that carries its decision back to the top-level Update.
 func (m Model) updateBranchPick(msg tea.Msg) (tea.Model, tea.Cmd) {
-	picker, result, cmd := m.branch.Update(msg)
-	m.branch = picker
-	switch result {
-	case component.PickCancel:
-		m.mode = modeCreate
-		return m, textinput.Blink
-	case component.PickChoose:
-		m.form.SetBranch(picker.Chosen)
-		m.mode = modeCreate
-		return m, textinput.Blink
-	}
+	var cmd tea.Cmd
+	m.branch, cmd = m.branch.Update(msg)
 	return m, cmd
 }
 
