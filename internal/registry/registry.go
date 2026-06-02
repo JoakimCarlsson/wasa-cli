@@ -142,6 +142,20 @@ func (r *Registry) RemoveSession(id string) bool {
 	return false
 }
 
+// RemoveWorkspace drops the workspace with id from the registry, returning
+// whether one was removed. It removes only the workspace record; the caller is
+// responsible for first tearing down any sessions that reference it, so it never
+// leaves a session pointing at a workspace that no longer exists.
+func (r *Registry) RemoveWorkspace(id string) bool {
+	for i, w := range r.ws {
+		if w.ID == id {
+			r.ws = slices.Delete(r.ws, i, i+1)
+			return true
+		}
+	}
+	return false
+}
+
 // EnsureWorkspace returns the workspace for the repository identified by its
 // canonical path and remote, registering it with a single default profile when
 // it is not yet known. The boolean reports whether a new workspace was created.

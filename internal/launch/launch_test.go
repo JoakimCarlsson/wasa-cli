@@ -1,6 +1,7 @@
 package launch
 
 import (
+	"os/exec"
 	"slices"
 	"strings"
 	"testing"
@@ -8,6 +9,64 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/hook"
 	"github.com/joakimcarlsson/wasa/internal/registry"
 )
+
+// fakeBackend is a SessionBackend that records the tmux names it was asked to
+// kill and reports every session as not alive, so DeleteWorkspace's teardown of
+// plain (worktree-less, branch-less) sessions runs without a real tmux server.
+type fakeBackend struct{ killed []string }
+
+func (f *fakeBackend) SpawnEnv(string, string, []string, ...string) error {
+	return nil
+}
+func (f *fakeBackend) AttachCmd(string) (*exec.Cmd, error) { return nil, nil }
+func (f *fakeBackend) Capture(string) (string, error)      { return "", nil }
+func (f *fakeBackend) Has(string) (bool, error)            { return false, nil }
+func (f *fakeBackend) List() ([]string, error)             { return nil, nil }
+func (f *fakeBackend) Kill(name string) error {
+	f.killed = append(f.killed, name)
+	return nil
+}
+
+// TestDeleteWorkspaceRemovesSessionsAndWorkspace checks the cascade: every
+// session owned by the target workspace is dropped and the workspace itself is
+// removed, while a second workspace and its session are left untouched. The
+// sessions are plain (no branch, no worktree) so teardown needs no git.
+func TestDeleteWorkspaceRemovesSessionsAndWorkspace(t *testing.T) {
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	ws, _ := reg.EnsureWorkspace("/repo-x", "", "repo-x")
+	other, _ := reg.EnsureWorkspace("/repo-y", "", "repo-y")
+	reg.AddSession(&registry.Session{
+		ID: "p1", WorkspaceID: ws.ID, WorkingDir: "/tmp/a", TmuxName: "wasa_p1",
+	})
+	reg.AddSession(&registry.Session{
+		ID: "p2", WorkspaceID: ws.ID, WorkingDir: "/tmp/b", TmuxName: "wasa_p2",
+	})
+	reg.AddSession(&registry.Session{
+		ID: "k1", WorkspaceID: other.ID, WorkingDir: "/tmp/c",
+		TmuxName: "wasa_k1",
+	})
+
+	n, err := DeleteWorkspace(reg, &fakeBackend{}, t.TempDir(), ws)
+	if err != nil {
+		t.Fatalf("DeleteWorkspace: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("torn down = %d, want 2", n)
+	}
+	if _, ok := reg.Workspace(ws.ID); ok {
+		t.Fatal("workspace still present after delete")
+	}
+	if _, ok := reg.Workspace(other.ID); !ok {
+		t.Fatal("the other workspace was removed too")
+	}
+	sessions := reg.ListSessions()
+	if len(sessions) != 1 || sessions[0].ID != "k1" {
+		t.Fatalf("remaining sessions = %+v, want only k1", sessions)
+	}
+}
 
 // recordingOps records what the create flow invokes so a test can assert which
 // side effects ran. addWorktree and runHook fail loudly by default: a plain

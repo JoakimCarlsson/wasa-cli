@@ -45,6 +45,9 @@ func (m Model) View() string {
 	}
 
 	base := m.listView()
+	if m.mode == modePickWorkspace {
+		return component.Modal(m.picker.View(), base)
+	}
 	if m.mode == modeConfirm {
 		return component.Modal(m.confirm.View(), base)
 	}
@@ -116,7 +119,7 @@ func (m Model) tabBar() string {
 
 func (m Model) sessionList(paneW int) string {
 	if len(m.workspaces) == 0 {
-		return noWorkspaceBanner(m.theme)
+		return noWorkspaceBanner(m.theme, m.menuKey(config.ActionWorkspaceAdd))
 	}
 
 	ss := m.sessions()
@@ -254,6 +257,8 @@ func (m Model) menuBar() string {
 		{m.menuKey(config.ActionKill), "kill"},
 		{m.menuKey(config.ActionDelete), "delete"},
 		{m.menuKey(config.ActionFilter), "filter"},
+		{m.menuKey(config.ActionWorkspaceAdd), "+ws"},
+		{m.menuKey(config.ActionWorkspaceDelete), "-ws"},
 		{m.menuKey(config.ActionTabNext), "tabs"},
 		{m.menuKey(config.ActionPaneTab), "panes"},
 		{
@@ -345,11 +350,11 @@ func statusDot(theme theme.Theme, s sessionstatus.Status) string {
 	}
 }
 
-func noWorkspaceBanner(theme theme.Theme) string {
+func noWorkspaceBanner(theme theme.Theme, addKey string) string {
 	return theme.BannerStyle.Render("No workspaces yet.") + "\n\n" +
 		theme.DimStyle.Render(
 			"Press n to start a plain session here.\n\n"+
-				"Or add a repo with\nwasa workspace add <path>\n"+
+				"Press "+addKey+" to add a git repo as a workspace,\n"+
 				"or run wasa inside a git repo.",
 		)
 }

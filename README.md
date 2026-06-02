@@ -60,8 +60,9 @@ Run `wasa` with no arguments to open the interactive cockpit (TUI):
 wasa
 ```
 
-From the cockpit you can browse workspaces, create sessions, and attach to running
-agents. The same operations are available as subcommands for scripting:
+From the cockpit you can browse workspaces, add a git repository as a workspace,
+create sessions, and attach to running agents. The same operations are available
+as subcommands for scripting:
 
 | Command     | Description                                                       |
 | ----------- | ----------------------------------------------------------------- |

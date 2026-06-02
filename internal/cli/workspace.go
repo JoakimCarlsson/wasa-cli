@@ -29,7 +29,7 @@ func init() {
 	)
 }
 
-const workspaceUsage = "usage: wasa workspace <list|current|profiles|add>"
+const workspaceUsage = "usage: wasa workspace <list|current|profiles|add|remove>"
 
 func runWorkspace(args []string) error {
 	if len(args) == 0 {
@@ -46,6 +46,8 @@ func runWorkspace(args []string) error {
 		return workspaceProfiles(rest)
 	case "add":
 		return workspaceAdd(rest)
+	case "remove":
+		return workspaceRemove(rest)
 	default:
 		return fmt.Errorf(
 			"unknown workspace subcommand %q\n%s",
@@ -129,6 +131,104 @@ func addWorkspace(
 
 	ws, created := registerRepo(reg, repoPath, remoteURL)
 	return ws, created, nil
+}
+
+const workspaceRemoveHelp = `usage: wasa workspace remove <path|id>
+
+Remove a workspace from wasa, identified by its repository <path> or its
+workspace id (a unique id prefix also works); see "wasa workspace list".
+
+This cascades: every session the workspace owns is torn down first — its tmux is
+stopped, its worktree is removed and its branch is force-deleted — exactly as
+"wasa finish --force" would do, discarding any uncommitted or unmerged work on
+those branches. The workspace is then dropped from the registry.
+
+The repository on disk is never touched: removing a workspace only makes wasa
+forget it. Re-add it any time with "wasa workspace add <path>".
+`
+
+func workspaceRemove(args []string) error {
+	fs := newFlagSet("wasa workspace remove")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Fprint(os.Stdout, workspaceRemoveHelp)
+			return nil
+		}
+		return err
+	}
+
+	rest := fs.Args()
+	if len(rest) != 1 {
+		return errors.New("usage: wasa workspace remove <path|id>")
+	}
+
+	reg, err := registry.Open(wasaHome())
+	if err != nil {
+		return err
+	}
+
+	ws, err := resolveWorkspace(reg, rest[0])
+	if err != nil {
+		return err
+	}
+
+	n, err := launch.DeleteWorkspace(reg, backend.Default(), wasaHome(), ws)
+	if err != nil {
+		return fmt.Errorf("tear down workspace %s: %w", ws.Name, err)
+	}
+	if err := reg.Save(); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(
+		os.Stdout,
+		"removed workspace %s (%d session(s) torn down)\n",
+		ws.Name,
+		n,
+	)
+	return nil
+}
+
+// resolveWorkspace finds the workspace referenced by query, matched first as an
+// exact workspace id, then as a repository path (resolved to its workspace id),
+// then as a unique id prefix. It errors when nothing matches and when an id
+// prefix is ambiguous, rather than guessing. Unlike workspaceForDir it never
+// registers: a path that is not already a workspace is reported as no match.
+func resolveWorkspace(
+	reg *registry.Registry,
+	query string,
+) (*registry.Workspace, error) {
+	if query == "" {
+		return nil, errors.New("a workspace path or id is required")
+	}
+	if w, ok := reg.Workspace(query); ok {
+		return w, nil
+	}
+	if repoPath, remoteURL, err := resolveRepo(query); err == nil {
+		if w, ok := reg.Workspace(
+			registry.WorkspaceID(repoPath, remoteURL),
+		); ok {
+			return w, nil
+		}
+	}
+
+	var matches []*registry.Workspace
+	for _, w := range reg.ListWorkspaces() {
+		if strings.HasPrefix(w.ID, query) {
+			matches = append(matches, w)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return nil, fmt.Errorf("no workspace matches %q", query)
+	case 1:
+		return matches[0], nil
+	default:
+		return nil, fmt.Errorf(
+			"%q is ambiguous: %d workspaces match; use a full id",
+			query, len(matches),
+		)
+	}
 }
 
 func workspaceList(args []string) error {

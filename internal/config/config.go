@@ -139,18 +139,20 @@ type Keys map[string]KeyList
 // Action names. These are the stable identifiers a user writes under the "keys"
 // section of the config file.
 const (
-	ActionNew        = "new"
-	ActionAttach     = "attach"
-	ActionKill       = "kill"
-	ActionDelete     = "delete"
-	ActionTabNext    = "tab-next"
-	ActionTabPrev    = "tab-prev"
-	ActionPaneTab    = "pane-tab"
-	ActionCursorUp   = "cursor-up"
-	ActionCursorDown = "cursor-down"
-	ActionFilter     = "filter"
-	ActionConfig     = "config"
-	ActionQuit       = "quit"
+	ActionNew             = "new"
+	ActionAttach          = "attach"
+	ActionKill            = "kill"
+	ActionDelete          = "delete"
+	ActionTabNext         = "tab-next"
+	ActionTabPrev         = "tab-prev"
+	ActionPaneTab         = "pane-tab"
+	ActionCursorUp        = "cursor-up"
+	ActionCursorDown      = "cursor-down"
+	ActionFilter          = "filter"
+	ActionWorkspaceAdd    = "workspace-add"
+	ActionWorkspaceDelete = "workspace-delete"
+	ActionConfig          = "config"
+	ActionQuit            = "quit"
 )
 
 // modeList is the cockpit's session-list mode. Duplicate-binding detection is
@@ -178,6 +180,8 @@ var defaultBindings = []binding{
 	{ActionCursorUp, modeList, KeyList{"up"}},
 	{ActionCursorDown, modeList, KeyList{"down"}},
 	{ActionFilter, modeList, KeyList{"ctrl+f"}},
+	{ActionWorkspaceAdd, modeList, KeyList{"w"}},
+	{ActionWorkspaceDelete, modeList, KeyList{"W"}},
 	{ActionConfig, modeList, KeyList{","}},
 	{ActionQuit, modeList, KeyList{"q", "ctrl+c"}},
 }

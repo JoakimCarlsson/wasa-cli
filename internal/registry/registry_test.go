@@ -82,6 +82,29 @@ func TestEmptyEnumeration(t *testing.T) {
 	}
 }
 
+func TestRemoveWorkspace(t *testing.T) {
+	reg, _ := newTestRegistry(t)
+
+	a, _ := reg.EnsureWorkspace("/a", "", "a")
+	b, _ := reg.EnsureWorkspace("/b", "", "b")
+
+	if !reg.RemoveWorkspace(a.ID) {
+		t.Fatal("RemoveWorkspace reported false for a present workspace")
+	}
+	if reg.RemoveWorkspace(a.ID) {
+		t.Fatal("RemoveWorkspace reported true for an absent workspace")
+	}
+	if _, ok := reg.Workspace(a.ID); ok {
+		t.Fatal("removed workspace is still resolvable")
+	}
+	if _, ok := reg.Workspace(b.ID); !ok {
+		t.Fatal("RemoveWorkspace removed the wrong workspace")
+	}
+	if got := reg.ListWorkspaces(); len(got) != 1 {
+		t.Fatalf("workspace count = %d, want 1", len(got))
+	}
+}
+
 func TestEnsureWorkspaceRegistersOnce(t *testing.T) {
 	reg, _ := newTestRegistry(t)
 
