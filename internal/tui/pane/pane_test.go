@@ -420,20 +420,46 @@ func TestEnsureDiffCmdGuardsAlreadyLoaded(t *testing.T) {
 	}
 }
 
-// TestColorizeDiffPreservesContent checks the line-by-line pass keeps every
-// line and its order intact. It cannot assert ANSI: lipgloss renders plain
-// under the test runner's no-color profile, so the colours are verified
-// manually.
-func TestColorizeDiffPreservesContent(t *testing.T) {
-	in := "@@ -1 +1 @@\n+added\n-removed\n context"
-	out := colorizeDiff(testTheme(), in)
-	for _, want := range []string{"@@ -1 +1 @@", "added", "removed", " context"} {
+// TestRenderDiffKeepsContentHidesNoise checks the readable renderer keeps the
+// file name, the hunk section context, and every changed/context line's text,
+// while dropping the diff/index/---/+++ metadata the file header bar replaces. It
+// cannot assert ANSI: lipgloss renders plain under the test runner's no-color
+// profile, so the colours and bands are verified manually.
+func TestRenderDiffKeepsContentHidesNoise(t *testing.T) {
+	in := "diff --git a/f.txt b/f.txt\n" +
+		"index 111aaa..222bbb 100644\n" +
+		"--- a/f.txt\n+++ b/f.txt\n" +
+		"@@ -1,2 +1,2 @@ func main()\n line1\n-line2\n+CHANGED\n"
+	out := renderDiff(testTheme(), in, 80)
+
+	for _, want := range []string{
+		"f.txt", "func main()", "line1", "line2", "CHANGED",
+	} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("colorizeDiff dropped %q from:\n%s", want, out)
+			t.Fatalf("renderDiff dropped %q from:\n%s", want, out)
 		}
 	}
-	if got := strings.Count(out, "\n"); got != 3 {
-		t.Fatalf("colorizeDiff changed line count: %d newlines, want 3", got)
+	for _, noise := range []string{"diff --git", "index 111", "--- a/", "+++ b/"} {
+		if strings.Contains(out, noise) {
+			t.Fatalf("renderDiff leaked metadata %q into:\n%s", noise, out)
+		}
+	}
+}
+
+// TestRenderDiffNumbersChangedLines checks the gutter numbers a hunk from its
+// header: the context and removed line carry the old number, the added line the
+// new one.
+func TestRenderDiffNumbersChangedLines(t *testing.T) {
+	in := "diff --git a/f.txt b/f.txt\n@@ -10,2 +20,2 @@\n ctx\n-gone\n+here\n"
+	out := renderDiff(testTheme(), in, 80)
+	for _, want := range []string{"10", "11", "20", "21"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf(
+				"renderDiff gutter missing line number %q in:\n%s",
+				want,
+				out,
+			)
+		}
 	}
 }
 
