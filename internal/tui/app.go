@@ -76,6 +76,7 @@ type Model struct {
 	picker  component.DirectoryPicker
 	branch  component.BranchPicker
 	editor  modal.ConfigEditor
+	filter  filterState
 
 	confirmCmd tea.Cmd
 
@@ -331,6 +332,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.filter.active {
+		return m.updateFilter(msg)
+	}
+
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
@@ -360,6 +365,8 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.cursor < len(m.sessions())-1 {
 			m.cursor++
 		}
+	case config.ActionFilter:
+		return m.enterFilter()
 	case config.ActionNew:
 		return m.enterCreate()
 	case config.ActionAttach:

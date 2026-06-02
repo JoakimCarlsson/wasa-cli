@@ -21,6 +21,17 @@ func Pad(s string, w int) string {
 	return s
 }
 
+// PadAnsi truncates or right-pads an ANSI-styled string to exactly w visible
+// cells, counting only visible width so an embedded colour escape — a fuzzy-match
+// highlight or a status glyph — is never sliced mid-sequence the way the
+// byte-oriented Pad would. A non-positive w returns s unchanged.
+func PadAnsi(s string, w int) string {
+	if w <= 0 {
+		return s
+	}
+	return fitAnsi(s, w)
+}
+
 // fitColumn pads every line to exactly w visible cells and the block to exactly
 // height lines, so columns align when joined horizontally.
 func fitColumn(lines []string, w, height int) []string {

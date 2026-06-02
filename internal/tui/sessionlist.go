@@ -115,19 +115,37 @@ func (m Model) tabBar() string {
 }
 
 func (m Model) sessionList(paneW int) string {
+	if len(m.workspaces) == 0 {
+		return noWorkspaceBanner(m.theme)
+	}
+
 	ss := m.sessions()
+	if m.filter.active {
+		return m.filter.input.View() + "\n\n" + m.filterBody(ss, paneW)
+	}
 	if len(ss) == 0 {
-		if len(m.workspaces) == 0 {
-			return noWorkspaceBanner(m.theme)
-		}
-		ws := m.currentWorkspace()
 		name := ""
-		if ws != nil {
+		if ws := m.currentWorkspace(); ws != nil {
 			name = ws.Name
 		}
 		return noSessionBanner(m.theme, name)
 	}
+	return m.sessionRows(ss, paneW)
+}
 
+// filterBody is the list body while filtering: the matched rows, or a clear
+// "no matches" line when the query narrows the list to nothing — so the pane
+// reads as deliberately empty rather than blank.
+func (m Model) filterBody(ss []*registry.Session, paneW int) string {
+	if len(ss) == 0 {
+		return m.theme.DimStyle.Render("  no matches")
+	}
+	return m.sessionRows(ss, paneW)
+}
+
+// sessionRows renders the session list body: each session as a two-line row,
+// numbered from one in the order shown.
+func (m Model) sessionRows(ss []*registry.Session, paneW int) string {
 	inner := paneW - 2
 	var b strings.Builder
 	for i, s := range ss {
@@ -148,6 +166,7 @@ func (m Model) sessionRow(i int, s *registry.Session, w int) string {
 	}
 
 	title, ref := sessionLabel(s)
+	title, ref = m.highlightMatch(title, ref, selected)
 	rs := m.runtimeStatus(s)
 	prefix := fmt.Sprintf(" %d ", i+1)
 	head := fmt.Sprintf("%s%s %s", prefix, statusDot(m.theme, rs), title)
@@ -157,9 +176,34 @@ func (m Model) sessionRow(i int, s *registry.Session, w int) string {
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
-		titleS.Render(component.Pad(head, w)),
-		descS.Render(component.Pad(sub, w)),
+		titleS.Render(component.PadAnsi(head, w)),
+		descS.Render(component.PadAnsi(sub, w)),
 	)
+}
+
+// highlightMatch lights up the fuzzy-matched characters of a row's title and ref
+// while filtering, mirroring the pickers. It is a no-op when not filtering, when
+// the query carries no fuzzy text, or for the selected row — whose selection band
+// already marks it, the same trade the branch picker makes between the highlight
+// accent and the selection's own styling.
+func (m Model) highlightMatch(
+	title, ref string,
+	selected bool,
+) (string, string) {
+	if !m.filter.active || selected {
+		return title, ref
+	}
+	_, text := parseFilterQuery(m.filter.input.Value())
+	if text == "" {
+		return title, ref
+	}
+	if _, pos, ok := component.FuzzyScore(text, title); ok {
+		title = component.Highlight(m.theme, title, pos)
+	}
+	if _, pos, ok := component.FuzzyScore(text, ref); ok {
+		ref = component.Highlight(m.theme, ref, pos)
+	}
+	return title, ref
 }
 
 // tabbedRightPane renders the right pane through the Tabbed component. The root
@@ -209,6 +253,7 @@ func (m Model) menuBar() string {
 		{m.menuKey(config.ActionAttach), "attach"},
 		{m.menuKey(config.ActionKill), "kill"},
 		{m.menuKey(config.ActionDelete), "delete"},
+		{m.menuKey(config.ActionFilter), "filter"},
 		{m.menuKey(config.ActionTabNext), "tabs"},
 		{m.menuKey(config.ActionPaneTab), "panes"},
 		{
@@ -641,11 +686,32 @@ func (m Model) hasWorkspace(id string) bool {
 	return false
 }
 
-// sessions returns the active workspace's sessions in storage order.
-func (m Model) sessions() []*registry.Session {
+// workspaceSessions returns the active workspace's sessions in storage order,
+// before any filter is applied.
+func (m Model) workspaceSessions() []*registry.Session {
 	var out []*registry.Session
 	for _, s := range m.reg.ListSessions() {
 		if s.WorkspaceID == m.activeID {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// sessions returns the sessions the cockpit list currently shows: the active
+// workspace's sessions, narrowed by the active filter query when filtering. It is
+// the one view every list operation reads through — cursor bounds, selection,
+// preview targeting — so a filter narrows them all at once while leaving the
+// registry untouched.
+func (m Model) sessions() []*registry.Session {
+	ss := m.workspaceSessions()
+	if !m.filter.active {
+		return ss
+	}
+	status, text := parseFilterQuery(m.filter.input.Value())
+	out := make([]*registry.Session, 0, len(ss))
+	for _, s := range ss {
+		if matchesFilter(s, status, text) {
 			out = append(out, s)
 		}
 	}
