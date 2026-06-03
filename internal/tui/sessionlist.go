@@ -129,6 +129,9 @@ func (m Model) sessionList(paneW int) string {
 		return m.filter.input.View() + "\n\n" + m.filterBody(ss, paneW)
 	}
 	if len(ss) == 0 {
+		if m.activeID == "" {
+			return orphanEmptyBanner(m.theme)
+		}
 		name := ""
 		if ws := m.currentWorkspace(); ws != nil {
 			name = ws.Name
@@ -415,6 +418,18 @@ func noWorkspaceBanner(theme theme.Theme, addKey string) string {
 			"Press n to start a plain session here.\n\n"+
 				"Press "+addKey+" to add a git repo as a workspace,\n"+
 				"or run wasa inside a git repo.",
+		)
+}
+
+// orphanEmptyBanner is the empty-state for the permanent "(no workspace)" scratch
+// tab: it names the tab's purpose — a plain session in any folder, owned by no
+// workspace — so an empty scratch tab reads as a deliberate home rather than a
+// stray.
+func orphanEmptyBanner(theme theme.Theme) string {
+	return theme.BannerStyle.Render("No scratch sessions.") + "\n\n" +
+		theme.DimStyle.Render(
+			"Press n to start a plain session in any folder —\n"+
+				"a scratch session that belongs to no workspace.",
 		)
 }
 
@@ -761,15 +776,19 @@ type tabInfo struct {
 }
 
 // tabList is the ordered set of cockpit tabs: one per workspace (most-recently-
-// used first), followed by the synthetic "(no workspace)" tab when any session
-// belongs to no workspace, so those sessions are reachable instead of hidden. It
-// is empty only when there are neither workspaces nor orphan sessions.
+// used first), followed by the synthetic "(no workspace)" scratch tab. That tab
+// is a permanent home for plain sessions that belong to no workspace, so it is
+// always present once there is anything to anchor against — any workspace or any
+// orphan session — giving scratch-session creation a reachable front door even
+// before the first orphan session exists. It is omitted only at the true cold
+// start (no workspaces and no sessions), where the empty-state banner onboards
+// instead, so tabList is empty in exactly that case.
 func (m Model) tabList() []tabInfo {
 	tabs := make([]tabInfo, 0, len(m.workspaces)+1)
 	for _, w := range m.workspaces {
 		tabs = append(tabs, tabInfo{id: w.ID, name: w.Name})
 	}
-	if m.hasOrphanSessions() {
+	if len(m.workspaces) > 0 || m.hasOrphanSessions() {
 		tabs = append(tabs, tabInfo{id: "", name: orphanTabName})
 	}
 	return tabs

@@ -193,6 +193,63 @@ func TestDirPickerChooseReportsPath(t *testing.T) {
 	}
 }
 
+// TestDirPickerNewFolderCreatesAndPicks checks the new-folder sub-mode: pressing
+// "+" on a directory, typing a name and pressing enter makes that directory on
+// disk under the highlighted node and picks it, so a brand-new project folder can
+// be created without leaving the picker.
+func TestDirPickerNewFolderCreatesAndPicks(t *testing.T) {
+	root := pickerTree(t)
+	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
+
+	p, _ = p.Update(keyRunes("+"))
+	if !p.creating {
+		t.Fatal("+ did not enter the new-folder sub-mode")
+	}
+
+	for _, r := range "fresh-thing" {
+		p, _ = p.Update(keyRunes(string(r)))
+	}
+
+	p, cmd := p.Update(keyEnter())
+	want := filepath.Join(root, "fresh-thing")
+	msg, ok := runCmd(cmd).(DirChosenMsg)
+	if !ok {
+		t.Fatalf("enter emitted %T, want DirChosenMsg", runCmd(cmd))
+	}
+	if msg.Path != want {
+		t.Errorf("chosen path = %q, want %q", msg.Path, want)
+	}
+	if info, err := os.Stat(want); err != nil || !info.IsDir() {
+		t.Fatalf("new folder was not created on disk: %v", err)
+	}
+	if p.creating {
+		t.Error("picker stayed in the new-folder sub-mode after creating")
+	}
+}
+
+// TestDirPickerNewFolderEscCancels checks that esc backs out of the new-folder
+// sub-mode without creating anything.
+func TestDirPickerNewFolderEscCancels(t *testing.T) {
+	root := pickerTree(t)
+	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
+
+	p, _ = p.Update(keyRunes("+"))
+	for _, r := range "ghost" {
+		p, _ = p.Update(keyRunes(string(r)))
+	}
+	p, cmd := p.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	if p.creating {
+		t.Fatal("esc did not leave the new-folder sub-mode")
+	}
+	if _, ok := runCmd(cmd).(DirChosenMsg); ok {
+		t.Fatal("esc in the new-folder sub-mode picked a path")
+	}
+	if _, err := os.Stat(filepath.Join(root, "ghost")); err == nil {
+		t.Fatal("esc created the folder anyway")
+	}
+}
+
 func TestDirPickerAscendRoot(t *testing.T) {
 	root := pickerTree(t)
 	child := filepath.Join(root, "alpha")

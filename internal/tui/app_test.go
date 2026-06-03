@@ -151,6 +151,11 @@ func TestCycleTabWraps(t *testing.T) {
 	}
 
 	m.cycleTab(1)
+	if m.activeID != "" {
+		t.Fatalf("activeID = %q, want the orphan scratch tab", m.activeID)
+	}
+
+	m.cycleTab(1)
 	if m.activeID != wsA {
 		t.Fatalf(
 			"cycle past end activeID = %q, want wrap to %q",
@@ -410,7 +415,11 @@ func TestAddWorkspaceIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestAddWorkspaceNonGitErrors(t *testing.T) {
+// TestAddWorkspaceNonGitOffersInit checks that pointing workspace-add at an
+// existing directory that is not a git repository does not error or register
+// anything outright, but opens a confirm that offers to git-init it first. The
+// registry and active tab stay untouched until that confirm is accepted.
+func TestAddWorkspaceNonGitOffersInit(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available on PATH")
 	}
@@ -423,8 +432,14 @@ func TestAddWorkspaceNonGitErrors(t *testing.T) {
 	next, _ := m.addWorkspace(plain)
 	m = next.(Model)
 
-	if m.err == nil {
-		t.Fatal("non-git path did not surface an error")
+	if m.mode != modeConfirm {
+		t.Fatalf("mode = %v, want modeConfirm offering to init", m.mode)
+	}
+	if m.confirmCmd == nil {
+		t.Fatal("non-git add armed no init-confirm command")
+	}
+	if m.err != nil {
+		t.Fatalf("non-git add surfaced an error before confirming: %v", m.err)
 	}
 	if got := len(m.reg.ListWorkspaces()); got != before {
 		t.Fatalf(
@@ -434,7 +449,55 @@ func TestAddWorkspaceNonGitErrors(t *testing.T) {
 		)
 	}
 	if m.activeID != wsA {
-		t.Fatalf("active tab moved on a failed add: %q", m.activeID)
+		t.Fatalf(
+			"active tab moved before the init was confirmed: %q",
+			m.activeID,
+		)
+	}
+}
+
+// TestInitWorkspaceCmdRegistersNonGitDir checks the confirm payload: running the
+// armed command git-inits the chosen non-git directory and registers it as a
+// workspace, so accepting the init-confirm turns a plain folder into a usable
+// workspace.
+func TestInitWorkspaceCmdRegistersNonGitDir(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available on PATH")
+	}
+
+	plain := t.TempDir()
+
+	m, _, _ := testModel(t)
+	before := len(m.reg.ListWorkspaces())
+
+	cmd := m.initWorkspaceCmd(plain)
+	if cmd == nil {
+		t.Fatal("initWorkspaceCmd returned no command")
+	}
+	msg, ok := cmd().(workspaceAddedMsg)
+	if !ok {
+		t.Fatalf("initWorkspaceCmd produced %T, want workspaceAddedMsg", cmd())
+	}
+	if msg.err != nil {
+		t.Fatalf("init+register failed: %v", msg.err)
+	}
+	if !msg.created {
+		t.Fatal("init of a fresh dir did not report a created workspace")
+	}
+
+	repoPath, url, err := repo.Resolve(plain)
+	if err != nil {
+		t.Fatalf("directory was not a git repository after init: %v", err)
+	}
+	wantID := registry.WorkspaceID(repoPath, url)
+	if msg.wsID != wantID {
+		t.Fatalf("workspace id = %q, want %q", msg.wsID, wantID)
+	}
+	if _, ok := m.reg.Workspace(wantID); !ok {
+		t.Fatal("initialized repo was not registered in the registry")
+	}
+	if got := len(m.reg.ListWorkspaces()); got != before+1 {
+		t.Fatalf("workspace count = %d, want %d", got, before+1)
 	}
 }
 
@@ -569,12 +632,43 @@ func TestOrphanTabReachableByCyclingPastWorkspaces(t *testing.T) {
 	}
 }
 
-func TestNoOrphanTabWhenEverySessionHasWorkspace(t *testing.T) {
+// TestOrphanTabIsPermanentWithWorkspaces checks that the "(no workspace)" scratch
+// tab is always present once a workspace exists, even with no orphan sessions, so
+// scratch-session creation has a reachable front door rather than depending on an
+// orphan session already existing.
+func TestOrphanTabIsPermanentWithWorkspaces(t *testing.T) {
 	m, _, _ := testModel(t)
+
+	var orphan bool
 	for _, tab := range m.tabList() {
 		if tab.id == "" {
-			t.Fatal("orphan tab present though every session has a workspace")
+			orphan = true
+			if tab.name != orphanTabName {
+				t.Fatalf(
+					"orphan tab name = %q, want %q",
+					tab.name,
+					orphanTabName,
+				)
+			}
 		}
+	}
+	if !orphan {
+		t.Fatal("orphan scratch tab missing though a workspace exists")
+	}
+}
+
+// TestNoOrphanTabAtColdStart checks that the scratch tab is withheld only at the
+// true cold start — no workspaces and no sessions — where the empty-state banner
+// onboards instead, so an empty registry shows a single guiding screen rather than
+// a lone scratch tab.
+func TestNoOrphanTabAtColdStart(t *testing.T) {
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	m := New(t.TempDir(), reg, "", config.Default())
+	if got := m.tabList(); len(got) != 0 {
+		t.Fatalf("tabList = %+v, want empty at cold start", got)
 	}
 }
 

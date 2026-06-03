@@ -118,6 +118,16 @@ type DirectoryPicker struct {
 	recentCursor int
 	focus        int
 
+	// creating is the new-folder sub-mode: name is the folder-name prompt shown
+	// in place of the filter, createBase is the directory the folder is created
+	// under (the highlighted node when the sub-mode was entered), and createErr
+	// carries a failed mkdir back to the prompt. The sub-mode lets a brand-new
+	// project directory be made without leaving the picker for a shell.
+	creating   bool
+	name       textinput.Model
+	createBase string
+	createErr  string
+
 	width  int
 	height int
 	home   string
@@ -151,6 +161,14 @@ func NewDirectoryPicker(
 		q.Width = width - 4
 	}
 
+	name := textinput.New()
+	name.Prompt = "> "
+	name.Placeholder = "new folder name"
+	name.CharLimit = 200
+	if width > 6 {
+		name.Width = width - 4
+	}
+
 	root := &treeNode{
 		path:     rootPath,
 		name:     filepath.Base(rootPath),
@@ -163,6 +181,7 @@ func NewDirectoryPicker(
 		theme:   theme,
 		root:    root,
 		query:   q,
+		name:    name,
 		recents: recents,
 		home:    home,
 		width:   width,
@@ -183,6 +202,10 @@ func (p DirectoryPicker) Update(msg tea.Msg) (DirectoryPicker, tea.Cmd) {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return p, nil
+	}
+
+	if p.creating {
+		return p.updateCreating(key)
 	}
 
 	switch key.String() {
@@ -228,6 +251,10 @@ func (p DirectoryPicker) Update(msg tea.Msg) (DirectoryPicker, tea.Cmd) {
 				p.ascendRoot()
 				return p, nil
 			}
+		case "+":
+			if !p.filtering {
+				return p.beginCreate(), nil
+			}
 		}
 	} else {
 		switch key.String() {
@@ -240,6 +267,63 @@ func (p DirectoryPicker) Update(msg tea.Msg) (DirectoryPicker, tea.Cmd) {
 	var cmd tea.Cmd
 	p.query, cmd = p.query.Update(msg)
 	return p, tea.Batch(cmd, p.onQueryChange())
+}
+
+// beginCreate enters the new-folder sub-mode, anchoring the folder-to-be under
+// the highlighted tree directory (or the root when nothing is selected) and moving
+// focus to the name prompt. It is reached only from the tree pane, where the
+// selection is always a directory, so createBase is always a valid parent.
+func (p DirectoryPicker) beginCreate() DirectoryPicker {
+	base, ok := p.currentPath()
+	if !ok {
+		base = p.root.path
+	}
+	p.createBase = base
+	p.creating = true
+	p.createErr = ""
+	p.name.SetValue("")
+	p.name.Focus()
+	p.query.Blur()
+	return p
+}
+
+// updateCreating handles a keystroke while the new-folder prompt is open. Enter
+// makes the directory under createBase and picks it (so a brand-new project is
+// created and chosen in one step); esc backs out to browsing; anything else edits
+// the name. A mkdir failure is surfaced on the prompt rather than dismissing it,
+// so a bad name can be corrected in place.
+func (p DirectoryPicker) updateCreating(
+	key tea.KeyMsg,
+) (DirectoryPicker, tea.Cmd) {
+	switch key.String() {
+	case "esc":
+		p.creating = false
+		p.createErr = ""
+		p.name.SetValue("")
+		p.name.Blur()
+		p.query.Focus()
+		return p, nil
+	case "enter":
+		name := strings.TrimSpace(p.name.Value())
+		if name == "" {
+			p.createErr = "name required"
+			return p, nil
+		}
+		full := filepath.Join(p.createBase, name)
+		if err := os.MkdirAll(full, 0o755); err != nil {
+			p.createErr = err.Error()
+			return p, nil
+		}
+		p.creating = false
+		p.createErr = ""
+		p.name.SetValue("")
+		p.name.Blur()
+		p.Chosen = full
+		return p, dirChosen(full)
+	}
+	var cmd tea.Cmd
+	p.name, cmd = p.name.Update(key)
+	return p, cmd
 }
 
 func dirChosen(path string) tea.Cmd {
@@ -467,11 +551,28 @@ func (p DirectoryPicker) View() string {
 	inner := max(p.width, 32)
 	rows := p.rows()
 
-	head := p.theme.TitleStyle.Render("Pick directory") + "\n" + p.query.View()
+	head := p.headView()
 	body := p.bodyView(inner, rows)
 	footer := p.theme.DimStyle.Render(p.footer())
 
 	return p.theme.PickerStyle.Render(head + "\n\n" + body + "\n\n" + footer)
+}
+
+// headView renders the picker's title and input line. While browsing it is the
+// "Pick directory" title over the fuzzy-filter box; in the new-folder sub-mode it
+// becomes a "New folder in <dir>" title over the name prompt, with a failed mkdir
+// shown beneath.
+func (p DirectoryPicker) headView() string {
+	if !p.creating {
+		return p.theme.TitleStyle.Render("Pick directory") + "\n" +
+			p.query.View()
+	}
+	title := "New folder in " + HomeRel(p.createBase, p.home)
+	out := p.theme.TitleStyle.Render(title) + "\n" + p.name.View()
+	if p.createErr != "" {
+		out += "\n" + p.theme.ErrorStyle.Render("  "+p.createErr)
+	}
+	return out
 }
 
 // bodyView lays out the tree pane, and a recent pane beside it when there are
@@ -546,6 +647,8 @@ func (p DirectoryPicker) recentLines(w, rows int) []string {
 
 func (p DirectoryPicker) footer() string {
 	switch {
+	case p.creating:
+		return "type name · ↵ create · esc cancel"
 	case p.pending:
 		return "searching… · ↵ pick · esc clear"
 	case p.filtering:
@@ -553,10 +656,11 @@ func (p DirectoryPicker) footer() string {
 			" matches · ↑↓ move · ↵ pick · esc clear"
 	}
 	if len(p.recents) > 0 {
-		return "type to filter · ↑↓ move · ⇥ pane · → expand · ↵ pick · esc"
+		return "type to filter · ↑↓ move · ⇥ pane · → expand · " +
+			"+ new · ↵ pick · esc"
 	}
 	return "type to filter · ↑↓ move · → expand · ← collapse · " +
-		"- up · ↵ pick · esc"
+		"- up · + new · ↵ pick · esc"
 }
 
 // row renders one tree line: a two-cell gutter (a selection bar when current),
