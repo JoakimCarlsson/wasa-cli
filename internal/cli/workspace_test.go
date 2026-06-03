@@ -38,7 +38,7 @@ func TestAddWorkspaceMatchesAutoRegistration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	wsAdd, created, err := addWorkspace(added, repo)
+	wsAdd, created, err := addWorkspace(added, repo, false)
 	if err != nil {
 		t.Fatalf("addWorkspace: %v", err)
 	}
@@ -87,11 +87,11 @@ func TestAddWorkspaceIsIdempotent(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 
-	first, created, err := addWorkspace(reg, repo)
+	first, created, err := addWorkspace(reg, repo, false)
 	if err != nil || !created {
 		t.Fatalf("first add = (%+v, %v, %v)", first, created, err)
 	}
-	second, created, err := addWorkspace(reg, repo)
+	second, created, err := addWorkspace(reg, repo, false)
 	if err != nil {
 		t.Fatalf("second add: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestAddWorkspaceMissingPath(t *testing.T) {
 	}
 
 	missing := filepath.Join(t.TempDir(), "nope")
-	_, _, err = addWorkspace(reg, missing)
+	_, _, err = addWorkspace(reg, missing, false)
 	if err == nil {
 		t.Fatal("addWorkspace of a missing path returned nil error")
 	}
@@ -142,11 +142,78 @@ func TestAddWorkspaceNonGitPath(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	if _, _, err := addWorkspace(reg, dir); err == nil {
+	if _, _, err := addWorkspace(reg, dir, false); err == nil {
 		t.Fatal("addWorkspace of a non-git directory returned nil error")
 	}
 	if got := reg.ListWorkspaces(); len(got) != 0 {
 		t.Fatalf("non-git path registered a workspace: %+v", got)
+	}
+}
+
+// TestAddWorkspaceInitsNonGitDir checks that with doInit set, an existing
+// directory that is not a git repository is git-initialized and registered rather
+// than rejected, so --init turns a not-yet-versioned project into a workspace.
+func TestAddWorkspaceInitsNonGitDir(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available on PATH")
+	}
+
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	dir := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(dir, "file.txt"), []byte("x"), 0o600,
+	); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	ws, created, err := addWorkspace(reg, dir, true)
+	if err != nil {
+		t.Fatalf("addWorkspace --init: %v", err)
+	}
+	if !created {
+		t.Fatal("init of a non-git dir did not report a created workspace")
+	}
+	if _, _, err := resolveRepo(dir); err != nil {
+		t.Fatalf("directory is not a git repository after --init: %v", err)
+	}
+	if _, ok := reg.Workspace(ws.ID); !ok {
+		t.Fatal("initialized repo was not registered")
+	}
+}
+
+// TestAddWorkspaceInitCreatesMissingPath checks that --init bootstraps a
+// brand-new project from a path that does not exist yet: the directory is created,
+// git-initialized and registered in one step.
+func TestAddWorkspaceInitCreatesMissingPath(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available on PATH")
+	}
+
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	missing := filepath.Join(t.TempDir(), "new-project")
+	ws, created, err := addWorkspace(reg, missing, true)
+	if err != nil {
+		t.Fatalf("addWorkspace --init on a missing path: %v", err)
+	}
+	if !created {
+		t.Fatal("init of a new path did not report a created workspace")
+	}
+	if info, statErr := os.Stat(missing); statErr != nil || !info.IsDir() {
+		t.Fatalf("--init did not create the directory: %v", statErr)
+	}
+	if _, _, err := resolveRepo(missing); err != nil {
+		t.Fatalf("created directory is not a git repository: %v", err)
+	}
+	if _, ok := reg.Workspace(ws.ID); !ok {
+		t.Fatal("bootstrapped repo was not registered")
 	}
 }
 
@@ -230,7 +297,7 @@ func TestResolveWorkspaceByIDPathAndPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	ws, _, err := addWorkspace(reg, repo)
+	ws, _, err := addWorkspace(reg, repo, false)
 	if err != nil {
 		t.Fatalf("addWorkspace: %v", err)
 	}
@@ -267,14 +334,17 @@ func TestWorkspaceRemoveHelpNotesCascadeAndKeepsRepo(t *testing.T) {
 	}
 }
 
-func TestWorkspaceAddHelpNotesDeferral(t *testing.T) {
+// TestWorkspaceAddHelpDocumentsInit checks that the help documents both modes:
+// the default add of an existing repository and the --init bootstrap that creates
+// and git-initializes a new or not-yet-versioned path.
+func TestWorkspaceAddHelpDocumentsInit(t *testing.T) {
 	if err := workspaceAdd([]string{"--help"}); err != nil {
 		t.Fatalf("workspaceAdd --help: %v", err)
 	}
 	lower := strings.ToLower(workspaceAddHelp)
-	if !strings.Contains(lower, "out of scope") {
+	if !strings.Contains(lower, "--init") {
 		t.Fatalf(
-			"help does not note the path-bootstrap deferral:\n%s",
+			"help does not document the --init flag:\n%s",
 			workspaceAddHelp,
 		)
 	}

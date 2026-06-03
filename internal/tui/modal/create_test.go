@@ -31,7 +31,7 @@ func emits[T tea.Msg](cmd tea.Cmd) bool {
 // Branch field is skipped in tab order and a stray branch value is ignored, so a
 // plain session is produced.
 func TestFormBranchDisabledWithoutRepo(t *testing.T) {
-	f := NewCreateForm(testTheme(), nil)
+	f := NewCreateForm(testTheme(), nil, "")
 	if f.BranchEnabled() {
 		t.Fatal("branch should be disabled before a directory is chosen")
 	}
@@ -66,7 +66,7 @@ func TestFormBranchEnabledWithRepo(t *testing.T) {
 	repo := t.TempDir()
 	initRepo(t, repo)
 
-	f := NewCreateForm(testTheme(), nil)
+	f := NewCreateForm(testTheme(), nil, "")
 	f.SetDir(repo)
 	if !f.BranchEnabled() {
 		t.Fatal(
@@ -105,7 +105,7 @@ func TestFormBranchRepoFollowsChosenDirectory(t *testing.T) {
 
 	plain := t.TempDir()
 
-	f := NewCreateForm(testTheme(), nil)
+	f := NewCreateForm(testTheme(), nil, "")
 	if f.BranchEnabled() {
 		t.Fatal("branch should be disabled before a directory is chosen")
 	}
@@ -131,6 +131,83 @@ func TestFormBranchRepoFollowsChosenDirectory(t *testing.T) {
 	}
 }
 
+// TestFormWorkspaceModeDropsDirectory checks that inside a workspace the form
+// has no Directory field: focus starts on Branch, tab never lands on the dropped
+// Directory field, and a plain session runs in the workspace's repository root
+// rather than a picked path.
+func TestFormWorkspaceModeDropsDirectory(t *testing.T) {
+	const repo = "/repos/acme"
+	f := NewCreateForm(testTheme(), []string{"default"}, repo)
+
+	if f.dirEnabled() {
+		t.Fatal("Directory field should be dropped inside a workspace")
+	}
+	if f.focus != fieldBranch {
+		t.Fatalf(
+			"focus = %d on open, want Branch field %d",
+			f.focus,
+			fieldBranch,
+		)
+	}
+
+	f.focusNext()
+	if f.focus == fieldDir {
+		t.Error("tab landed on the dropped Directory field")
+	}
+
+	f.setFocus(fieldProgram)
+	f.focusPrev()
+	if f.focus == fieldDir {
+		t.Error("shift+tab landed on the dropped Directory field")
+	}
+
+	f.inputs[fieldDir].SetValue("/somewhere/else")
+	if p := f.Params(); p.WorkingDir != repo {
+		t.Errorf(
+			"WorkingDir = %q, want the workspace repo %q",
+			p.WorkingDir,
+			repo,
+		)
+	}
+}
+
+// TestFormWorkspaceModeBranchTargetsWorkspaceRepo checks that inside a workspace
+// the Branch field is always enabled and resolves against the workspace's
+// repository, independent of anything typed into the (dropped) Directory field.
+func TestFormWorkspaceModeBranchTargetsWorkspaceRepo(t *testing.T) {
+	const repo = "/repos/acme"
+	f := NewCreateForm(testTheme(), []string{"default"}, repo)
+
+	if !f.BranchEnabled() {
+		t.Fatal("branch should be enabled inside a workspace")
+	}
+	if f.BranchRepo != repo {
+		t.Fatalf(
+			"BranchRepo = %q, want the workspace repo %q",
+			f.BranchRepo,
+			repo,
+		)
+	}
+
+	f.inputs[fieldDir].SetValue("/somewhere/else")
+	f.SyncBranchRepo()
+	if f.BranchRepo != repo {
+		t.Fatalf(
+			"BranchRepo = %q after a stray Directory value, want %q",
+			f.BranchRepo, repo,
+		)
+	}
+
+	f.inputs[fieldBranch].SetValue("feature/x")
+	p := f.Params()
+	if p.Branch != "feature/x" {
+		t.Errorf("params.Branch = %q, want feature/x", p.Branch)
+	}
+	if p.WorkingDir != "" {
+		t.Errorf("worktree session leaked a WorkingDir: %q", p.WorkingDir)
+	}
+}
+
 // initRepo initialises a git repository with one commit at dir.
 func initRepo(t *testing.T, dir string) {
 	t.Helper()
@@ -153,7 +230,7 @@ func runGit(t *testing.T, dir string, args ...string) {
 // TestFormAutonomousInjectsFlag checks that with a known agent selected, toggling
 // autonomous on bakes that agent's skip-permissions flag into the spawned program.
 func TestFormAutonomousInjectsFlag(t *testing.T) {
-	f := NewCreateForm(testTheme(), nil)
+	f := NewCreateForm(testTheme(), nil, "")
 	f.inputs[fieldProgram].SetValue("claude")
 
 	if !f.autonomousEnabled() {
@@ -174,7 +251,7 @@ func TestFormAutonomousInjectsFlag(t *testing.T) {
 // the toggle disabled, skipped in tab order, and never injects a flag even if the
 // toggle state was set on.
 func TestFormAutonomousDisabledForShell(t *testing.T) {
-	f := NewCreateForm(testTheme(), nil)
+	f := NewCreateForm(testTheme(), nil, "")
 	f.inputs[fieldProgram].SetValue("/bin/bash")
 
 	if f.autonomousEnabled() {
@@ -197,7 +274,7 @@ func TestFormAutonomousDisabledForShell(t *testing.T) {
 // for a known agent and then switching to the shell omits the flag, since the
 // toggle is gated on the current program supporting it.
 func TestFormAutonomousDropsFlagWhenProgramChanges(t *testing.T) {
-	f := NewCreateForm(testTheme(), nil)
+	f := NewCreateForm(testTheme(), nil, "")
 	f.inputs[fieldProgram].SetValue("claude")
 	f.toggleAutonomous()
 
@@ -217,7 +294,7 @@ func TestFormCtrlFRoutesByField(t *testing.T) {
 	repo := t.TempDir()
 	initRepo(t, repo)
 
-	f := NewCreateForm(testTheme(), nil)
+	f := NewCreateForm(testTheme(), nil, "")
 	ctrlF := tea.KeyMsg{Type: tea.KeyCtrlF}
 
 	if _, cmd := f.Update(ctrlF); !emits[FormPickDirMsg](cmd) {

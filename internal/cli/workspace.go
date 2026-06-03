@@ -12,6 +12,7 @@ import (
 	"github.com/joakimcarlsson/wasa/internal/backend"
 	"github.com/joakimcarlsson/wasa/internal/launch"
 	"github.com/joakimcarlsson/wasa/internal/registry"
+	"github.com/joakimcarlsson/wasa/internal/repo"
 )
 
 func init() {
@@ -57,7 +58,7 @@ func runWorkspace(args []string) error {
 	}
 }
 
-const workspaceAddHelp = `usage: wasa workspace add <path>
+const workspaceAddHelp = `usage: wasa workspace add [--init] <path>
 
 Register an existing git repository as a workspace so it shows up in the cockpit
 without first cd-ing into it. <path> is canonicalized (symlinks resolved, made
@@ -65,13 +66,26 @@ absolute), its primary remote is read, and it is registered with one default
 profile under the same content-addressed id that in-repo auto-registration uses.
 Adding an already-registered repository is idempotent: it is not duplicated.
 
-<path> must already be a git repository. Bootstrapping a new repository from a
-non-existent path (mkdir + git init) is out of scope for this release and is
-never performed; a missing or non-git path is reported as an error.
+Without --init, <path> must already be a git repository; a missing or non-git
+path is reported as an error.
+
+With --init, a new or not-yet-versioned project is bootstrapped into a workspace:
+a missing <path> is created (mkdir -p), a non-git directory is initialized
+(git init), and the result is registered. The new repository has no commits, so
+worktree sessions are unavailable until the first commit, but the workspace hosts
+plain sessions at once. Initializing a directory that is already a repository is
+a no-op beyond registering it.
 `
 
 func workspaceAdd(args []string) error {
 	fs := newFlagSet("wasa workspace add")
+	var doInit bool
+	fs.BoolVar(
+		&doInit,
+		"init",
+		false,
+		"create and git-init the path if it is not already a git repository",
+	)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprint(os.Stdout, workspaceAddHelp)
@@ -82,7 +96,7 @@ func workspaceAdd(args []string) error {
 
 	rest := fs.Args()
 	if len(rest) != 1 {
-		return errors.New("usage: wasa workspace add <path>")
+		return errors.New("usage: wasa workspace add [--init] <path>")
 	}
 
 	reg, err := registry.Open(wasaHome())
@@ -90,7 +104,7 @@ func workspaceAdd(args []string) error {
 		return err
 	}
 
-	ws, _, err := addWorkspace(reg, rest[0])
+	ws, _, err := addWorkspace(reg, rest[0], doInit)
 	if err != nil {
 		return err
 	}
@@ -106,22 +120,39 @@ func workspaceAdd(args []string) error {
 // resolve-and-register path as in-repo auto-registration so the workspace id and
 // default profile are identical. It returns the workspace and whether it was
 // newly created; an existing repository is returned unchanged rather than
-// duplicated. It errors when path does not exist or is not a git repository, and
-// never creates the path: path-bootstrap is out of scope for this release.
+// duplicated.
+//
+// With doInit false it errors when path does not exist or is not a git
+// repository, and never creates the path. With doInit true it bootstraps instead:
+// a missing path is created (mkdir -p) and a non-git directory is git-initialized
+// before registering, so a brand-new project becomes a workspace in one command.
 func addWorkspace(
 	reg *registry.Registry,
 	path string,
+	doInit bool,
 ) (*registry.Workspace, bool, error) {
 	if _, err := os.Stat(path); err != nil {
-		if os.IsNotExist(err) {
+		if !os.IsNotExist(err) {
+			return nil, false, err
+		}
+		if !doInit {
 			return nil, false, fmt.Errorf(
-				"%s does not exist; workspace add registers an existing git "+
-					"repository and never creates one "+
-					"(path-bootstrap is out of scope)",
+				"%s does not exist; pass --init to create and initialize it, "+
+					"or add an existing git repository",
 				path,
 			)
 		}
-		return nil, false, err
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			return nil, false, err
+		}
+	}
+
+	if doInit {
+		if _, _, err := resolveRepo(path); err != nil {
+			if err := repo.Init(path); err != nil {
+				return nil, false, err
+			}
+		}
 	}
 
 	repoPath, remoteURL, err := resolveRepo(path)

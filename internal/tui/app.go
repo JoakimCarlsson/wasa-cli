@@ -222,6 +222,17 @@ type workspaceDeletedMsg struct {
 	err  error
 }
 
+// workspaceAddedMsg carries the outcome of git-initialising a directory and
+// registering it as a workspace (the confirm-gated path in initWorkspaceCmd) back
+// to the update loop. created distinguishes a freshly registered workspace from
+// one the init turned out to already cover.
+type workspaceAddedMsg struct {
+	wsID    string
+	name    string
+	created bool
+	err     error
+}
+
 type attachedMsg struct {
 	sessionID string
 	err       error
@@ -293,6 +304,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err = nil
 		m.status = "deleted workspace " + msg.name
+		return m, m.refresh()
+
+	case workspaceAddedMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			return m, m.afterListChange()
+		}
+		m.err = nil
+		if msg.created {
+			m.status = "initialized and added workspace " + msg.name
+		} else {
+			m.status = "workspace " + msg.name + " already added"
+		}
+		m.activeID = msg.wsID
+		m.cursor = 0
 		return m, m.refresh()
 
 	case attachedMsg:
@@ -459,24 +485,28 @@ func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// submitCreate turns the create form into a session. A worktree session is
-// created against the repository of the chosen Directory — not the active tab —
-// so the branch listed in the form and the worktree it creates belong to the
-// same repository; its workspace is registered (and reg persisted) when not yet
-// known, and the profile is constrained to that workspace's profiles. A plain
-// session keeps running in the chosen directory under the active workspace,
-// defaulting to the current working directory when no directory was given.
+// submitCreate turns the create form into a session. Inside a workspace the
+// session belongs to the active workspace: a worktree session's branch is created
+// against its repository and a plain session runs in that repository's root, both
+// already carried in the form's params, so the active tab is used as-is. On the
+// orphan tab there is no workspace anchor: a worktree session is created against
+// the repository of the folder picked in the form — registered (and reg persisted)
+// when not yet known, with the profile constrained to that workspace's profiles —
+// and a plain session runs in the picked folder, defaulting to the current working
+// directory when none was given.
 func (m Model) submitCreate() (tea.Model, tea.Cmd) {
 	ws := m.currentWorkspace()
 	params := m.form.Params()
 	if params.Branch != "" {
-		target, err := m.worktreeWorkspace()
-		if err != nil {
-			m.err = err
-			m.mode = modeList
-			return m, nil
+		if ws == nil {
+			target, err := m.worktreeWorkspace()
+			if err != nil {
+				m.err = err
+				m.mode = modeList
+				return m, nil
+			}
+			ws = target
 		}
-		ws = target
 		params.Profile = validProfile(ws, params.Profile)
 	} else if params.WorkingDir == "" {
 		if cwd, err := os.Getwd(); err == nil {
@@ -488,11 +518,13 @@ func (m Model) submitCreate() (tea.Model, tea.Cmd) {
 	return m, m.createCmd(ws, params)
 }
 
-// worktreeWorkspace resolves the workspace a worktree session must be created
-// against: the repository of the chosen Directory, derived from the same
-// branchRepo the Branch field already resolved. It registers that repository's
-// workspace when it is not yet known so the session lands in the picked repo
-// even when wasa was launched elsewhere; createCmd persists reg afterwards.
+// worktreeWorkspace resolves the workspace an orphan-tab worktree session is
+// created against: the repository of the folder picked in the form, derived from
+// the same branchRepo the Branch field already resolved. It registers that
+// repository's workspace when it is not yet known so the session lands in the
+// picked repo even when wasa was launched elsewhere; createCmd persists reg
+// afterwards. It is only reached outside a workspace — inside one the active
+// workspace is used directly.
 func (m Model) worktreeWorkspace() (*registry.Workspace, error) {
 	repoPath, remoteURL, err := repo.Resolve(m.form.BranchRepo)
 	if err != nil {
@@ -524,15 +556,16 @@ func (m Model) enterWorkspaceAdd() (tea.Model, tea.Cmd) {
 // auto-registration use, so the workspace lands under the same content-addressed
 // id: picking an already-registered repository activates its existing tab rather
 // than duplicating it, and reg is persisted only when a workspace was newly
-// created. A path that is not an existing git repository creates nothing and is
-// surfaced on the status line.
+// created. A directory that is not yet a git repository is not rejected outright:
+// it routes to a confirm that offers to git-init it first, so a new or
+// not-yet-versioned project can be turned into a workspace without dropping to a
+// shell.
 func (m Model) addWorkspace(path string) (tea.Model, tea.Cmd) {
-	m.mode = modeList
 	repoPath, remoteURL, err := repo.Resolve(path)
 	if err != nil {
-		m.err = err
-		return m, m.afterListChange()
+		return m.confirmInitWorkspace(path)
 	}
+	m.mode = modeList
 	ws, created := repo.Register(m.reg, repoPath, remoteURL)
 	if created {
 		if err := m.reg.Save(); err != nil {
@@ -547,6 +580,64 @@ func (m Model) addWorkspace(path string) (tea.Model, tea.Cmd) {
 	m.activeID = ws.ID
 	m.cursor = 0
 	return m, m.refresh()
+}
+
+// confirmInitWorkspace opens a confirm dialog offering to git-init the directory
+// at path before registering it as a workspace, reached when path is not yet a git
+// repository. It guards that path is an existing directory first: a non-directory
+// (or a path that has gone away) is surfaced as an error rather than offered an
+// init that could not make sense, so only a real folder is ever proposed for
+// initialization. Confirming runs initWorkspaceCmd; cancelling returns to the list
+// untouched.
+func (m Model) confirmInitWorkspace(path string) (tea.Model, tea.Cmd) {
+	info, statErr := os.Stat(path)
+	if statErr != nil || !info.IsDir() {
+		m.mode = modeList
+		m.err = fmt.Errorf("%s is not a git repository", path)
+		return m, m.afterListChange()
+	}
+	body := fmt.Sprintf(
+		"%s is not a git repository.\n\n", component.HomeRel(path, m.osHome),
+	) +
+		"Initialize a git repository here and add it as a workspace? " +
+		"This creates a .git directory in that folder; nothing else on disk " +
+		"is touched."
+	return m.enterConfirm(
+		modal.NewConfirmDialog(
+			m.theme,
+			"Initialize repository",
+			body,
+			"Initialize",
+			"Cancel",
+			false,
+		),
+		m.initWorkspaceCmd(path),
+	)
+}
+
+// initWorkspaceCmd git-inits the directory at path and registers it as a
+// workspace, returning a workspaceAddedMsg with the outcome. It runs off the
+// update loop because it shells out to git; the model is mutated when the message
+// lands. reg is persisted only when a new workspace was created, mirroring
+// addWorkspace.
+func (m Model) initWorkspaceCmd(path string) tea.Cmd {
+	reg := m.reg
+	return func() tea.Msg {
+		if err := repo.Init(path); err != nil {
+			return workspaceAddedMsg{err: err}
+		}
+		repoPath, remoteURL, err := repo.Resolve(path)
+		if err != nil {
+			return workspaceAddedMsg{err: err}
+		}
+		ws, created := repo.Register(reg, repoPath, remoteURL)
+		if created {
+			if err := reg.Save(); err != nil {
+				return workspaceAddedMsg{err: err}
+			}
+		}
+		return workspaceAddedMsg{wsID: ws.ID, name: ws.Name, created: created}
+	}
 }
 
 // enterWorkspaceDelete opens the delete-confirmation modal for the active
@@ -773,24 +864,30 @@ func (m Model) applyConfig(cfg config.Config) (tea.Model, tea.Cmd) {
 }
 
 // enterCreate opens the create form. With a current workspace the form is seeded
-// with that workspace's profiles; with no workspace — wasa launched outside any
-// git repository — it opens with no profiles. The Directory field always starts
-// empty rather than pre-filled with a path, so it never looks like a remembered
-// value; an empty directory on submit means a plain session in the current
-// working directory, and the directory browser (ctrl+f) fills it otherwise. ws
-// being nil is the no-repo path, not an error.
+// with that workspace's profiles and its repository root, which anchors the
+// session and drops the Directory field — a session created inside a workspace
+// belongs to that workspace's repo and is never pointed at a free-form path. With
+// no workspace — wasa launched outside any git repository, or the orphan tab — the
+// Directory field returns and is the session's only anchor: it starts empty, and
+// an empty directory on submit means a plain session in the current working
+// directory, with the directory browser (ctrl+f) filling it otherwise. ws being
+// nil is the orphan path, not an error.
 func (m Model) enterCreate() (tea.Model, tea.Cmd) {
 	ws := m.currentWorkspace()
 
-	var names []string
+	var (
+		names    []string
+		repoPath string
+	)
 	if ws != nil {
 		names = make([]string, len(ws.Profiles))
 		for i, p := range ws.Profiles {
 			names[i] = p.Name
 		}
+		repoPath = ws.RepoPath
 	}
 
-	m.form = modal.NewCreateForm(m.theme, names)
+	m.form = modal.NewCreateForm(m.theme, names, repoPath)
 	m.mode = modeCreate
 	m.err = nil
 	m.status = ""

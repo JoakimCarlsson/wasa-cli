@@ -8,6 +8,7 @@
 package repo
 
 import (
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -26,6 +27,22 @@ func Resolve(dir string) (repoPath, remoteURL string, err error) {
 		return "", "", err
 	}
 	return canonical(top), originRemoteURL(top), nil
+}
+
+// Init initialises a git repository at dir by running `git init` there, turning a
+// directory that is not yet version-controlled into one Resolve and Register can
+// admit as a workspace. dir must already exist; Init does not create it. It is
+// idempotent: re-running it on an existing repository leaves it unchanged. The
+// resulting repository has no commits, so worktree sessions are unavailable until
+// the first commit, but the workspace registers and hosts plain sessions at once.
+func Init(dir string) error {
+	out, err := exec.Command("git", "-C", dir, "init").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf(
+			"git init %s: %w: %s", dir, err, strings.TrimSpace(string(out)),
+		)
+	}
+	return nil
 }
 
 // Register registers the repository identified by repoPath and remoteURL in reg,

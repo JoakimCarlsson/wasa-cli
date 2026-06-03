@@ -57,39 +57,57 @@ func formPickDir() tea.Msg { return FormPickDirMsg{} }
 func formPickBranch() tea.Msg { return FormPickBranchMsg{} }
 
 // CreateForm collects the inputs for a new session. The two session shapes share
-// one form: leaving Branch empty creates a plain session that runs in the
-// Directory field; entering a branch opts into a worktree session created on it.
-// The Branch field is only meaningful when the chosen Directory resolves to a git
-// repository, since a worktree is created against that repository; so it is
-// enabled only when BranchRepo is set, and disabled (skipped in tab order and
-// shown dimmed) otherwise. BranchRepo is the repository toplevel resolved from the
-// Directory field — re-derived whenever that field changes. An empty Directory has
-// no branch context, so the field is disabled until a directory is chosen. Title
-// and program are optional, and a profile is chosen from the workspace's profiles
-// with the default (first) preselected. The program field shows every agent
-// detected on PATH plus a bare-shell entry as a visible menu; ←/→ move the
-// selection and typing overrides it with any program name outside the known set.
+// one form: leaving Branch empty creates a plain session that runs in a working
+// directory; entering a branch opts into a worktree session created on it.
+//
+// The form has two modes, set at construction. Inside a workspace WorkspaceRepo
+// holds that workspace's repository root: the Directory field is dropped (a
+// session created in a workspace is anchored to its repo, never a free-form path),
+// the working directory of a plain session is the repo root, and a worktree
+// session's branch resolves against that same repo. Outside any workspace
+// WorkspaceRepo is empty: the Directory field returns, and the path picked there
+// is the session's only anchor — it both sets a plain session's working directory
+// and resolves the repository a worktree session's branch operates on.
+//
+// The Branch field is only meaningful when a repository backs it, so it is enabled
+// only when BranchRepo is set, and disabled (skipped in tab order and shown
+// dimmed) otherwise. BranchRepo is that repository toplevel: the fixed
+// WorkspaceRepo in workspace mode, or the toplevel re-derived from the Directory
+// field in orphan mode (empty until a directory inside a git repository is
+// chosen). Title and program are optional, and a profile is chosen from the
+// workspace's profiles with the default (first) preselected. The program field
+// shows every agent detected on PATH plus a bare-shell entry as a visible menu;
+// ←/→ move the selection and typing overrides it with any program name outside the
+// known set.
 type CreateForm struct {
-	theme      theme.Theme
-	inputs     []textinput.Model
-	BranchRepo string
-	profiles   []string
-	profIdx    int
-	programs   []string
-	shell      string
-	progIdx    int
-	autonomous bool
-	focus      int
-	err        string
+	theme         theme.Theme
+	inputs        []textinput.Model
+	BranchRepo    string
+	WorkspaceRepo string
+	profiles      []string
+	profIdx       int
+	programs      []string
+	shell         string
+	progIdx       int
+	autonomous    bool
+	focus         int
+	err           string
 }
 
 // NewCreateForm builds the create form for a workspace's profiles, styled with
-// theme. The Directory field starts focused and empty.
-func NewCreateForm(theme theme.Theme, profiles []string) CreateForm {
+// theme. workspaceRepo is the active workspace's repository root, or "" when wasa
+// is creating a session outside any workspace (the orphan/scratch case). A
+// non-empty workspaceRepo drops the Directory field and anchors the session to
+// that repo; an empty one restores the Directory field, which starts focused and
+// empty, as the session's only anchor.
+func NewCreateForm(
+	theme theme.Theme,
+	profiles []string,
+	workspaceRepo string,
+) CreateForm {
 	dir := textinput.New()
 	dir.Placeholder = "ctrl+f to browse, or empty for here"
 	dir.CharLimit = 4096
-	dir.Focus()
 
 	branch := textinput.New()
 	branch.Placeholder = "ctrl+f to pick a branch (worktree session)"
@@ -107,23 +125,49 @@ func NewCreateForm(theme theme.Theme, profiles []string) CreateForm {
 	program.SetValue(programs[0])
 
 	f := CreateForm{
-		theme:    theme,
-		inputs:   []textinput.Model{dir, branch, title, program},
-		profiles: profiles,
-		programs: programs,
-		shell:    shell,
+		theme:         theme,
+		inputs:        []textinput.Model{dir, branch, title, program},
+		profiles:      profiles,
+		programs:      programs,
+		shell:         shell,
+		WorkspaceRepo: workspaceRepo,
 	}
 	f.SyncBranchRepo()
+	f.setFocus(f.firstField())
 	return f
 }
 
-// SyncBranchRepo re-derives the repository the Branch field operates on from the
-// Directory field's current value, so the field's enabled state and the branch
-// picker always reflect the directory as currently chosen. An empty Directory has
-// no branch context and disables the field; a Directory inside a git repository
-// resolves to that repository; anything else (a plain directory, a path that does
-// not exist, git absent) leaves it empty, disabling the field.
+// dirEnabled reports whether the Directory field is present: only in orphan mode
+// (no active workspace), where the picked path is the session's anchor. Inside a
+// workspace the field is dropped, since the session is anchored to the workspace's
+// repository.
+func (f CreateForm) dirEnabled() bool {
+	return f.WorkspaceRepo == ""
+}
+
+// firstField is the field focused when the form opens: the Directory field in
+// orphan mode, or the Branch field when the Directory field has been dropped
+// inside a workspace.
+func (f CreateForm) firstField() int {
+	if f.dirEnabled() {
+		return fieldDir
+	}
+	return fieldBranch
+}
+
+// SyncBranchRepo re-derives the repository the Branch field operates on. In
+// workspace mode it is fixed to the workspace's repository, so a worktree session
+// always lands in the workspace's repo. In orphan mode it follows the Directory
+// field's current value, so the field's enabled state and the branch picker
+// reflect the directory as currently chosen: an empty Directory has no branch
+// context and disables the field; a Directory inside a git repository resolves to
+// that repository; anything else (a plain directory, a path that does not exist,
+// git absent) leaves it empty, disabling the field.
 func (f *CreateForm) SyncBranchRepo() {
+	if f.WorkspaceRepo != "" {
+		f.BranchRepo = f.WorkspaceRepo
+		return
+	}
 	f.BranchRepo = branchRepoFor(f.Dir())
 }
 
@@ -299,12 +343,16 @@ func (f *CreateForm) focusNext() { f.setFocus(f.stepFocus(1)) }
 func (f *CreateForm) focusPrev() { f.setFocus(f.stepFocus(-1)) }
 
 // stepFocus returns the next focusable field in the given direction, skipping
-// the Branch and Autonomous fields when they are disabled so tab never lands on a
-// dead input.
+// the Directory field when it has been dropped inside a workspace and the Branch
+// and Autonomous fields when they are disabled, so tab never lands on a dead or
+// absent input.
 func (f CreateForm) stepFocus(dir int) int {
 	i := f.focus
 	for range fieldCount {
 		i = (i + dir + fieldCount) % fieldCount
+		if i == fieldDir && !f.dirEnabled() {
+			continue
+		}
 		if i == fieldBranch && !f.BranchEnabled() {
 			continue
 		}
@@ -328,8 +376,9 @@ func (f *CreateForm) setFocus(i int) {
 }
 
 // Params reads the form into launch.Params. A non-empty branch selects a
-// worktree session and the directory field is ignored; an empty branch selects a
-// plain session run in the directory field.
+// worktree session and the working directory is ignored. An empty branch selects
+// a plain session, run in the workspace's repository root inside a workspace, or
+// in the Directory field's value in orphan mode.
 func (f CreateForm) Params() launch.Params {
 	prof := ""
 	if f.profIdx < len(f.profiles) {
@@ -348,9 +397,12 @@ func (f CreateForm) Params() launch.Params {
 	if f.BranchEnabled() {
 		branch = strings.TrimSpace(f.inputs[fieldBranch].Value())
 	}
-	if branch != "" {
+	switch {
+	case branch != "":
 		p.Branch = branch
-	} else {
+	case f.WorkspaceRepo != "":
+		p.WorkingDir = f.WorkspaceRepo
+	default:
 		p.WorkingDir = strings.TrimSpace(f.inputs[fieldDir].Value())
 	}
 	return p
@@ -364,6 +416,9 @@ func (f CreateForm) View() string {
 
 	labels := []string{"Directory", "Branch", "Title"}
 	for i := fieldDir; i <= fieldTitle; i++ {
+		if i == fieldDir && !f.dirEnabled() {
+			continue
+		}
 		b.WriteString(f.label(labels[i], i))
 		b.WriteString("\n")
 		if i == fieldBranch && !f.BranchEnabled() {
@@ -395,9 +450,13 @@ func (f CreateForm) View() string {
 		b.WriteString(f.theme.ErrorStyle.Render(f.err))
 		b.WriteString("\n\n")
 	}
+	browse := "ctrl+f pick branch"
+	if f.dirEnabled() {
+		browse = "ctrl+f browse dir/branch"
+	}
 	b.WriteString(f.theme.DimStyle.Render(
 		"tab/↑↓ move · ←/→/space choose/toggle · " +
-			"ctrl+f browse dir/branch · enter create · esc cancel",
+			browse + " · enter create · esc cancel",
 	))
 	return b.String()
 }
