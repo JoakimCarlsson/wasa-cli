@@ -56,27 +56,64 @@ func visiblePaths(p DirectoryPicker) []string {
 	return out
 }
 
-func TestNewDirPickerListsTopLevelSkippingNoise(t *testing.T) {
+// fsRoot is the filesystem root reached by climbing parents from dir, the root
+// the picker reveals every tree up to.
+func fsRoot(dir string) string {
+	for filepath.Dir(dir) != dir {
+		dir = filepath.Dir(dir)
+	}
+	return dir
+}
+
+// findNode returns the visible tree node at path, or nil when it is not on
+// screen.
+func findNode(p DirectoryPicker, path string) *treeNode {
+	for _, r := range p.visible {
+		if r.node.path == path {
+			return r.node
+		}
+	}
+	return nil
+}
+
+// childNames is the names of n's loaded children, in order.
+func childNames(n *treeNode) []string {
+	out := make([]string, len(n.children))
+	for i, c := range n.children {
+		out[i] = c.name
+	}
+	return out
+}
+
+func TestNewDirPickerRevealsChainAndSkipsNoise(t *testing.T) {
 	root := pickerTree(t)
 	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
 
-	got := visiblePaths(p)
-	want := []string{
-		root,
-		filepath.Join(root, "alpha"),
-		filepath.Join(root, "beta"),
+	if want := fsRoot(root); p.root.path != want {
+		t.Fatalf("tree root = %q, want filesystem root %q", p.root.path, want)
 	}
+
+	node := findNode(p, root)
+	if node == nil {
+		t.Fatalf("active dir %q not revealed in the tree", root)
+	}
+	got := childNames(node)
+	want := []string{"alpha", "beta"}
 	if len(got) != len(want) {
 		t.Fatalf(
-			"visible = %v, want %v (hidden/cache/files skipped)",
+			"children = %v, want %v (hidden/cache/files skipped)",
 			got,
 			want,
 		)
 	}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Errorf("visible[%d] = %q, want %q", i, got[i], want[i])
+			t.Errorf("children[%d] = %q, want %q", i, got[i], want[i])
 		}
+	}
+
+	if cur, ok := p.currentPath(); !ok || cur != root {
+		t.Errorf("cursor on %q, want the active dir %q", cur, root)
 	}
 }
 
@@ -84,12 +121,24 @@ func TestNewDirPickerMarksRepo(t *testing.T) {
 	root := pickerTree(t)
 	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
 
-	alpha := p.visible[1].node
-	if alpha.name != "alpha" || !alpha.isRepo {
-		t.Errorf("alpha.isRepo = %v, want true", alpha.isRepo)
+	node := findNode(p, root)
+	if node == nil {
+		t.Fatalf("active dir %q not revealed in the tree", root)
 	}
-	if beta := p.visible[2].node; beta.isRepo {
-		t.Errorf("beta.isRepo = true, want false")
+	var alpha, beta *treeNode
+	for _, c := range node.children {
+		switch c.name {
+		case "alpha":
+			alpha = c
+		case "beta":
+			beta = c
+		}
+	}
+	if alpha == nil || !alpha.isRepo {
+		t.Errorf("alpha.isRepo = %v, want true", alpha != nil && alpha.isRepo)
+	}
+	if beta == nil || beta.isRepo {
+		t.Errorf("beta.isRepo = %v, want false", beta != nil && beta.isRepo)
 	}
 }
 
@@ -250,22 +299,23 @@ func TestDirPickerNewFolderEscCancels(t *testing.T) {
 	}
 }
 
-func TestDirPickerAscendRoot(t *testing.T) {
+// TestDirPickerRevealsFromChild checks that opening the picker on a deep
+// directory reveals the whole ancestor chain up to the filesystem root while still
+// landing the cursor on that directory, so its parents are reachable by arrowing
+// up without any re-root key.
+func TestDirPickerRevealsFromChild(t *testing.T) {
 	root := pickerTree(t)
 	child := filepath.Join(root, "alpha")
 	p := NewDirectoryPicker(testTheme(), child, "", child, nil, 60, 14)
 
-	p, _ = p.Update(keyRunes("-"))
-
-	if p.root.path != root {
-		t.Fatalf("root = %q, want %q", p.root.path, root)
+	if want := fsRoot(child); p.root.path != want {
+		t.Fatalf("root = %q, want filesystem root %q", p.root.path, want)
 	}
-	if p.visible[p.cursor].node.path != child {
-		t.Errorf(
-			"cursor on %q, want former root %q",
-			p.visible[p.cursor].node.path,
-			child,
-		)
+	if cur, ok := p.currentPath(); !ok || cur != child {
+		t.Errorf("cursor on %q, want the opened dir %q", cur, child)
+	}
+	if findNode(p, root) == nil {
+		t.Errorf("parent %q not reachable in the revealed tree", root)
 	}
 }
 

@@ -132,6 +132,12 @@ type DirectoryPicker struct {
 	height int
 	home   string
 
+	// filterBase is the directory the fuzzy filter searches under. The browse tree
+	// is rooted at the filesystem root so the whole ancestor chain is reachable,
+	// but the filter stays anchored to the directory the picker opened on, so
+	// typing a query scans that subtree rather than the entire filesystem.
+	filterBase string
+
 	// Chosen is the path the picker carried in its last DirChosenMsg.
 	Chosen string
 
@@ -142,10 +148,12 @@ type DirectoryPicker struct {
 	matchCount   int
 }
 
-// NewDirectoryPicker builds a tree rooted at rootPath with its top level loaded
-// and an empty filter. When selectPath names one of the root's children the
-// cursor starts on it. recents seeds the recent pane; with none the picker shows
-// the tree alone.
+// NewDirectoryPicker builds the browser with the whole ancestor chain above
+// rootPath revealed up to the filesystem root, so the tree shows where you are in
+// the larger filesystem and the arrow keys roam up through parents and their
+// siblings as naturally as they roam down. The cursor starts on the active
+// directory — selectPath when given, otherwise rootPath. recents seeds the recent
+// pane; with none the picker shows the tree alone.
 func NewDirectoryPicker(
 	theme theme.Theme,
 	rootPath, selectPath, home string,
@@ -178,20 +186,39 @@ func NewDirectoryPicker(
 	loadChildren(root)
 
 	p := DirectoryPicker{
-		theme:   theme,
-		root:    root,
-		query:   q,
-		name:    name,
-		recents: recents,
-		home:    home,
-		width:   width,
-		height:  height,
+		theme:      theme,
+		root:       root,
+		query:      q,
+		name:       name,
+		recents:    recents,
+		home:       home,
+		width:      width,
+		height:     height,
+		filterBase: rootPath,
+	}
+	p.revealToFilesystemRoot()
+	target := selectPath
+	if target == "" {
+		target = rootPath
 	}
 	p.rebuild()
-	if selectPath != "" {
-		p.cursorToPath(selectPath)
-	}
+	p.cursorToPath(target)
 	return p
+}
+
+// revealToFilesystemRoot re-roots the tree upward one level at a time until it is
+// rooted at the filesystem root, leaving the whole ancestor chain expanded and the
+// original directory grafted in at its true depth. Each ascendRoot loads only the
+// children of the level it climbs to, so revealing the chain is a handful of
+// directory reads, not a recursive walk.
+func (p *DirectoryPicker) revealToFilesystemRoot() {
+	for {
+		parent := filepath.Dir(p.root.path)
+		if parent == p.root.path {
+			return
+		}
+		p.ascendRoot()
+	}
 }
 
 // Update handles a key message, returning the updated picker and a command. The
@@ -244,11 +271,6 @@ func (p DirectoryPicker) Update(msg tea.Msg) (DirectoryPicker, tea.Cmd) {
 		case "left":
 			if !p.filtering {
 				p.collapseOrParent()
-				return p, nil
-			}
-		case "-":
-			if !p.filtering {
-				p.ascendRoot()
 				return p, nil
 			}
 		case "+":
@@ -358,7 +380,7 @@ func (p *DirectoryPicker) TickFilter(gen int) tea.Cmd {
 	if gen != p.filterGen || !p.pending {
 		return nil
 	}
-	return filterWalk(gen, p.root.path, p.pendingQuery)
+	return filterWalk(gen, p.filterBase, p.pendingQuery)
 }
 
 // ApplyFilterResult installs a completed filter walk, ignoring a result whose
@@ -660,7 +682,7 @@ func (p DirectoryPicker) footer() string {
 			"+ new · ↵ pick · esc"
 	}
 	return "type to filter · ↑↓ move · → expand · ← collapse · " +
-		"- up · + new · ↵ pick · esc"
+		"+ new · ↵ pick · esc"
 }
 
 // row renders one tree line: a two-cell gutter (a selection bar when current),
