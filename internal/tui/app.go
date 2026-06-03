@@ -459,24 +459,28 @@ func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// submitCreate turns the create form into a session. A worktree session is
-// created against the repository of the chosen Directory — not the active tab —
-// so the branch listed in the form and the worktree it creates belong to the
-// same repository; its workspace is registered (and reg persisted) when not yet
-// known, and the profile is constrained to that workspace's profiles. A plain
-// session keeps running in the chosen directory under the active workspace,
-// defaulting to the current working directory when no directory was given.
+// submitCreate turns the create form into a session. Inside a workspace the
+// session belongs to the active workspace: a worktree session's branch is created
+// against its repository and a plain session runs in that repository's root, both
+// already carried in the form's params, so the active tab is used as-is. On the
+// orphan tab there is no workspace anchor: a worktree session is created against
+// the repository of the folder picked in the form — registered (and reg persisted)
+// when not yet known, with the profile constrained to that workspace's profiles —
+// and a plain session runs in the picked folder, defaulting to the current working
+// directory when none was given.
 func (m Model) submitCreate() (tea.Model, tea.Cmd) {
 	ws := m.currentWorkspace()
 	params := m.form.Params()
 	if params.Branch != "" {
-		target, err := m.worktreeWorkspace()
-		if err != nil {
-			m.err = err
-			m.mode = modeList
-			return m, nil
+		if ws == nil {
+			target, err := m.worktreeWorkspace()
+			if err != nil {
+				m.err = err
+				m.mode = modeList
+				return m, nil
+			}
+			ws = target
 		}
-		ws = target
 		params.Profile = validProfile(ws, params.Profile)
 	} else if params.WorkingDir == "" {
 		if cwd, err := os.Getwd(); err == nil {
@@ -488,11 +492,13 @@ func (m Model) submitCreate() (tea.Model, tea.Cmd) {
 	return m, m.createCmd(ws, params)
 }
 
-// worktreeWorkspace resolves the workspace a worktree session must be created
-// against: the repository of the chosen Directory, derived from the same
-// branchRepo the Branch field already resolved. It registers that repository's
-// workspace when it is not yet known so the session lands in the picked repo
-// even when wasa was launched elsewhere; createCmd persists reg afterwards.
+// worktreeWorkspace resolves the workspace an orphan-tab worktree session is
+// created against: the repository of the folder picked in the form, derived from
+// the same branchRepo the Branch field already resolved. It registers that
+// repository's workspace when it is not yet known so the session lands in the
+// picked repo even when wasa was launched elsewhere; createCmd persists reg
+// afterwards. It is only reached outside a workspace — inside one the active
+// workspace is used directly.
 func (m Model) worktreeWorkspace() (*registry.Workspace, error) {
 	repoPath, remoteURL, err := repo.Resolve(m.form.BranchRepo)
 	if err != nil {
@@ -773,24 +779,30 @@ func (m Model) applyConfig(cfg config.Config) (tea.Model, tea.Cmd) {
 }
 
 // enterCreate opens the create form. With a current workspace the form is seeded
-// with that workspace's profiles; with no workspace — wasa launched outside any
-// git repository — it opens with no profiles. The Directory field always starts
-// empty rather than pre-filled with a path, so it never looks like a remembered
-// value; an empty directory on submit means a plain session in the current
-// working directory, and the directory browser (ctrl+f) fills it otherwise. ws
-// being nil is the no-repo path, not an error.
+// with that workspace's profiles and its repository root, which anchors the
+// session and drops the Directory field — a session created inside a workspace
+// belongs to that workspace's repo and is never pointed at a free-form path. With
+// no workspace — wasa launched outside any git repository, or the orphan tab — the
+// Directory field returns and is the session's only anchor: it starts empty, and
+// an empty directory on submit means a plain session in the current working
+// directory, with the directory browser (ctrl+f) filling it otherwise. ws being
+// nil is the orphan path, not an error.
 func (m Model) enterCreate() (tea.Model, tea.Cmd) {
 	ws := m.currentWorkspace()
 
-	var names []string
+	var (
+		names    []string
+		repoPath string
+	)
 	if ws != nil {
 		names = make([]string, len(ws.Profiles))
 		for i, p := range ws.Profiles {
 			names[i] = p.Name
 		}
+		repoPath = ws.RepoPath
 	}
 
-	m.form = modal.NewCreateForm(m.theme, names)
+	m.form = modal.NewCreateForm(m.theme, names, repoPath)
 	m.mode = modeCreate
 	m.err = nil
 	m.status = ""
