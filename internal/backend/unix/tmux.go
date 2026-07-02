@@ -1,11 +1,5 @@
 //go:build !windows
 
-// Package tmux drives the tmux binary: it spawns detached sessions, attaches to
-// them, reports whether a session exists, lists sessions and kills them. tmux
-// owns the PTYs, terminal emulation and session persistence; this package is the
-// thin orchestration seam above it. It shells out to the tmux binary rather than
-// speaking the control protocol, assumes the default shared tmux server, and
-// surfaces tmux stderr on failure.
 package tmux
 
 import (
@@ -215,11 +209,12 @@ func killArgs(name string) []string {
 	return []string{"kill-session", "-t", name}
 }
 
+// captureArgs builds the capture-pane invocation. -e preserves the pane's
+// escape sequences so the preview keeps the agent's colors; without it tmux
+// strips all SGR and the capture is flat monochrome. -p writes to stdout. The
+// render path (internal/tui) is ANSI-aware and truncates by visible width
+// without slicing these sequences.
 func captureArgs(name string) []string {
-	// -e preserves the pane's escape sequences so the preview keeps the agent's
-	// colors; without it tmux strips all SGR and the capture is flat monochrome.
-	// -p writes to stdout. The render path (internal/tui) is ANSI-aware and
-	// truncates by visible width without slicing these sequences.
 	return []string{"capture-pane", "-e", "-p", "-t", name}
 }
 
