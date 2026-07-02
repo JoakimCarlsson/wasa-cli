@@ -9,7 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/joakimcarlsson/wasa/internal/tui/theme"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui/theme"
 )
 
 // branchMatch is a branch name that passed the current fuzzy filter, with the

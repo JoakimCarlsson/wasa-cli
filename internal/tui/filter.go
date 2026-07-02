@@ -7,8 +7,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/joakimcarlsson/wasa/internal/registry"
-	"github.com/joakimcarlsson/wasa/internal/tui/component"
+	"github.com/joakimcarlsson/wasa-cli/internal/registry"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui/component"
 )
 
 // The filter's status tokens. A leading "running" or "exited" word narrows the

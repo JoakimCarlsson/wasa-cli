@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joakimcarlsson/wasa/internal/registry"
+	"github.com/joakimcarlsson/wasa-cli/internal/registry"
 )
 
 func finishTestRegistry(t *testing.T) *registry.Registry {

@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/joakimcarlsson/wasa/internal/registry"
+	"github.com/joakimcarlsson/wasa-cli/internal/registry"
 )
 
 func TestConfigDirVar(t *testing.T) {

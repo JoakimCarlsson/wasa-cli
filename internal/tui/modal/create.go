@@ -14,9 +14,9 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/joakimcarlsson/wasa/internal/launch"
-	"github.com/joakimcarlsson/wasa/internal/tui/theme"
-	"github.com/joakimcarlsson/wasa/internal/worktree"
+	"github.com/joakimcarlsson/wasa-cli/internal/launch"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui/theme"
+	"github.com/joakimcarlsson/wasa-cli/internal/worktree"
 )
 
 // Create-form fields, in tab order: the directory comes first and the branch

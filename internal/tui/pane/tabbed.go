@@ -3,9 +3,9 @@ package pane
 import (
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/joakimcarlsson/wasa/internal/backend"
-	"github.com/joakimcarlsson/wasa/internal/tui/component"
-	"github.com/joakimcarlsson/wasa/internal/tui/theme"
+	"github.com/joakimcarlsson/wasa-cli/internal/backend"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui/component"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui/theme"
 )
 
 // Tab selects which view the right pane shows: the live preview (the default),

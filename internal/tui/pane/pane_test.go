@@ -9,10 +9,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/joakimcarlsson/wasa/internal/backend"
-	"github.com/joakimcarlsson/wasa/internal/config"
-	"github.com/joakimcarlsson/wasa/internal/tui/theme"
-	"github.com/joakimcarlsson/wasa/internal/worktree"
+	"github.com/joakimcarlsson/wasa-cli/internal/backend"
+	"github.com/joakimcarlsson/wasa-cli/internal/config"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui/theme"
+	"github.com/joakimcarlsson/wasa-cli/internal/worktree"
 )
 
 func testTheme() theme.Theme {

@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/joakimcarlsson/wasa/internal/hook"
-	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
+	"github.com/joakimcarlsson/wasa-cli/internal/hook"
+	"github.com/joakimcarlsson/wasa-cli/internal/sessionstatus"
 )
 
 func init() {

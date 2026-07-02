@@ -6,8 +6,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/joakimcarlsson/wasa/internal/config"
-	"github.com/joakimcarlsson/wasa/internal/registry"
+	"github.com/joakimcarlsson/wasa-cli/internal/config"
+	"github.com/joakimcarlsson/wasa-cli/internal/registry"
 )
 
 // filterModel builds a model over one workspace with four sessions whose titles,

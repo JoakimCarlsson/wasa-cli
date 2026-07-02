@@ -5,8 +5,8 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/joakimcarlsson/wasa/internal/registry"
-	"github.com/joakimcarlsson/wasa/internal/worktree"
+	"github.com/joakimcarlsson/wasa-cli/internal/registry"
+	"github.com/joakimcarlsson/wasa-cli/internal/worktree"
 )
 
 // realOps backs the worktree and branch operations with a real git repository

@@ -13,8 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/joakimcarlsson/wasa/internal/registry"
-	"github.com/joakimcarlsson/wasa/internal/worktree"
+	"github.com/joakimcarlsson/wasa-cli/internal/registry"
+	"github.com/joakimcarlsson/wasa-cli/internal/worktree"
 )
 
 // Resolve resolves the git repository containing dir and returns its canonical

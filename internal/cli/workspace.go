@@ -9,10 +9,10 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/joakimcarlsson/wasa/internal/backend"
-	"github.com/joakimcarlsson/wasa/internal/launch"
-	"github.com/joakimcarlsson/wasa/internal/registry"
-	"github.com/joakimcarlsson/wasa/internal/repo"
+	"github.com/joakimcarlsson/wasa-cli/internal/backend"
+	"github.com/joakimcarlsson/wasa-cli/internal/launch"
+	"github.com/joakimcarlsson/wasa-cli/internal/registry"
+	"github.com/joakimcarlsson/wasa-cli/internal/repo"
 )
 
 func init() {

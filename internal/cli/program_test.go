@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joakimcarlsson/wasa/internal/launch"
+	"github.com/joakimcarlsson/wasa-cli/internal/launch"
 )
 
 func stubAgent(t *testing.T, dir, name string) {

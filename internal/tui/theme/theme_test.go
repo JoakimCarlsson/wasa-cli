@@ -5,7 +5,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/joakimcarlsson/wasa/internal/config"
+	"github.com/joakimcarlsson/wasa-cli/internal/config"
 )
 
 // TestDefaultThemeIsHistoricalPalette pins the resolved default styles to the

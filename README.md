@@ -14,7 +14,7 @@ on **Linux and macOS**; on **Windows** it runs inside **WSL2** with tmux install
 Download the prebuilt binary for your platform and put it on your `PATH`:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/JoakimCarlsson/wasa/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/JoakimCarlsson/wasa-cli/main/install.sh | bash
 ```
 
 This installs `wasa` into `~/.local/bin` (override with `BIN_DIR`) and adds that
@@ -26,7 +26,7 @@ this inside your WSL2 distribution.
 Install the `wasa` binary into your Go bin directory:
 
 ```sh
-go install github.com/joakimcarlsson/wasa/cmd/wasa@latest
+go install github.com/joakimcarlsson/wasa-cli/cmd/wasa@latest
 ```
 
 Make sure your Go bin directory (`$(go env GOPATH)/bin`) is on your `PATH`, then
@@ -37,7 +37,7 @@ run `wasa`.
 Clone the repository and let `make env` build `wasa` and put it on your `PATH`:
 
 ```sh
-git clone https://github.com/joakimcarlsson/wasa
+git clone https://github.com/joakimcarlsson/wasa-cli
 cd wasa
 make env
 ```
@@ -49,7 +49,7 @@ to `~/.profile`, `~/.bashrc` and `~/.zshrc`. Open a new terminal afterwards and 
 ### Prebuilt binary
 
 Download a prebuilt binary for your platform from the
-[Releases](https://github.com/joakimcarlsson/wasa/releases) page and place it on
+[Releases](https://github.com/joakimcarlsson/wasa-cli/releases) page and place it on
 your `PATH`.
 
 ## Usage

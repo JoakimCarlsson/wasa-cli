@@ -13,13 +13,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/joakimcarlsson/wasa/internal/config"
-	"github.com/joakimcarlsson/wasa/internal/registry"
-	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
-	"github.com/joakimcarlsson/wasa/internal/tui/component"
-	"github.com/joakimcarlsson/wasa/internal/tui/pane"
-	"github.com/joakimcarlsson/wasa/internal/tui/theme"
-	"github.com/joakimcarlsson/wasa/internal/worktree"
+	"github.com/joakimcarlsson/wasa-cli/internal/config"
+	"github.com/joakimcarlsson/wasa-cli/internal/registry"
+	"github.com/joakimcarlsson/wasa-cli/internal/sessionstatus"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui/component"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui/pane"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui/theme"
+	"github.com/joakimcarlsson/wasa-cli/internal/worktree"
 )
 
 // chromeRows is the number of rows the tab bar, menu and status line take from

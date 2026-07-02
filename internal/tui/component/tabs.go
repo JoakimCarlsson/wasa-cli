@@ -3,7 +3,7 @@ package component
 import (
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/joakimcarlsson/wasa/internal/tui/theme"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui/theme"
 )
 
 // TabStrip renders a row of connected tab boxes spanning totalWidth, in the

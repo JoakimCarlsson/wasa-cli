@@ -7,7 +7,7 @@ package main
 import (
 	"os"
 
-	"github.com/joakimcarlsson/wasa/internal/cli"
+	"github.com/joakimcarlsson/wasa-cli/internal/cli"
 )
 
 // version is the wasa version string. It defaults to "dev" and is intended to

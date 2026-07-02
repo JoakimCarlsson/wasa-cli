@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joakimcarlsson/wasa/internal/hook"
-	"github.com/joakimcarlsson/wasa/internal/registry"
+	"github.com/joakimcarlsson/wasa-cli/internal/hook"
+	"github.com/joakimcarlsson/wasa-cli/internal/registry"
 )
 
 // fakeBackend is a SessionBackend that records the tmux names it was asked to

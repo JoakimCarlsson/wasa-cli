@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joakimcarlsson/wasa/internal/registry"
+	"github.com/joakimcarlsson/wasa-cli/internal/registry"
 )
 
 // recordingOps records every operation invoked on it, in order, so a test can

@@ -22,14 +22,14 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/joakimcarlsson/wasa/internal/backend"
-	"github.com/joakimcarlsson/wasa/internal/bootstrap"
-	"github.com/joakimcarlsson/wasa/internal/finish"
-	"github.com/joakimcarlsson/wasa/internal/hook"
-	"github.com/joakimcarlsson/wasa/internal/profile"
-	"github.com/joakimcarlsson/wasa/internal/registry"
-	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
-	"github.com/joakimcarlsson/wasa/internal/worktree"
+	"github.com/joakimcarlsson/wasa-cli/internal/backend"
+	"github.com/joakimcarlsson/wasa-cli/internal/bootstrap"
+	"github.com/joakimcarlsson/wasa-cli/internal/finish"
+	"github.com/joakimcarlsson/wasa-cli/internal/hook"
+	"github.com/joakimcarlsson/wasa-cli/internal/profile"
+	"github.com/joakimcarlsson/wasa-cli/internal/registry"
+	"github.com/joakimcarlsson/wasa-cli/internal/sessionstatus"
+	"github.com/joakimcarlsson/wasa-cli/internal/worktree"
 )
 
 // Params describes a session to create. A non-empty Branch selects a worktree

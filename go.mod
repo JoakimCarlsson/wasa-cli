@@ -1,4 +1,4 @@
-module github.com/joakimcarlsson/wasa
+module github.com/joakimcarlsson/wasa-cli
 
 go 1.26
 

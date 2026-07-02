@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/joakimcarlsson/wasa/internal/config"
+	"github.com/joakimcarlsson/wasa-cli/internal/config"
 )
 
 func TestParseColorForms(t *testing.T) {

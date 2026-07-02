@@ -2,7 +2,7 @@
 #
 # wasa installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/JoakimCarlsson/wasa/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/JoakimCarlsson/wasa-cli/main/install.sh | bash
 #
 # Environment variables:
 #   BIN_DIR   install directory          (default: $HOME/.local/bin)
@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-REPO="JoakimCarlsson/wasa"
+REPO="JoakimCarlsson/wasa-cli"
 BINARY="wasa"
 BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
 VERSION="${VERSION:-latest}"

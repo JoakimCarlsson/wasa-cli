@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joakimcarlsson/wasa/internal/config"
-	"github.com/joakimcarlsson/wasa/internal/registry"
-	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
-	"github.com/joakimcarlsson/wasa/internal/tui/pane"
+	"github.com/joakimcarlsson/wasa-cli/internal/config"
+	"github.com/joakimcarlsson/wasa-cli/internal/registry"
+	"github.com/joakimcarlsson/wasa-cli/internal/sessionstatus"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui/pane"
 )
 
 // TestSessionListShowsRuntimeStatus renders a workspace whose running sessions

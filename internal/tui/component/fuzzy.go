@@ -4,7 +4,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/joakimcarlsson/wasa/internal/tui/theme"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui/theme"
 )
 
 // PickerRows is the most tree or list rows a picker shows at once; the view

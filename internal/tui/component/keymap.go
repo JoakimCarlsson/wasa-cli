@@ -1,6 +1,6 @@
 package component
 
-import "github.com/joakimcarlsson/wasa/internal/config"
+import "github.com/joakimcarlsson/wasa-cli/internal/config"
 
 // Keymap resolves a key press to a cockpit action and reports the effective key
 // for an action so the menu can render the binding actually in force. It is built

@@ -20,17 +20,17 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/joakimcarlsson/wasa/internal/backend"
-	"github.com/joakimcarlsson/wasa/internal/config"
-	"github.com/joakimcarlsson/wasa/internal/launch"
-	"github.com/joakimcarlsson/wasa/internal/registry"
-	"github.com/joakimcarlsson/wasa/internal/repo"
-	"github.com/joakimcarlsson/wasa/internal/sessionstatus"
-	"github.com/joakimcarlsson/wasa/internal/tui/component"
-	"github.com/joakimcarlsson/wasa/internal/tui/modal"
-	"github.com/joakimcarlsson/wasa/internal/tui/pane"
-	"github.com/joakimcarlsson/wasa/internal/tui/theme"
-	"github.com/joakimcarlsson/wasa/internal/worktree"
+	"github.com/joakimcarlsson/wasa-cli/internal/backend"
+	"github.com/joakimcarlsson/wasa-cli/internal/config"
+	"github.com/joakimcarlsson/wasa-cli/internal/launch"
+	"github.com/joakimcarlsson/wasa-cli/internal/registry"
+	"github.com/joakimcarlsson/wasa-cli/internal/repo"
+	"github.com/joakimcarlsson/wasa-cli/internal/sessionstatus"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui/component"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui/modal"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui/pane"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui/theme"
+	"github.com/joakimcarlsson/wasa-cli/internal/worktree"
 )
 
 // mode is the model's interaction mode: browsing the session list or filling in

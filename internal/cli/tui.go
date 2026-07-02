@@ -6,8 +6,8 @@ import (
 
 	"github.com/mattn/go-isatty"
 
-	"github.com/joakimcarlsson/wasa/internal/config"
-	"github.com/joakimcarlsson/wasa/internal/tui"
+	"github.com/joakimcarlsson/wasa-cli/internal/config"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui"
 )
 
 // runCockpit opens the registry, reconciles it and launches the Bubble Tea

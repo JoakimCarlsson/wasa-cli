@@ -14,7 +14,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/joakimcarlsson/wasa/internal/registry"
+	"github.com/joakimcarlsson/wasa-cli/internal/registry"
 )
 
 // Ops are the git and tmux operations Session performs, injected so the teardown

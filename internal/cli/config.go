@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/joakimcarlsson/wasa/internal/config"
+	"github.com/joakimcarlsson/wasa-cli/internal/config"
 )
 
 func init() {

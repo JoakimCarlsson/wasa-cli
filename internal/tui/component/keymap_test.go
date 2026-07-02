@@ -3,7 +3,7 @@ package component
 import (
 	"testing"
 
-	"github.com/joakimcarlsson/wasa/internal/config"
+	"github.com/joakimcarlsson/wasa-cli/internal/config"
 )
 
 func TestNewKeymapResolvesDefaults(t *testing.T) {

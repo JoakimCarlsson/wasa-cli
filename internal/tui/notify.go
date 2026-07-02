@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/joakimcarlsson/wasa/internal/config"
+	"github.com/joakimcarlsson/wasa-cli/internal/config"
 )
 
 // notifyDebounce is the minimum gap between two notifications for the same

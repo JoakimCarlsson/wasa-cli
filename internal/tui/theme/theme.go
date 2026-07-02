@@ -6,7 +6,7 @@ package theme
 import (
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/joakimcarlsson/wasa/internal/config"
+	"github.com/joakimcarlsson/wasa-cli/internal/config"
 )
 
 // Theme is the cockpit's resolved set of lipgloss styles. Its colours are not

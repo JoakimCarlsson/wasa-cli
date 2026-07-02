@@ -7,7 +7,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/joakimcarlsson/wasa/internal/backend"
+	"github.com/joakimcarlsson/wasa-cli/internal/backend"
 )
 
 func init() {

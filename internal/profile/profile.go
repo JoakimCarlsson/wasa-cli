@@ -18,7 +18,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/joakimcarlsson/wasa/internal/registry"
+	"github.com/joakimcarlsson/wasa-cli/internal/registry"
 )
 
 // configDirVars maps a program name to the environment variable that overrides

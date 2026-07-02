@@ -8,10 +8,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/joakimcarlsson/wasa/internal/config"
-	"github.com/joakimcarlsson/wasa/internal/registry"
-	"github.com/joakimcarlsson/wasa/internal/repo"
-	"github.com/joakimcarlsson/wasa/internal/tui/pane"
+	"github.com/joakimcarlsson/wasa-cli/internal/config"
+	"github.com/joakimcarlsson/wasa-cli/internal/registry"
+	"github.com/joakimcarlsson/wasa-cli/internal/repo"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui/pane"
 )
 
 // previewColorBackend is a non-streaming SessionBackend whose Capture returns a
