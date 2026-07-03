@@ -15,11 +15,17 @@ const fileName = "registry.json"
 // Registry holds the persisted workspaces and sessions for a single $WASA_HOME.
 // It is not safe for concurrent use. Mutations are in-memory until Save.
 type Registry struct {
-	dir  string
-	now  func() time.Time
-	ws   []*Workspace
-	sess []*Session
+	dir      string
+	now      func() time.Time
+	ws       []*Workspace
+	sess     []*Session
+	onChange func()
 }
+
+// SetOnChange registers fn to run after every successful Save — the single
+// choke point every registry mutation flows through before it counts. fn is
+// called on the saving goroutine and must not mutate the registry.
+func (r *Registry) SetOnChange(fn func()) { r.onChange = fn }
 
 type document struct {
 	Workspaces []*Workspace `json:"workspaces"`
@@ -85,7 +91,13 @@ func (r *Registry) Save() error {
 		return err
 	}
 
-	return os.Rename(tmpName, filepath.Join(r.dir, fileName))
+	if err := os.Rename(tmpName, filepath.Join(r.dir, fileName)); err != nil {
+		return err
+	}
+	if r.onChange != nil {
+		r.onChange()
+	}
+	return nil
 }
 
 // ListWorkspaces returns the workspaces sorted most-recently-used first. An
