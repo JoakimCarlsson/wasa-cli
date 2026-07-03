@@ -51,6 +51,15 @@ type StreamingBackend interface {
 	Watch(name string) (Watcher, error)
 }
 
+// InputBackend is the optional capability a SessionBackend may implement to
+// inject keystrokes into a session's active pane, as if typed at its
+// terminal. The link layer uses it to deliver input sent from the browser;
+// a backend without it simply cannot receive remote input.
+type InputBackend interface {
+	// SendKeys delivers data to the named session's active pane verbatim.
+	SendKeys(name, data string) error
+}
+
 // Watcher is a live subscription to a session's pane content. Updates yields a
 // fresh full-pane capture, with escape sequences preserved (like Capture),
 // whenever the pane changes; it never repeats a byte-identical capture, so an

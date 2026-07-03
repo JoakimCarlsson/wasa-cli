@@ -174,6 +174,17 @@ func (c *Client) Capture(name string) (string, error) {
 	}
 }
 
+// SendKeys types data into the active pane of the session named name,
+// verbatim: -l suppresses tmux's key-name lookup so the bytes arrive as
+// typed, including a trailing carriage return acting as enter.
+func (c *Client) SendKeys(name, data string) error {
+	if err := validateName(name); err != nil {
+		return err
+	}
+	_, err := c.run("send-keys", "-t", name, "-l", "--", data)
+	return err
+}
+
 // Kill kills the session named name.
 func (c *Client) Kill(name string) error {
 	if err := validateName(name); err != nil {

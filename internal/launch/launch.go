@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/backend"
 	"github.com/joakimcarlsson/wasa-cli/internal/bootstrap"
@@ -21,12 +22,31 @@ import (
 // WorkingDir. An empty Program runs the backend's OS shell and an empty Profile
 // selects the workspace default. Callers derive a concrete Program from
 // DetectAgents and Shell rather than relying on a hardcoded agent name.
+// A non-empty Prompt is appended to Program as a shell-quoted argument at
+// spawn time — the initial prompt agents like claude accept positionally —
+// while the session's recorded Program stays the bare command.
 type Params struct {
 	Branch     string
 	Title      string
 	Program    string
 	Profile    string
 	WorkingDir string
+	Prompt     string
+}
+
+// spawnProgram is the command line a session is spawned with: the program,
+// plus the prompt as one quoted argument when present.
+func (p Params) spawnProgram() string {
+	if p.Prompt == "" {
+		return p.Program
+	}
+	return p.Program + " " + shellQuote(p.Prompt)
+}
+
+// shellQuote wraps s in single quotes for the shell tmux hands a
+// single-argument command to, escaping embedded single quotes.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // ops are the side-effecting operations the create flow performs, injected so
@@ -215,7 +235,9 @@ func createWorktreeSession(
 
 	tmuxName := registry.TmuxName(ws.ID, sessionID)
 	spawnEnv := o.prepareHooks(home, sessionID, program, env)
-	if err := o.spawn(tmuxName, worktreePath, spawnEnv, program); err != nil {
+	if err := o.spawn(
+		tmuxName, worktreePath, spawnEnv, p.spawnProgram(),
+	); err != nil {
 		return nil, err
 	}
 
@@ -257,7 +279,9 @@ func createPlainSession(
 	sessionID := registry.NewSessionID()
 	tmuxName := registry.TmuxName(workspaceID, sessionID)
 	spawnEnv := o.prepareHooks(home, sessionID, program, env)
-	if err := o.spawn(tmuxName, p.WorkingDir, spawnEnv, program); err != nil {
+	if err := o.spawn(
+		tmuxName, p.WorkingDir, spawnEnv, p.spawnProgram(),
+	); err != nil {
 		return nil, err
 	}
 

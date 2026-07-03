@@ -130,18 +130,31 @@ func New(
 	return m
 }
 
-// Run launches the cockpit over reg and blocks until the user quits. It uses the
-// alternate screen so the terminal is restored on exit and around every attach.
-// cfg is the resolved cockpit configuration.
+// NewProgram builds the cockpit's Bubble Tea program without running it, so
+// the caller can hand its Send to collaborators — the link layer marshals
+// dispatch work onto the program — before blocking in Run. It uses the
+// alternate screen so the terminal is restored on exit and around every
+// attach.
+func NewProgram(
+	home string,
+	reg *registry.Registry,
+	currentID string,
+	cfg config.Config,
+) *tea.Program {
+	return tea.NewProgram(
+		New(home, reg, currentID, cfg), tea.WithAltScreen(),
+	)
+}
+
+// Run launches the cockpit over reg and blocks until the user quits. cfg is
+// the resolved cockpit configuration.
 func Run(
 	home string,
 	reg *registry.Registry,
 	currentID string,
 	cfg config.Config,
 ) error {
-	_, err := tea.NewProgram(
-		New(home, reg, currentID, cfg), tea.WithAltScreen(),
-	).Run()
+	_, err := NewProgram(home, reg, currentID, cfg).Run()
 	return err
 }
 
@@ -309,6 +322,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.activeID = msg.wsID
 		m.cursor = 0
 		return m, m.refresh()
+
+	case DispatchMsg:
+		return m.handleDispatch(msg)
+
+	case SessionTargetMsg:
+		m.resolveSessionTarget(msg)
+		return m, nil
 
 	case attachedMsg:
 		if msg.err != nil {

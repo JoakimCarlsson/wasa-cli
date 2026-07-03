@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mattn/go-isatty"
 
 	"github.com/joakimcarlsson/wasa-api/pkg/protocol"
@@ -36,18 +37,23 @@ func runCockpit() error {
 		currentID = current.ID
 	}
 
-	stopLink := startLinkLoop(reg)
+	p := tui.NewProgram(wasaHome(), reg, currentID, cfg)
+
+	stopLink := startLinkLoop(reg, p)
 	defer stopLink()
 
-	return tui.Run(wasaHome(), reg, currentID, cfg)
+	_, err = p.Run()
+	return err
 }
 
 // startLinkLoop dials out to the control plane for the cockpit's lifetime
 // when the runner is linked. It is silent and best-effort: no credential, an
 // unreadable file or an offline api never blocks or degrades the cockpit.
 // Registry snapshots are built on the saving goroutine (the registry is not
-// safe for concurrent use) and handed to the loop over a latest-wins channel.
-func startLinkLoop(reg *registry.Registry) (stop func()) {
+// safe for concurrent use) and handed to the loop over a latest-wins
+// channel; inbound control-plane requests are marshalled back onto the
+// program (see tuiHost).
+func startLinkLoop(reg *registry.Registry, p *tea.Program) (stop func()) {
 	creds, ok, err := link.LoadCredentials(wasaHome())
 	if err != nil || !ok {
 		return func() {}
@@ -72,8 +78,60 @@ func startLinkLoop(reg *registry.Registry) (stop func()) {
 	push()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go link.Loop(ctx, creds, buildVersion, states)
+	go link.Loop(ctx, creds, buildVersion, states, tuiHost{p: p})
 	return cancel
+}
+
+// tuiHost implements link.Host over the cockpit's Bubble Tea program: every
+// request becomes a message handled on the update goroutine, which owns the
+// registry. Replies are buffered so the handler never blocks on a caller
+// that has already given up.
+type tuiHost struct {
+	p *tea.Program
+}
+
+// Dispatch asks the cockpit to create a session for the intent.
+func (h tuiHost) Dispatch(
+	ctx context.Context,
+	d protocol.Dispatch,
+) protocol.DispatchResult {
+	reply := make(chan tui.DispatchResult, 1)
+	h.p.Send(tui.DispatchMsg{
+		WorkspaceID: d.WorkspaceID,
+		Intent:      d.Intent,
+		Reply:       reply,
+	})
+	select {
+	case r := <-reply:
+		return protocol.DispatchResult{
+			DispatchID: d.DispatchID,
+			OK:         r.Code == "",
+			SessionID:  r.SessionID,
+			Code:       r.Code,
+			Message:    r.Message,
+		}
+	case <-ctx.Done():
+		return protocol.DispatchResult{
+			DispatchID: d.DispatchID,
+			Code:       protocol.DispatchErrLaunchFailed,
+			Message:    "the runner is shutting down",
+		}
+	}
+}
+
+// SessionTarget resolves a session id to its tmux session name.
+func (h tuiHost) SessionTarget(
+	ctx context.Context,
+	sessionID string,
+) (string, bool) {
+	reply := make(chan tui.SessionTarget, 1)
+	h.p.Send(tui.SessionTargetMsg{SessionID: sessionID, Reply: reply})
+	select {
+	case t := <-reply:
+		return t.TmuxName, t.OK
+	case <-ctx.Done():
+		return "", false
+	}
 }
 
 // snapshotState maps the registry into the wire snapshot the control plane

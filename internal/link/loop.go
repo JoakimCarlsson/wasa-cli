@@ -11,6 +11,8 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/joakimcarlsson/wasa-api/pkg/protocol"
+
+	"github.com/joakimcarlsson/wasa-cli/internal/backend"
 )
 
 const (
@@ -23,17 +25,24 @@ const (
 // capped exponential backoff and jitter, forever. states delivers fresh
 // snapshots whenever the registry changes; while offline they simply
 // overwrite each other and the next connect sends the latest — the runner
-// never blocks on the control plane. The loop is completely silent: the
-// cockpit owns the terminal and an offline api must not degrade local usage.
-// It returns when ctx is cancelled or the token is rejected (revoked
-// server-side).
+// never blocks on the control plane. host acts on the control plane's
+// inbound requests: dispatches, session output subscriptions and input.
+// The loop is completely silent: the cockpit owns the terminal and an
+// offline api must not degrade local usage. It returns when ctx is
+// cancelled or the token is rejected (revoked server-side).
 func Loop(
 	ctx context.Context,
 	creds Credentials,
 	version string,
 	states <-chan protocol.State,
+	host Host,
 ) {
-	l := &runnerLink{creds: creds, version: version, states: states}
+	l := &runnerLink{
+		creds:   creds,
+		version: version,
+		states:  states,
+		host:    host,
+	}
 	backoff := initialBackoff
 	for {
 		connected, fatal := l.connectOnce(ctx)
@@ -56,6 +65,7 @@ type runnerLink struct {
 	creds   Credentials
 	version string
 	states  <-chan protocol.State
+	host    Host
 	latest  protocol.State
 	have    bool
 }
@@ -119,13 +129,18 @@ func (l *runnerLink) connectOnce(
 		}
 	}
 
+	in := newInbound(l.host, backend.Default())
+	defer in.stop()
+
 	readErr := make(chan error, 1)
 	go func() {
 		for {
-			if _, _, err := conn.Read(ctx); err != nil {
+			_, data, err := conn.Read(ctx)
+			if err != nil {
 				readErr <- err
 				return
 			}
+			in.handle(ctx, data)
 		}
 	}()
 
@@ -146,6 +161,10 @@ func (l *runnerLink) connectOnce(
 			l.latest, l.have = st, true
 			l.pull()
 			if err := l.sendState(ctx, conn); err != nil {
+				return true, false
+			}
+		case frame := <-in.out:
+			if err := write(ctx, conn, frame); err != nil {
 				return true, false
 			}
 		case <-ticker.C:
