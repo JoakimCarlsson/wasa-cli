@@ -11,6 +11,7 @@ import (
 	"github.com/joakimcarlsson/wasa-api/pkg/protocol"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
+	"github.com/joakimcarlsson/wasa-cli/internal/launch"
 	"github.com/joakimcarlsson/wasa-cli/internal/link"
 	"github.com/joakimcarlsson/wasa-cli/internal/registry"
 	"github.com/joakimcarlsson/wasa-cli/internal/tui"
@@ -99,6 +100,7 @@ func (h tuiHost) Dispatch(
 	h.p.Send(tui.DispatchMsg{
 		WorkspaceID: d.WorkspaceID,
 		Intent:      d.Intent,
+		Program:     d.Program,
 		Reply:       reply,
 	})
 	select {
@@ -142,6 +144,7 @@ func snapshotState(reg *registry.Registry) protocol.State {
 	st := protocol.State{
 		Workspaces: make([]protocol.Workspace, 0, len(workspaces)),
 		Sessions:   make([]protocol.Session, 0, len(sessions)),
+		Agents:     launch.DetectAgents(),
 	}
 	for _, w := range workspaces {
 		repo := w.RemoteURL

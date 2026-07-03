@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -17,6 +18,7 @@ import (
 type DispatchMsg struct {
 	WorkspaceID string
 	Intent      string
+	Program     string
 	Reply       chan<- DispatchResult
 }
 
@@ -71,10 +73,22 @@ func (m Model) handleDispatch(msg DispatchMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	program := agents[0]
+	if msg.Program != "" {
+		if !slices.Contains(agents, msg.Program) {
+			msg.Reply <- DispatchResult{
+				Code: dispatchErrLaunchFailed,
+				Message: "agent " + msg.Program +
+					" is not available on this runner",
+			}
+			return m, nil
+		}
+		program = msg.Program
+	}
 	params := launch.Params{
 		Branch:  dispatchBranch(msg.Intent),
 		Title:   truncateIntent(msg.Intent),
-		Program: agents[0],
+		Program: program,
 		Prompt:  msg.Intent,
 	}
 	return m, m.dispatchCmd(ws, params, msg.Reply)
