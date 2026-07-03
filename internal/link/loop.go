@@ -18,15 +18,25 @@ const (
 	maxBackoff     = time.Minute
 )
 
-// Loop keeps a websocket to the control plane alive: connect, hello,
-// heartbeat on a ticker, reconnect on drop with capped exponential backoff and
-// jitter, forever. It is completely silent — the cockpit owns the terminal
-// and an offline api must not degrade local usage. It returns when ctx is
-// cancelled or the token is rejected (revoked server-side).
-func Loop(ctx context.Context, creds Credentials, version string) {
+// Loop keeps a websocket to the control plane alive: connect, hello, the
+// latest registry snapshot, heartbeat on a ticker, reconnect on drop with
+// capped exponential backoff and jitter, forever. states delivers fresh
+// snapshots whenever the registry changes; while offline they simply
+// overwrite each other and the next connect sends the latest — the runner
+// never blocks on the control plane. The loop is completely silent: the
+// cockpit owns the terminal and an offline api must not degrade local usage.
+// It returns when ctx is cancelled or the token is rejected (revoked
+// server-side).
+func Loop(
+	ctx context.Context,
+	creds Credentials,
+	version string,
+	states <-chan protocol.State,
+) {
+	l := &runnerLink{creds: creds, version: version, states: states}
 	backoff := initialBackoff
 	for {
-		connected, fatal := connectOnce(ctx, creds, version)
+		connected, fatal := l.connectOnce(ctx)
 		if fatal || ctx.Err() != nil {
 			return
 		}
@@ -42,22 +52,40 @@ func Loop(ctx context.Context, creds Credentials, version string) {
 	}
 }
 
-// connectOnce dials, introduces the runner, and heartbeats until the
-// connection drops. connected reports whether the session got as far as
-// hello, which resets the caller's backoff; fatal means the api rejected the
-// token and reconnecting is pointless.
-func connectOnce(
+type runnerLink struct {
+	creds   Credentials
+	version string
+	states  <-chan protocol.State
+	latest  protocol.State
+	have    bool
+}
+
+// pull drains any queued snapshots so latest holds the freshest one.
+func (l *runnerLink) pull() {
+	for {
+		select {
+		case st := <-l.states:
+			l.latest, l.have = st, true
+		default:
+			return
+		}
+	}
+}
+
+// connectOnce dials, introduces the runner, reports its registry, and
+// heartbeats until the connection drops. connected reports whether the
+// session got as far as hello, which resets the caller's backoff; fatal
+// means the api rejected the token and reconnecting is pointless.
+func (l *runnerLink) connectOnce(
 	ctx context.Context,
-	creds Credentials,
-	version string,
 ) (connected, fatal bool) {
 	dialCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	conn, resp, err := websocket.Dial(
 		dialCtx,
-		strings.TrimSuffix(creds.URL, "/")+"/ws/runner",
+		strings.TrimSuffix(l.creds.URL, "/")+"/ws/runner",
 		&websocket.DialOptions{
 			HTTPHeader: http.Header{
-				"Authorization": {"Bearer " + creds.Token},
+				"Authorization": {"Bearer " + l.creds.Token},
 			},
 		},
 	)
@@ -75,13 +103,20 @@ func connectOnce(
 
 	hello, err := protocol.EncodeHello(protocol.Hello{
 		Name:    Hostname(),
-		Version: version,
+		Version: l.version,
 	})
 	if err != nil {
 		return false, false
 	}
 	if err := write(ctx, conn, hello); err != nil {
 		return false, false
+	}
+
+	l.pull()
+	if l.have {
+		if err := l.sendState(ctx, conn); err != nil {
+			return true, false
+		}
 	}
 
 	readErr := make(chan error, 1)
@@ -107,12 +142,29 @@ func connectOnce(
 			return true, true
 		case <-readErr:
 			return true, false
+		case st := <-l.states:
+			l.latest, l.have = st, true
+			l.pull()
+			if err := l.sendState(ctx, conn); err != nil {
+				return true, false
+			}
 		case <-ticker.C:
 			if err := write(ctx, conn, heartbeat); err != nil {
 				return true, false
 			}
 		}
 	}
+}
+
+func (l *runnerLink) sendState(
+	ctx context.Context,
+	conn *websocket.Conn,
+) error {
+	data, err := protocol.EncodeState(l.latest)
+	if err != nil {
+		return err
+	}
+	return write(ctx, conn, data)
 }
 
 func write(ctx context.Context, conn *websocket.Conn, data []byte) error {

@@ -7,8 +7,11 @@ import (
 
 	"github.com/mattn/go-isatty"
 
+	"github.com/joakimcarlsson/wasa-api/pkg/protocol"
+
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
 	"github.com/joakimcarlsson/wasa-cli/internal/link"
+	"github.com/joakimcarlsson/wasa-cli/internal/registry"
 	"github.com/joakimcarlsson/wasa-cli/internal/tui"
 )
 
@@ -33,7 +36,7 @@ func runCockpit() error {
 		currentID = current.ID
 	}
 
-	stopLink := startLinkLoop()
+	stopLink := startLinkLoop(reg)
 	defer stopLink()
 
 	return tui.Run(wasaHome(), reg, currentID, cfg)
@@ -42,14 +45,68 @@ func runCockpit() error {
 // startLinkLoop dials out to the control plane for the cockpit's lifetime
 // when the runner is linked. It is silent and best-effort: no credential, an
 // unreadable file or an offline api never blocks or degrades the cockpit.
-func startLinkLoop() (stop func()) {
+// Registry snapshots are built on the saving goroutine (the registry is not
+// safe for concurrent use) and handed to the loop over a latest-wins channel.
+func startLinkLoop(reg *registry.Registry) (stop func()) {
 	creds, ok, err := link.LoadCredentials(wasaHome())
 	if err != nil || !ok {
 		return func() {}
 	}
+
+	states := make(chan protocol.State, 1)
+	push := func() {
+		st := snapshotState(reg)
+		for {
+			select {
+			case states <- st:
+				return
+			default:
+			}
+			select {
+			case <-states:
+			default:
+			}
+		}
+	}
+	reg.SetOnChange(push)
+	push()
+
 	ctx, cancel := context.WithCancel(context.Background())
-	go link.Loop(ctx, creds, buildVersion)
+	go link.Loop(ctx, creds, buildVersion, states)
 	return cancel
+}
+
+// snapshotState maps the registry into the wire snapshot the control plane
+// consumes.
+func snapshotState(reg *registry.Registry) protocol.State {
+	workspaces := reg.ListWorkspaces()
+	sessions := reg.ListSessions()
+	st := protocol.State{
+		Workspaces: make([]protocol.Workspace, 0, len(workspaces)),
+		Sessions:   make([]protocol.Session, 0, len(sessions)),
+	}
+	for _, w := range workspaces {
+		repo := w.RemoteURL
+		if repo == "" {
+			repo = w.RepoPath
+		}
+		st.Workspaces = append(st.Workspaces, protocol.Workspace{
+			ID:   w.ID,
+			Name: w.Name,
+			Repo: repo,
+		})
+	}
+	for _, s := range sessions {
+		st.Sessions = append(st.Sessions, protocol.Session{
+			ID:          s.ID,
+			WorkspaceID: s.WorkspaceID,
+			Branch:      s.Branch,
+			Agent:       s.Program,
+			Status:      s.Status,
+			CreatedAt:   s.CreatedAt,
+		})
+	}
+	return st
 }
 
 // interactive reports whether w is a terminal the cockpit can take over. It
