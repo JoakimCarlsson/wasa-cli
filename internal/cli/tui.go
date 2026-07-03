@@ -101,6 +101,7 @@ func (h tuiHost) Dispatch(
 		WorkspaceID: d.WorkspaceID,
 		Intent:      d.Intent,
 		Program:     d.Program,
+		Autonomous:  d.Autonomous,
 		Reply:       reply,
 	})
 	select {

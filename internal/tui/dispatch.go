@@ -19,6 +19,7 @@ type DispatchMsg struct {
 	WorkspaceID string
 	Intent      string
 	Program     string
+	Autonomous  bool
 	Reply       chan<- DispatchResult
 }
 
@@ -84,6 +85,9 @@ func (m Model) handleDispatch(msg DispatchMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		program = msg.Program
+	}
+	if msg.Autonomous {
+		program = launch.WithAutonomous(program)
 	}
 	params := launch.Params{
 		Branch:  dispatchBranch(msg.Intent),
