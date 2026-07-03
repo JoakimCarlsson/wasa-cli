@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"context"
 	"io"
 	"os"
 
 	"github.com/mattn/go-isatty"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
+	"github.com/joakimcarlsson/wasa-cli/internal/link"
 	"github.com/joakimcarlsson/wasa-cli/internal/tui"
 )
 
@@ -30,7 +32,24 @@ func runCockpit() error {
 	if current != nil {
 		currentID = current.ID
 	}
+
+	stopLink := startLinkLoop()
+	defer stopLink()
+
 	return tui.Run(wasaHome(), reg, currentID, cfg)
+}
+
+// startLinkLoop dials out to the control plane for the cockpit's lifetime
+// when the runner is linked. It is silent and best-effort: no credential, an
+// unreadable file or an offline api never blocks or degrades the cockpit.
+func startLinkLoop() (stop func()) {
+	creds, ok, err := link.LoadCredentials(wasaHome())
+	if err != nil || !ok {
+		return func() {}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go link.Loop(ctx, creds, buildVersion)
+	return cancel
 }
 
 // interactive reports whether w is a terminal the cockpit can take over. It
