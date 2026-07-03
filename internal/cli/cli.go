@@ -10,6 +10,10 @@ import (
 
 const programName = "wasa"
 
+// buildVersion is the version string Run was invoked with, kept for
+// subcommands that report it to the control plane.
+var buildVersion string
+
 // Run parses top-level flags, dispatches to a subcommand and returns the
 // process exit code. version is the build-stamped version string.
 func Run(version string, args []string) int {
@@ -17,6 +21,7 @@ func Run(version string, args []string) int {
 }
 
 func run(version string, args []string, stdout, stderr io.Writer) int {
+	buildVersion = version
 	fs := flag.NewFlagSet(programName, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.Usage = func() {}
