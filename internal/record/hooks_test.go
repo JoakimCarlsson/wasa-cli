@@ -8,69 +8,174 @@ import (
 	"testing"
 )
 
-func readSettings(t *testing.T, dir string) map[string]any {
+func claudeSettingsPath(dir string) string {
+	return filepath.Join(dir, ".claude", "settings.json")
+}
+
+func readSettings(t *testing.T, path string) map[string]any {
 	t.Helper()
-	data, err := os.ReadFile(settingsPath(dir))
+	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var m map[string]any
 	if err := json.Unmarshal(data, &m); err != nil {
-		t.Fatalf("settings.json invalid: %v", err)
+		t.Fatalf("settings invalid JSON: %v", err)
 	}
 	return m
 }
 
-func TestInstallRemoveStatus(t *testing.T) {
+// agentConfigPaths maps each supported tool to the hook config file its
+// installer owns.
+var agentConfigPaths = map[string]string{
+	"claude":  filepath.Join(".claude", "settings.json"),
+	"gemini":  filepath.Join(".gemini", "settings.json"),
+	"codex":   filepath.Join(".codex", "hooks.json"),
+	"copilot": filepath.Join(".github", "hooks", "wasa.json"),
+	"cursor":  filepath.Join(".cursor", "hooks.json"),
+}
+
+func TestInstallRemoveStatusAllAgents(t *testing.T) {
+	for tool, rel := range agentConfigPaths {
+		t.Run(tool, func(t *testing.T) {
+			dir := initRepo(t)
+			path := filepath.Join(dir, rel)
+
+			if got := InstalledAgents(dir); len(got) != 0 {
+				t.Fatalf("agents installed before install: %v", got)
+			}
+			if err := InstallHooks(dir, tool, "/usr/bin/wasa"); err != nil {
+				t.Fatalf("install: %v", err)
+			}
+			got := InstalledAgents(dir)
+			if len(got) != 1 || got[0] != tool {
+				t.Errorf("InstalledAgents = %v, want [%s]", got, tool)
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("config not written: %v", err)
+			}
+			if !strings.Contains(string(raw), hookMarker) {
+				t.Errorf("config lacks marker: %s", raw)
+			}
+			if !strings.Contains(string(raw), "--event end") &&
+				tool != "codex" {
+				t.Errorf("%s config lacks an end-marked hook: %s", tool, raw)
+			}
+
+			if err := InstallHooks(dir, tool, "/usr/bin/wasa"); err != nil {
+				t.Fatalf("re-install: %v", err)
+			}
+			again, _ := os.ReadFile(path)
+			if string(raw) != string(again) {
+				t.Error("re-install changed config; not idempotent")
+			}
+
+			if status := mustGit(
+				t, dir, "status", "--porcelain",
+			); status != "" {
+				t.Errorf("install dirtied git status: %q", status)
+			}
+
+			if err := RemoveHooks(dir); err != nil {
+				t.Fatalf("remove: %v", err)
+			}
+			if got := InstalledAgents(dir); len(got) != 0 {
+				t.Errorf("agents still installed after remove: %v", got)
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Error("config file not deleted when only wasa hooks remained")
+			}
+		})
+	}
+}
+
+func TestGeminiInstallEnablesHooksConfig(t *testing.T) {
 	dir := initRepo(t)
-	cmd := HookCommand("/usr/bin/wasa")
+	if err := InstallHooks(dir, "gemini", "wasa"); err != nil {
+		t.Fatal(err)
+	}
+	m := readSettings(t, filepath.Join(dir, ".gemini", "settings.json"))
+	cfg, _ := m["hooksConfig"].(map[string]any)
+	if cfg["enabled"] != true {
+		t.Errorf("hooksConfig = %v, want enabled true", m["hooksConfig"])
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, ".gemini", "settings.json"))
+	if !strings.Contains(string(raw), `"name"`) {
+		t.Error("gemini hook entries lack the required name field")
+	}
+}
 
-	if HooksInstalled(dir) {
-		t.Fatal("hooks reported installed before install")
+func TestCodexInstallWritesFeatureFlag(t *testing.T) {
+	dir := initRepo(t)
+	if err := InstallHooks(dir, "codex", "wasa"); err != nil {
+		t.Fatal(err)
 	}
-	if err := InstallClaudeHooks(dir, cmd); err != nil {
-		t.Fatalf("install: %v", err)
+	data, err := os.ReadFile(filepath.Join(dir, ".codex", "config.toml"))
+	if err != nil || !strings.Contains(string(data), "hooks = true") {
+		t.Errorf("config.toml feature flag missing: %v %q", err, data)
 	}
-	if !HooksInstalled(dir) {
-		t.Error("hooks not reported installed")
+	if err := RemoveHooks(dir); err != nil {
+		t.Fatal(err)
 	}
+	if _, err := os.Stat(
+		filepath.Join(dir, ".codex", "config.toml"),
+	); !os.IsNotExist(err) {
+		t.Error("wasa-written config.toml not removed")
+	}
+}
 
-	raw, _ := os.ReadFile(settingsPath(dir))
-	for _, event := range hookEvents {
-		if !strings.Contains(string(raw), event) {
-			t.Errorf("event %s missing from settings", event)
-		}
+func TestCodexInstallRespectsForeignConfigToml(t *testing.T) {
+	dir := initRepo(t)
+	path := filepath.Join(dir, ".codex", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
 	}
+	if err := os.WriteFile(
+		path, []byte("model = \"o3\"\n"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := InstallHooks(dir, "codex", "wasa"); err == nil {
+		t.Error("install should surface the missing hooks feature flag")
+	}
+	data, _ := os.ReadFile(path)
+	if string(data) != "model = \"o3\"\n" {
+		t.Error("foreign config.toml was modified")
+	}
+	if err := RemoveHooks(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Error("foreign config.toml was removed")
+	}
+}
 
-	if err := InstallClaudeHooks(dir, cmd); err != nil {
-		t.Fatalf("re-install: %v", err)
+func TestFlatInstallRefusesForeignFile(t *testing.T) {
+	dir := initRepo(t)
+	path := filepath.Join(dir, ".cursor", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	again, _ := os.ReadFile(settingsPath(dir))
-	if string(raw) != string(again) {
-		t.Error("re-install changed settings; not idempotent")
+	if err := os.WriteFile(
+		path, []byte(`{"version":1,"hooks":{}}`), 0o644,
+	); err != nil {
+		t.Fatal(err)
 	}
-	if n := strings.Count(string(again), hookMarker); n != len(hookEvents) {
-		t.Errorf("marker appears %d times, want %d", n, len(hookEvents))
+	if err := InstallHooks(dir, "cursor", "wasa"); err == nil {
+		t.Error("install should refuse a foreign hooks.json")
 	}
-
-	if status := mustGit(t, dir, "status", "--porcelain"); status != "" {
-		t.Errorf("settings install dirtied git status: %q", status)
+	if err := RemoveHooks(dir); err != nil {
+		t.Fatal(err)
 	}
-
-	if err := RemoveClaudeHooks(dir); err != nil {
-		t.Fatalf("remove: %v", err)
-	}
-	if HooksInstalled(dir) {
-		t.Error("hooks still reported installed after remove")
-	}
-	if _, err := os.Stat(settingsPath(dir)); !os.IsNotExist(err) {
-		t.Error("settings file not deleted when only wasa hooks remained")
+	if _, err := os.Stat(path); err != nil {
+		t.Error("foreign hooks.json was removed")
 	}
 }
 
 func TestInstallPreservesUserSettings(t *testing.T) {
 	dir := initRepo(t)
-	path := settingsPath(dir)
+	path := claudeSettingsPath(dir)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -86,10 +191,10 @@ func TestInstallPreservesUserSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := InstallClaudeHooks(dir, HookCommand("wasa")); err != nil {
+	if err := InstallHooks(dir, "claude", "wasa"); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	m := readSettings(t, dir)
+	m := readSettings(t, path)
 	if m["model"] != "opus" {
 		t.Error("user setting lost on install")
 	}
@@ -98,7 +203,7 @@ func TestInstallPreservesUserSettings(t *testing.T) {
 		t.Error("user hook lost on install")
 	}
 
-	if err := RemoveClaudeHooks(dir); err != nil {
+	if err := RemoveHooks(dir); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 	raw, _ = os.ReadFile(path)
@@ -108,7 +213,7 @@ func TestInstallPreservesUserSettings(t *testing.T) {
 	if strings.Contains(string(raw), hookMarker) {
 		t.Error("wasa hook survived remove")
 	}
-	m = readSettings(t, dir)
+	m = readSettings(t, path)
 	if m["model"] != "opus" {
 		t.Error("user setting lost on remove")
 	}
@@ -116,14 +221,14 @@ func TestInstallPreservesUserSettings(t *testing.T) {
 
 func TestInstallRefusesInvalidJSON(t *testing.T) {
 	dir := initRepo(t)
-	path := settingsPath(dir)
+	path := claudeSettingsPath(dir)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte("{broken"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := InstallClaudeHooks(dir, HookCommand("wasa")); err == nil {
+	if err := InstallHooks(dir, "claude", "wasa"); err == nil {
 		t.Error("install should refuse to clobber invalid JSON")
 	}
 	raw, _ := os.ReadFile(path)
@@ -133,29 +238,61 @@ func TestInstallRefusesInvalidJSON(t *testing.T) {
 }
 
 func TestRemoveWithoutSettingsIsNoOp(t *testing.T) {
-	if err := RemoveClaudeHooks(t.TempDir()); err != nil {
+	if err := RemoveHooks(initRepo(t)); err != nil {
 		t.Errorf("remove with no settings: %v", err)
 	}
 }
 
 func TestEnsureExcluded(t *testing.T) {
 	dir := initRepo(t)
-	if err := InstallClaudeHooks(dir, HookCommand("wasa")); err != nil {
-		t.Fatal(err)
+	for _, tool := range []string{"claude", "gemini"} {
+		if err := InstallHooks(dir, tool, "wasa"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	data, err := os.ReadFile(filepath.Join(dir, ".git", "info", "exclude"))
 	if err != nil {
 		t.Fatalf("info/exclude: %v", err)
 	}
-	if !strings.Contains(string(data), excludeEntry) {
-		t.Errorf("exclude entry missing: %q", data)
+	for _, entry := range []string{
+		".claude/settings.json", ".gemini/settings.json",
+	} {
+		if !strings.Contains(string(data), entry) {
+			t.Errorf("exclude entry %s missing: %q", entry, data)
+		}
 	}
 
-	if err := InstallClaudeHooks(dir, HookCommand("wasa")); err != nil {
+	if err := InstallHooks(dir, "claude", "wasa"); err != nil {
 		t.Fatal(err)
 	}
 	again, _ := os.ReadFile(filepath.Join(dir, ".git", "info", "exclude"))
-	if strings.Count(string(again), excludeEntry) != 1 {
+	if strings.Count(string(again), ".claude/settings.json") != 1 {
 		t.Errorf("exclude entry duplicated: %q", again)
+	}
+}
+
+func TestAgentForProgram(t *testing.T) {
+	cases := map[string]string{
+		"claude":                         "claude",
+		"/usr/bin/claude --resume":       "claude",
+		"gemini --yolo":                  "gemini",
+		"codex":                          "codex",
+		"copilot":                        "copilot",
+		"cursor-agent --force":           "cursor",
+		"bash":                           "",
+		"/opt/homebrew/bin/cursor-agent": "cursor",
+	}
+	for program, want := range cases {
+		got, ok := AgentForProgram(program)
+		if want == "" {
+			if ok {
+				t.Errorf("AgentForProgram(%q) = %q, want none", program, got)
+			}
+			continue
+		}
+		if !ok || got != want {
+			t.Errorf("AgentForProgram(%q) = %q %v, want %q",
+				program, got, ok, want)
+		}
 	}
 }

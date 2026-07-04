@@ -121,7 +121,7 @@ started the session (`intent.md`), the conversation so far
 (`meta.json`).
 
 Recording happens on three triggers, all automatic for sessions launched
-through wasa (Claude Code hooks are installed in the session worktree at
+through wasa (the agent's hooks are installed in the session worktree at
 launch and disappear with it):
 
 - a checkpoint per commit that lands on the session branch,
@@ -140,17 +140,32 @@ wasa checkpoints show <session>   # intent + meta, pages the transcript
 git fetch origin refs/wasa/checkpoints:refs/wasa/checkpoints
 ```
 
+Hook-driven capture works for every agent wasa launches, each through its
+own native hook configuration:
+
+| Agent       | Hook configuration                                  |
+| ----------- | --------------------------------------------------- |
+| Claude Code | `.claude/settings.json`                             |
+| Gemini CLI  | `.gemini/settings.json` (+ `hooksConfig.enabled`)   |
+| Codex CLI   | `.codex/hooks.json` (+ `[features] hooks` in TOML)  |
+| Copilot CLI | `.github/hooks/wasa.json`                           |
+| Cursor      | `.cursor/hooks.json`                                |
+
+(Codex exposes no session-end hook, so an unmanaged Codex session gets
+commit-linked checkpoints but closes only through `wasa finish`.)
+
 To also record agent sessions run **directly** in a repository — no wasa
-session around them — enable repo-level recording once:
+session around them — enable repo-level recording once; it installs hooks
+for every supported agent found on your PATH:
 
 ```sh
-wasa record enable    # installs hooks in .claude/settings.json
+wasa record enable
 wasa record status
 wasa record disable
 ```
 
 Unmanaged sessions land on the same ref, marked `unmanaged`, with the intent
-taken from the transcript's first user message.
+taken from the first prompt the agent's hooks report.
 
 Safety properties, by construction: checkpoints are written with git plumbing
 only, so your branches, index, working copy and `git status` are never

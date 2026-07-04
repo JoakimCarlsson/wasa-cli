@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/record"
 	"github.com/joakimcarlsson/wasa-cli/internal/worktree"
@@ -23,11 +24,14 @@ const recordUsage = "usage: wasa record <enable|disable|status>"
 const recordHelp = `usage: wasa record <enable|disable|status>
 
 Repo-level session recording. "enable" installs persistent hook
-configuration (Claude Code: .claude/settings.json) in the repository
-containing the current directory, so ANY agent session run in it — including
-sessions started directly, with no wasa session around them — is recorded as
-checkpoints on the ` + record.RefName + ` ref. "disable" removes the hooks;
-"status" reports the current state.
+configuration for every supported agent found on your PATH (Claude Code,
+Gemini CLI, Codex CLI, Copilot CLI, Cursor — e.g. .claude/settings.json,
+.gemini/settings.json, .codex/hooks.json, .github/hooks/wasa.json,
+.cursor/hooks.json) in the repository containing the current directory, so
+ANY agent session run in it — including sessions started directly, with no
+wasa session around them — is recorded as checkpoints on the
+` + record.RefName + ` ref. "disable" removes the hooks; "status" reports
+the current state.
 
 Recorded transcripts are redacted for common secret formats (API keys,
 tokens, credentials) before they enter the repository. Redaction is
@@ -67,28 +71,39 @@ func runRecord(args []string) error {
 		if err != nil {
 			return err
 		}
-		if err := record.InstallClaudeHooks(
-			repoPath, record.HookCommand(exe),
-		); err != nil {
-			return err
+		tools := record.DetectedAgents()
+		if len(tools) == 0 {
+			return errors.New(
+				"no supported agent found on PATH " +
+					"(claude, gemini, codex, copilot, cursor-agent)",
+			)
+		}
+		for _, tool := range tools {
+			if err := record.InstallHooks(repoPath, tool, exe); err != nil {
+				return fmt.Errorf("%s: %w", tool, err)
+			}
 		}
 		fmt.Fprintf(
 			os.Stdout,
-			"recording enabled for %s\nagent sessions run in this repository "+
-				"now record to %s (transcripts redacted best-effort)\n",
-			repoPath, record.RefName,
+			"recording enabled for %s (%s)\nagent sessions run in this "+
+				"repository now record to %s (transcripts redacted "+
+				"best-effort)\n",
+			repoPath, strings.Join(tools, ", "), record.RefName,
 		)
 	case "disable":
-		if err := record.RemoveClaudeHooks(repoPath); err != nil {
+		if err := record.RemoveHooks(repoPath); err != nil {
 			return err
 		}
 		fmt.Fprintf(os.Stdout, "recording disabled for %s\n", repoPath)
 	case "status":
-		state := "disabled"
-		if record.HooksInstalled(repoPath) {
-			state = "enabled"
+		if tools := record.InstalledAgents(repoPath); len(tools) > 0 {
+			fmt.Fprintf(
+				os.Stdout, "recording enabled for %s (%s)\n",
+				repoPath, strings.Join(tools, ", "),
+			)
+		} else {
+			fmt.Fprintf(os.Stdout, "recording disabled for %s\n", repoPath)
 		}
-		fmt.Fprintf(os.Stdout, "recording %s for %s\n", state, repoPath)
 	default:
 		return errors.New(recordUsage)
 	}

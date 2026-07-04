@@ -101,23 +101,22 @@ func defaultOps() ops {
 	}
 }
 
-// installRecordHooks writes wasa's recording hook into the worktree's agent
-// configuration (Claude Code: .claude/settings.json) so the session reports
-// transcript and commit events to `wasa record-hook`. The configuration
-// lives in the worktree and disappears with it at finish. Only Claude Code
-// is supported so far; other agents launch unrecorded until they grow an
-// adapter.
+// installRecordHooks writes wasa's recording hooks into the worktree's agent
+// configuration (e.g. Claude Code's .claude/settings.json, Gemini's
+// .gemini/settings.json) so the session reports transcript and commit events
+// to `wasa record-hook`. The configuration lives in the worktree and
+// disappears with it at finish. An agent with no recording integration
+// launches unrecorded.
 func installRecordHooks(worktreePath, program string) {
-	if baseExe(program) != "claude" {
+	tool, ok := record.AgentForProgram(program)
+	if !ok {
 		return
 	}
 	exe, err := os.Executable()
 	if err != nil {
 		return
 	}
-	if err := record.InstallClaudeHooks(
-		worktreePath, record.HookCommand(exe),
-	); err != nil {
+	if err := record.InstallHooks(worktreePath, tool, exe); err != nil {
 		log.Printf("wasa: session recording hooks not installed: %v", err)
 	}
 }

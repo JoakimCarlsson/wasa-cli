@@ -19,30 +19,35 @@ const commitBurstLimit = 10
 
 // Event is one agent hook invocation, normalized by the CLI handler.
 type Event struct {
-	// Name is the agent's hook event name, e.g. "PostToolUse".
-	Name string
-	// Agent is the reporting agent's name, e.g. "claude".
+	// Agent is the reporting agent's recording tool name, e.g. "claude".
 	Agent string
 	// AgentSessionID is the agent's own session identifier, used as the
-	// recorded session id when no wasa session surrounds it.
+	// recorded session id when no wasa session surrounds it and to locate
+	// the transcript when no payload named it.
 	AgentSessionID string
 	// TranscriptPath is where the agent keeps the session transcript.
 	TranscriptPath string
+	// Prompt is the user prompt carried by prompt-bearing hook events; the
+	// first one seen becomes the session intent.
+	Prompt string
 	// Dir is the directory the agent runs in.
 	Dir string
 	// WasaSession is the surrounding wasa session id; empty marks an
 	// unmanaged session recorded via repo-level hooks.
 	WasaSession string
+	// End marks the agent's session-end event, set by the --event end flag
+	// the installer wrote on that hook entry.
+	End bool
 }
 
 // HandleEvent advances a session's recording from one agent hook event: it
 // tracks the transcript location and intent, writes a commit-linked
 // checkpoint for every commit that landed since the last event, and closes
-// an unmanaged session's record on SessionEnd (a managed session is closed
-// by the finish flow instead). It never returns anything: the hook contract
-// is fire-and-forget, so every failure is a silent no-op.
+// an unmanaged session's record on the agent's session-end event (a managed
+// session is closed by the finish flow instead). It never returns anything:
+// the hook contract is fire-and-forget, so every failure is a silent no-op.
 func HandleEvent(home string, ev Event) {
-	if ev.Dir == "" || ev.Agent == "" {
+	if _, ok := specFor(ev.Agent); !ok || ev.Dir == "" {
 		return
 	}
 	repoDir, err := worktree.Toplevel(ev.Dir)
@@ -64,6 +69,14 @@ func HandleEvent(home string, ev Event) {
 	if ev.TranscriptPath != "" {
 		st.TranscriptPath = ev.TranscriptPath
 	}
+	if st.TranscriptPath == "" {
+		st.TranscriptPath = fallbackTranscript(
+			ev.Agent, ev.AgentSessionID, repoDir,
+		)
+	}
+	if st.Intent == "" {
+		st.Intent = strings.TrimSpace(ev.Prompt)
+	}
 	if st.Intent == "" {
 		transcript, _ := os.ReadFile(st.TranscriptPath)
 		st.Intent = FirstUserMessage(transcript)
@@ -73,7 +86,7 @@ func HandleEvent(home string, ev Event) {
 		st = checkpointNewCommits(repoDir, st, head)
 	}
 
-	if ev.Name == "SessionEnd" && st.Unmanaged {
+	if ev.End && st.Unmanaged {
 		transcript, _ := os.ReadFile(st.TranscriptPath)
 		m := st.meta()
 		m.FinishedAt = time.Now()

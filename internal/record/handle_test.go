@@ -25,7 +25,6 @@ func TestHandleEventUnmanagedLifecycle(t *testing.T) {
 	home := t.TempDir()
 	transcript := writeTranscript(t, sampleTranscript)
 	ev := Event{
-		Name:           "UserPromptSubmit",
 		Agent:          "claude",
 		AgentSessionID: "cc-uuid-1",
 		TranscriptPath: transcript,
@@ -54,7 +53,6 @@ func TestHandleEventUnmanagedLifecycle(t *testing.T) {
 	mustGit(t, dir, "commit", "-q", "-m", "add b")
 	head := mustGit(t, dir, "rev-parse", "HEAD")
 
-	ev.Name = "PostToolUse"
 	HandleEvent(home, ev)
 	entries, err := List(dir)
 	if err != nil || len(entries) != 1 {
@@ -68,7 +66,7 @@ func TestHandleEventUnmanagedLifecycle(t *testing.T) {
 		t.Errorf("meta = %+v", m)
 	}
 
-	ev.Name = "SessionEnd"
+	ev.End = true
 	HandleEvent(home, ev)
 	entries, _ = List(dir)
 	if len(entries) != 1 {
@@ -82,11 +80,54 @@ func TestHandleEventUnmanagedLifecycle(t *testing.T) {
 	}
 }
 
+func TestHandleEventPromptBecomesIntent(t *testing.T) {
+	dir := initRepo(t)
+	home := t.TempDir()
+
+	HandleEvent(home, Event{
+		Agent:          "gemini",
+		AgentSessionID: "gem-1",
+		Prompt:         "refactor the parser",
+		Dir:            dir,
+	})
+	st, ok := loadState(home, "gem-1")
+	if !ok || st.Intent != "refactor the parser" || st.Agent != "gemini" {
+		t.Errorf("state = %+v, %v", st, ok)
+	}
+
+	HandleEvent(home, Event{
+		Agent:          "gemini",
+		AgentSessionID: "gem-1",
+		Prompt:         "a later prompt",
+		Dir:            dir,
+		End:            true,
+	})
+	e, intent, _, err := Find(dir, "gem-1")
+	if err != nil {
+		t.Fatalf("Find: %v", err)
+	}
+	if intent != "refactor the parser" {
+		t.Errorf("intent = %q, want the first prompt", intent)
+	}
+	if e.Meta.Agent != "gemini" || !e.Meta.Unmanaged {
+		t.Errorf("meta = %+v", e.Meta)
+	}
+}
+
+func TestHandleEventUnknownToolIsNoOp(t *testing.T) {
+	home := t.TempDir()
+	HandleEvent(home, Event{
+		Agent: "not-an-agent", AgentSessionID: "x", Dir: initRepo(t),
+	})
+	if _, ok := loadState(home, "x"); ok {
+		t.Error("state written for an unsupported tool")
+	}
+}
+
 func TestHandleEventOutsideRepoIsNoOp(t *testing.T) {
 	home := t.TempDir()
 	HandleEvent(home, Event{
-		Name: "PostToolUse", Agent: "claude",
-		AgentSessionID: "x", Dir: t.TempDir(),
+		Agent: "claude", AgentSessionID: "x", Dir: t.TempDir(),
 	})
 	if _, ok := loadState(home, "x"); ok {
 		t.Error("state written outside a repository")
@@ -111,7 +152,7 @@ func TestFinishManagedSession(t *testing.T) {
 
 	transcript := writeTranscript(t, sampleTranscript)
 	HandleEvent(home, Event{
-		Name: "UserPromptSubmit", Agent: "claude",
+		Agent:          "claude",
 		AgentSessionID: "ignored", TranscriptPath: transcript,
 		Dir: wt, WasaSession: "wasa01",
 	})
