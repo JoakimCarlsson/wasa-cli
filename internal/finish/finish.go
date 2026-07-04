@@ -22,6 +22,11 @@ type Ops interface {
 	RemoveWorktree(path string, force bool) error
 	// DeleteBranch force-deletes the branch, discarding any unmerged work.
 	DeleteBranch(branch string) error
+	// RecordCheckpoint writes the session's closing checkpoint to the
+	// recording ref while the branch and transcript still exist. It is
+	// best-effort by contract: an implementation logs at most one warning
+	// and returns nothing, so recording can never fail a teardown.
+	RecordCheckpoint(s *registry.Session)
 }
 
 // Result reports what teardown did, so the caller can describe the outcome and,
@@ -39,10 +44,12 @@ type Result struct {
 	WorktreePath string
 }
 
-// Session tears down s: it stops the session's tmux if it is still alive, then
-// removes the worktree, then deletes the branch. The order is fixed because git
-// refuses to delete a branch that is checked out in a worktree, so the worktree
-// must go first. No step merges, rebases, pushes or opens a pull request.
+// Session tears down s: it stops the session's tmux if it is still alive,
+// records the session's closing checkpoint, then removes the worktree, then
+// deletes the branch. The order is fixed twice over: recording must run while
+// the branch and worktree still exist, and git refuses to delete a branch
+// that is checked out in a worktree, so the worktree must go before the
+// branch. No step merges, rebases, pushes or opens a pull request.
 //
 // When force is false a dirty worktree blocks the removal: Session returns that
 // error before deleting the branch, leaving the branch and the session intact so
@@ -68,6 +75,8 @@ func Session(ops Ops, s *registry.Session, force bool) (Result, error) {
 			res.KilledTmux = true
 		}
 	}
+
+	ops.RecordCheckpoint(s)
 
 	if s.WorktreePath != "" {
 		if err := ops.RemoveWorktree(s.WorktreePath, force); err != nil {

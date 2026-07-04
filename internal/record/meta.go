@@ -1,0 +1,45 @@
+package record
+
+import "time"
+
+// RefName is the dedicated ref every checkpoint lives on, one per repository.
+const RefName = "refs/wasa/checkpoints"
+
+// Version is the wasa build version stamped into every checkpoint's
+// meta.json. The CLI entry point sets it at startup; the zero value marks a
+// build that never passed through it.
+var Version = "dev"
+
+// Meta is the machine-readable half of a checkpoint, stored as meta.json in
+// the checkpoint tree.
+type Meta struct {
+	// SessionID identifies the recorded session; it is also the checkpoint
+	// commit's subject line.
+	SessionID string `json:"sessionId"`
+	// WorkspaceID is wasa's content-addressed repository id. Empty for
+	// unmanaged sessions, which have no workspace.
+	WorkspaceID string `json:"workspaceId,omitempty"`
+	// Agent is the base executable of the recorded agent, e.g. "claude".
+	Agent string `json:"agent,omitempty"`
+	// Branch is the branch the session worked on.
+	Branch string `json:"branch,omitempty"`
+	// BaseCommit is the commit the session's work started from.
+	BaseCommit string `json:"baseCommit,omitempty"`
+	// Commit is the commit SHA a commit-linked checkpoint points at; empty on
+	// the closing checkpoint.
+	Commit string `json:"commit,omitempty"`
+	// Commits lists every commit SHA the session has produced so far.
+	Commits []string `json:"commits,omitempty"`
+	// StartedAt is when recording first saw the session.
+	StartedAt time.Time `json:"startedAt,omitzero"`
+	// FinishedAt is set only on the closing checkpoint.
+	FinishedAt time.Time `json:"finishedAt,omitzero"`
+	// Unmanaged marks a session recorded via repo-level hooks with no wasa
+	// session around it.
+	Unmanaged bool `json:"unmanaged,omitempty"`
+	// WasaVersion is the wasa build that wrote the checkpoint.
+	WasaVersion string `json:"wasaVersion"`
+	// Gaps notes what a degraded checkpoint is missing (e.g. "transcript
+	// unavailable"), so an incomplete record is honest about it.
+	Gaps []string `json:"gaps,omitempty"`
+}

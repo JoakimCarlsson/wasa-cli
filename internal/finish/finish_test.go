@@ -46,6 +46,10 @@ func (o *recordingOps) DeleteBranch(branch string) error {
 	return o.branchErr
 }
 
+func (o *recordingOps) RecordCheckpoint(s *registry.Session) {
+	o.calls = append(o.calls, "RecordCheckpoint:"+s.ID)
+}
+
 func testSession() *registry.Session {
 	return &registry.Session{
 		ID:           "sess1",
@@ -66,6 +70,7 @@ func TestSessionTeardownSequence(t *testing.T) {
 	want := []string{
 		"TmuxAlive:wasa_ws_sess1",
 		"KillTmux:wasa_ws_sess1",
+		"RecordCheckpoint:sess1",
 		"RemoveWorktree:/wt/feature-x",
 		"DeleteBranch:feature/x",
 	}
@@ -194,10 +199,14 @@ func TestSessionPlainTearsDownTmuxOnly(t *testing.T) {
 		t.Fatalf("Session: %v", err)
 	}
 
-	want := []string{"TmuxAlive:wasa__plain1", "KillTmux:wasa__plain1"}
+	want := []string{
+		"TmuxAlive:wasa__plain1",
+		"KillTmux:wasa__plain1",
+		"RecordCheckpoint:plain1",
+	}
 	if !slices.Equal(ops.calls, want) {
 		t.Fatalf(
-			"call sequence = %v, want only the tmux teardown %v",
+			"call sequence = %v, want only tmux teardown and recording %v",
 			ops.calls,
 			want,
 		)

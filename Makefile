@@ -1,4 +1,4 @@
-.PHONY: install fmt lint build run env
+.PHONY: install fmt lint build run test env
 
 GOPATH_FWD := $(subst \,/,$(shell go env GOPATH))
 
@@ -24,6 +24,9 @@ build:
 
 run: build
 	$(RUN)
+
+test:
+	go test ./...
 
 ifeq ($(OS),Windows_NT)
 env:

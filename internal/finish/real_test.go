@@ -3,8 +3,10 @@ package finish
 import (
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 
+	"github.com/joakimcarlsson/wasa-cli/internal/record"
 	"github.com/joakimcarlsson/wasa-cli/internal/registry"
 	"github.com/joakimcarlsson/wasa-cli/internal/worktree"
 )
@@ -13,7 +15,8 @@ import (
 // and stubs tmux as already dead, so the teardown runs end to end against git
 // without needing a tmux server.
 type realOps struct {
-	wt *worktree.Manager
+	wt   *worktree.Manager
+	home string
 }
 
 func (o realOps) TmuxAlive(string) (bool, error) { return false, nil }
@@ -30,6 +33,10 @@ func (o realOps) DeleteBranch(
 	b string,
 ) error {
 	return o.wt.DeleteBranch(b, true)
+}
+
+func (o realOps) RecordCheckpoint(s *registry.Session) {
+	record.FinishSession(o.home, o.wt.RepoDir, s)
 }
 
 func TestSessionAgainstRealRepo(t *testing.T) {
@@ -55,12 +62,22 @@ func TestSessionAgainstRealRepo(t *testing.T) {
 		Branch:       "feature/finish",
 		WorktreePath: path,
 	}
-	res, err := Session(realOps{wt: m}, s, false)
+	res, err := Session(realOps{wt: m, home: home}, s, false)
 	if err != nil {
 		t.Fatalf("Session: %v", err)
 	}
 	if !res.RemovedWorktree || !res.DeletedBranch {
 		t.Fatalf("teardown incomplete: %+v", res)
+	}
+
+	subject, err := exec.Command(
+		"git", "-C", repo, "log", "--format=%s", record.RefName,
+	).Output()
+	if err != nil {
+		t.Fatalf("no checkpoint ref after finish: %v", err)
+	}
+	if strings.TrimSpace(string(subject)) != "sess1" {
+		t.Fatalf("checkpoint subject = %q, want sess1", subject)
 	}
 
 	if _, err := os.Stat(path); !os.IsNotExist(err) {

@@ -64,12 +64,14 @@ From the cockpit you can browse workspaces, add a git repository as a workspace
 (`w`) or remove one (`W`), create sessions, and attach to running agents. The
 same operations are available as subcommands for scripting:
 
-| Command     | Description                                                       |
-| ----------- | ----------------------------------------------------------------- |
-| `session`   | list and create agent sessions                                    |
-| `workspace` | list, add, remove and resolve per-repository workspaces            |
-| `finish`    | tear down a session: remove its worktree and delete its branch    |
-| `tmux`      | spawn and attach to background sessions                           |
+| Command       | Description                                                       |
+| ------------- | ----------------------------------------------------------------- |
+| `session`     | list and create agent sessions                                    |
+| `workspace`   | list, add, remove and resolve per-repository workspaces            |
+| `finish`      | tear down a session: remove its worktree and delete its branch    |
+| `tmux`        | spawn and attach to background sessions                           |
+| `checkpoints` | list or show recorded agent sessions for this repository          |
+| `record`      | enable, disable or inspect repo-level session recording           |
 
 Run `wasa --help` for the full list, and `wasa <command>` for per-command usage.
 
@@ -107,6 +109,56 @@ local artifacts only, so merge or push any work you want to keep beforehand:
 ```sh
 wasa finish <session>
 ```
+
+### Session recording
+
+wasa records agent sessions **into the repository itself** — git-natively, with
+no service dependency — so "why does this code exist?" still has an answer six
+months later, on any clone. Each session becomes a chain of checkpoints on a
+dedicated ref, `refs/wasa/checkpoints`; every checkpoint holds the prompt that
+started the session (`intent.md`), the conversation so far
+(`transcript.jsonl`) and metadata linking the commits it produced
+(`meta.json`).
+
+Recording happens on three triggers, all automatic for sessions launched
+through wasa (Claude Code hooks are installed in the session worktree at
+launch and disappear with it):
+
+- a checkpoint per commit that lands on the session branch,
+- a closing checkpoint at `wasa finish` with the final transcript and full
+  commit list — a session with zero commits is still recorded,
+- for the details in between, the agent's own hook events keep the record
+  current.
+
+Read it back anywhere:
+
+```sh
+wasa checkpoints                  # one line per recorded session
+wasa checkpoints show <session>   # intent + meta, pages the transcript
+
+# The record travels with the repo — fetch it on any clone:
+git fetch origin refs/wasa/checkpoints:refs/wasa/checkpoints
+```
+
+To also record agent sessions run **directly** in a repository — no wasa
+session around them — enable repo-level recording once:
+
+```sh
+wasa record enable    # installs hooks in .claude/settings.json
+wasa record status
+wasa record disable
+```
+
+Unmanaged sessions land on the same ref, marked `unmanaged`, with the intent
+taken from the transcript's first user message.
+
+Safety properties, by construction: checkpoints are written with git plumbing
+only, so your branches, index, working copy and `git status` are never
+touched; transcripts are redacted for common secret formats (API keys,
+tokens, credentials — best-effort, on by default) before they enter the repo;
+after each write the ref is pushed to `origin` when possible, and silently
+skipped offline. Recording is best-effort throughout: a recorder failure logs
+one warning and never fails or slows the session.
 
 ## Requirements
 
