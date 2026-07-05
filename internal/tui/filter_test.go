@@ -106,12 +106,13 @@ func TestFilterByName(t *testing.T) {
 	}
 }
 
+// TestFilterMatchesBranch narrows by "feat", which appears only in the
+// branches, not the titles.
 func TestFilterMatchesBranch(t *testing.T) {
 	m := filterModel(t)
 	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
 	m = next.(Model)
 
-	// "feat" appears only in the branches, not the titles.
 	m = typeFilter(t, m, "feat")
 	got := sessionIDs(m.sessions())
 	want := map[string]bool{"s1": true, "s2": true, "s4": true}
@@ -143,17 +144,47 @@ func TestFilterStatusTokenRunning(t *testing.T) {
 	}
 }
 
+// TestFilterStatusTokenExitedWithText narrows by "exited log": exited sessions
+// whose haystack matches "log". s3 (gamma logout / fix/logout) qualifies; s1
+// matches "log" but is running.
 func TestFilterStatusTokenExitedWithText(t *testing.T) {
 	m := filterModel(t)
 	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
 	m = next.(Model)
 
-	// "exited log" narrows to exited sessions whose haystack matches "log":
-	// s3 (gamma logout / fix/logout) qualifies; s1 matches "log" but is running.
 	m = typeFilter(t, m, "exited log")
 	got := sessionIDs(m.sessions())
 	if len(got) != 1 || got[0] != "s3" {
 		t.Fatalf("filter \"exited log\" = %v, want [s3]", got)
+	}
+}
+
+func TestFilterStatusTokenPaused(t *testing.T) {
+	m := filterModel(t)
+	m.reg.MarkPaused("s4")
+	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
+	m = next.(Model)
+
+	m = typeFilter(t, m, "paused")
+	got := sessionIDs(m.sessions())
+	if len(got) != 1 || got[0] != "s4" {
+		t.Fatalf("filter \"paused\" = %v, want [s4]", got)
+	}
+}
+
+// TestFilterStatusTokenExitedExcludesPaused pins the token semantics now that
+// paused is a first-class state: "exited" matches exactly exited sessions, not
+// everything that is not running.
+func TestFilterStatusTokenExitedExcludesPaused(t *testing.T) {
+	m := filterModel(t)
+	m.reg.MarkPaused("s4")
+	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
+	m = next.(Model)
+
+	m = typeFilter(t, m, "exited")
+	got := sessionIDs(m.sessions())
+	if len(got) != 1 || got[0] != "s3" {
+		t.Fatalf("filter \"exited\" = %v, want only [s3]", got)
 	}
 }
 
@@ -174,13 +205,16 @@ func TestFilterEmptyResultShowsNoMatches(t *testing.T) {
 	}
 }
 
+// TestFilterClampsCursorIntoNarrowedSet starts with the cursor on the last
+// session of the full list, then narrows to a single match ("login") and
+// expects the cursor clamped onto it.
 func TestFilterClampsCursorIntoNarrowedSet(t *testing.T) {
 	m := filterModel(t)
-	m.cursor = 3 // last session in the full list
+	m.cursor = 3
 	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
 	m = next.(Model)
 
-	m = typeFilter(t, m, "login") // narrows to one match
+	m = typeFilter(t, m, "login")
 	if got := len(m.sessions()); got != 1 {
 		t.Fatalf("precondition: filter should leave 1 match, got %d", got)
 	}
@@ -230,7 +264,10 @@ func TestParseFilterQuery(t *testing.T) {
 		{"exited", tokenExited, ""},
 		{"running login", tokenRunning, "login"},
 		{"Exited  Log", tokenExited, "Log"},
+		{"paused", tokenPaused, ""},
+		{"Paused login", tokenPaused, "login"},
 		{"run", "", "run"},
+		{"pause", "", "pause"},
 	}
 	for _, c := range cases {
 		status, text := parseFilterQuery(c.raw)
