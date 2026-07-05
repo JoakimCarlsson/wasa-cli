@@ -17,6 +17,7 @@ make build     # go build -buildvcs=false -o bin/wasa ./cmd/wasa
 make run       # build then run
 make fmt       # goimports -w . && golines -m 80 -w .
 make lint      # go vet ./... && golangci-lint run ./...
+make test      # go test ./...
 make env       # (Windows) re-run inside WSL; put a fresh bin/wasa first on PATH
 ```
 
@@ -39,6 +40,7 @@ place so the CLI and the TUI drive the same path.
 - `hook/` — runs a profile's post-worktree hook (deps install, `.env`, cache warm).
 - `profile/` — resolves a profile into the `KEY=VALUE` env injected at launch.
 - `repo/` — resolves a directory to its canonical git identity → the content-addressed workspace id.
+- `record/` — session recording: checkpoints (meta + intent + redacted transcript) on `refs/wasa/checkpoints` via git plumbing, agent hook handling, `.claude/settings.json` hook install/remove, read-back. Best-effort by contract: recording never fails a session.
 - `registry/` — persistent repo-keyed data model (workspaces + sessions) as one JSON doc under `$WASA_HOME`; reconciles against tmux on startup.
 - `sessionstatus/` — per-session activity state (working/waiting/idle) and how it's derived.
 - `config/` — loads `$WASA_HOME/config.json` over defaults; owns the theme/keys/layout schema; validates at startup.

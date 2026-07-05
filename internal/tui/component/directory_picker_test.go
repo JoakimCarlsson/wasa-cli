@@ -27,7 +27,7 @@ func testTheme() theme.Theme { return theme.NewTheme(config.Default().Theme) }
 //	  file.txt      (skipped: not a directory)
 func pickerTree(t *testing.T) string {
 	t.Helper()
-	root := t.TempDir()
+	root := resolvePath(t.TempDir())
 	mustMkdir(t, filepath.Join(root, "alpha", ".git"))
 	mustMkdir(t, filepath.Join(root, "alpha", "nested"))
 	mustMkdir(t, filepath.Join(root, "beta"))
@@ -185,8 +185,8 @@ func TestDirPickerExpandRevealsChildren(t *testing.T) {
 	root := pickerTree(t)
 	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
 
-	p, _ = p.Update(keyDown())  // onto alpha
-	p, _ = p.Update(keyRight()) // expand alpha
+	p, _ = p.Update(keyDown())
+	p, _ = p.Update(keyRight())
 
 	want := filepath.Join(root, "alpha", "nested")
 	found := false
@@ -208,10 +208,10 @@ func TestDirPickerCollapse(t *testing.T) {
 	root := pickerTree(t)
 	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
 
-	p, _ = p.Update(keyDown())  // alpha
-	p, _ = p.Update(keyRight()) // expand
+	p, _ = p.Update(keyDown())
+	p, _ = p.Update(keyRight())
 	expanded := len(p.visible)
-	p, _ = p.Update(keyRight()) // collapse
+	p, _ = p.Update(keyRight())
 
 	if len(p.visible) >= expanded {
 		t.Errorf(
@@ -226,7 +226,7 @@ func TestDirPickerChooseReportsPath(t *testing.T) {
 	root := pickerTree(t)
 	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
 
-	p, _ = p.Update(keyDown()) // alpha
+	p, _ = p.Update(keyDown())
 	p, cmd := p.Update(keyEnter())
 
 	want := filepath.Join(root, "alpha")

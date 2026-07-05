@@ -88,6 +88,7 @@ type recordingOps struct {
 	spawnName    string
 	worktree     string
 	baseCommit   string
+	recordTree   string
 }
 
 func (o *recordingOps) ops() ops {
@@ -124,6 +125,9 @@ func (o *recordingOps) ops() ops {
 		prepareHooks: func(_, _, _ string, env []string) []string {
 			return env
 		},
+		installRecordHooks: func(worktreePath, _ string) {
+			o.recordTree = worktreePath
+		},
 	}
 }
 
@@ -154,6 +158,9 @@ func TestCreateSessionPlainMakesNoWorktree(t *testing.T) {
 	}
 	if o.hookCalled {
 		t.Fatal("plain session ran the post-worktree hook")
+	}
+	if o.recordTree != "" {
+		t.Fatal("plain session installed worktree record hooks")
 	}
 	if s.Branch != "" || s.WorktreePath != "" {
 		t.Fatalf("plain session recorded branch/worktree: %+v", s)
@@ -271,6 +278,12 @@ func TestCreateSessionWorktreeStillAddsAndHooks(t *testing.T) {
 	}
 	if o.spawnDir != "/wt/feature-x" {
 		t.Fatalf("spawned in %q, want the worktree /wt/feature-x", o.spawnDir)
+	}
+	if o.recordTree != "/wt/feature-x" {
+		t.Fatalf(
+			"record hooks installed in %q, want the worktree /wt/feature-x",
+			o.recordTree,
+		)
 	}
 }
 

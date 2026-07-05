@@ -9,6 +9,7 @@ import (
 
 	"github.com/joakimcarlsson/wasa-cli/internal/backend"
 	"github.com/joakimcarlsson/wasa-cli/internal/finish"
+	"github.com/joakimcarlsson/wasa-cli/internal/record"
 	"github.com/joakimcarlsson/wasa-cli/internal/registry"
 	"github.com/joakimcarlsson/wasa-cli/internal/worktree"
 )
@@ -33,6 +34,10 @@ wasa NEVER merges. finish performs no merge, rebase, push or pull request — it
 removes local artifacts only. The session's branch is force-deleted, so any
 commits on it that you did not merge or push beforehand are discarded for good.
 If you want to keep the work, merge or push it yourself before running finish.
+
+Before the worktree is removed, a closing checkpoint of the session (intent,
+redacted transcript, commit list) is recorded to refs/wasa/checkpoints; see
+"wasa checkpoints". Recording is best-effort and never blocks the teardown.
 
 Flags:
   --force      remove the worktree even if it has uncommitted or untracked
@@ -122,16 +127,19 @@ func runFinish(args []string) error {
 // launched outside any repository — it has neither worktree nor branch, so no
 // worktree Manager is built and finish.Session stops only its tmux.
 func newFinishOps(ws *registry.Workspace) finish.Ops {
-	o := finishOps{tmux: backend.Default()}
+	o := finishOps{tmux: backend.Default(), home: wasaHome()}
 	if ws != nil {
 		o.wt = worktree.New(ws.RepoPath, wasaHome(), ws.ID)
+		o.repoPath = ws.RepoPath
 	}
 	return o
 }
 
 type finishOps struct {
-	tmux backend.SessionBackend
-	wt   *worktree.Manager
+	tmux     backend.SessionBackend
+	wt       *worktree.Manager
+	home     string
+	repoPath string
 }
 
 func (o finishOps) TmuxAlive(
@@ -148,6 +156,10 @@ func (o finishOps) RemoveWorktree(path string, force bool) error {
 
 func (o finishOps) DeleteBranch(branch string) error {
 	return o.wt.DeleteBranch(branch, true)
+}
+
+func (o finishOps) RecordCheckpoint(s *registry.Session) {
+	record.FinishSession(o.home, o.repoPath, s)
 }
 
 // resolveSession finds the session referenced by query, which is matched against

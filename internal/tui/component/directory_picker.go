@@ -160,6 +160,11 @@ func NewDirectoryPicker(
 	recents []RecentDir,
 	width, height int,
 ) DirectoryPicker {
+	rootPath = resolvePath(rootPath)
+	if selectPath != "" {
+		selectPath = resolvePath(selectPath)
+	}
+
 	q := textinput.New()
 	q.Prompt = "> "
 	q.Placeholder = "type to fuzzy-filter"
@@ -203,6 +208,17 @@ func NewDirectoryPicker(
 	}
 	p.rebuild()
 	p.cursorToPath(target)
+	return p
+}
+
+// resolvePath canonicalizes a path through its symlinks, because the tree
+// lists only real directories: a symlinked path (macOS's /var →
+// /private/var, a linked project dir) could otherwise never be revealed or
+// selected.
+func resolvePath(p string) string {
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
+	}
 	return p
 }
 

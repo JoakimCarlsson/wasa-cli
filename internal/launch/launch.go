@@ -11,6 +11,7 @@ import (
 	"github.com/joakimcarlsson/wasa-cli/internal/finish"
 	"github.com/joakimcarlsson/wasa-cli/internal/hook"
 	"github.com/joakimcarlsson/wasa-cli/internal/profile"
+	"github.com/joakimcarlsson/wasa-cli/internal/record"
 	"github.com/joakimcarlsson/wasa-cli/internal/registry"
 	"github.com/joakimcarlsson/wasa-cli/internal/sessionstatus"
 	"github.com/joakimcarlsson/wasa-cli/internal/worktree"
@@ -52,6 +53,11 @@ type ops struct {
 	// hook-emitting agent, installs the lifecycle hook that makes it report
 	// status to wasa. It returns the environment the program is spawned with.
 	prepareHooks func(home, sessionID, program string, env []string) []string
+	// installRecordHooks installs the session-recording hook configuration
+	// into the new worktree for a supported agent, so the session's
+	// transcript and commits are captured as checkpoints. Best-effort: a
+	// failure logs one warning and the session still launches unrecorded.
+	installRecordHooks func(worktreePath, program string)
 }
 
 func defaultOps() ops {
@@ -90,7 +96,28 @@ func defaultOps() ops {
 		spawn: func(name, dir string, env []string, program string) error {
 			return backend.Default().SpawnEnv(name, dir, env, program)
 		},
-		prepareHooks: prepareHooks,
+		prepareHooks:       prepareHooks,
+		installRecordHooks: installRecordHooks,
+	}
+}
+
+// installRecordHooks writes wasa's recording hooks into the worktree's agent
+// configuration (e.g. Claude Code's .claude/settings.json, Gemini's
+// .gemini/settings.json) so the session reports transcript and commit events
+// to `wasa record-hook`. The configuration lives in the worktree and
+// disappears with it at finish. An agent with no recording integration
+// launches unrecorded.
+func installRecordHooks(worktreePath, program string) {
+	tool, ok := record.AgentForProgram(program)
+	if !ok {
+		return
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	if err := record.InstallHooks(worktreePath, tool, exe); err != nil {
+		log.Printf("wasa: session recording hooks not installed: %v", err)
 	}
 }
 
@@ -213,6 +240,8 @@ func createWorktreeSession(
 		return nil, err
 	}
 
+	o.installRecordHooks(worktreePath, program)
+
 	tmuxName := registry.TmuxName(ws.ID, sessionID)
 	spawnEnv := o.prepareHooks(home, sessionID, program, env)
 	if err := o.spawn(tmuxName, worktreePath, spawnEnv, program); err != nil {
@@ -326,7 +355,11 @@ func DeleteWorkspace(
 		}
 	}
 
-	ops := finishOps{tmux: be, wt: worktree.New(ws.RepoPath, home, ws.ID)}
+	ops := finishOps{
+		tmux: be,
+		wt:   worktree.New(ws.RepoPath, home, ws.ID),
+		home: home,
+	}
 	for i, s := range sessions {
 		if _, err := finish.Session(ops, s, true); err != nil {
 			return i, err
@@ -345,6 +378,7 @@ func DeleteWorkspace(
 type finishOps struct {
 	tmux backend.SessionBackend
 	wt   *worktree.Manager
+	home string
 }
 
 func (o finishOps) TmuxAlive(
@@ -361,4 +395,8 @@ func (o finishOps) RemoveWorktree(path string, force bool) error {
 
 func (o finishOps) DeleteBranch(branch string) error {
 	return o.wt.DeleteBranch(branch, true)
+}
+
+func (o finishOps) RecordCheckpoint(s *registry.Session) {
+	record.FinishSession(o.home, o.wt.RepoDir, s)
 }

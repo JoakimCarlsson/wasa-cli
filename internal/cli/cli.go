@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/joakimcarlsson/wasa-cli/internal/record"
 )
 
 const programName = "wasa"
@@ -17,6 +19,8 @@ func Run(version string, args []string) int {
 }
 
 func run(version string, args []string, stdout, stderr io.Writer) int {
+	record.Version = version
+
 	fs := flag.NewFlagSet(programName, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.Usage = func() {}
