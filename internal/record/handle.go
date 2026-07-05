@@ -96,8 +96,8 @@ func HandleEvent(home string, ev Event) {
 		if Write(repoDir, Checkpoint{
 			Meta: m, Intent: st.Intent, Transcript: transcript,
 		}) == nil {
-			_ = Push(repoDir)
 			removeState(home, sid)
+			pushDetached(repoDir)
 			return
 		}
 	}
@@ -181,7 +181,7 @@ func checkpointNewCommits(repoDir string, st state, head string) state {
 		})
 	}
 	st.LastHead = head
-	_ = Push(repoDir)
+	pushDetached(repoDir)
 	return st
 }
 

@@ -89,13 +89,16 @@ func Write(repoDir string, cp Checkpoint) error {
 
 // Push best-effort syncs the checkpoint ref to origin. Offline, no origin or
 // no permission are all expected outcomes; the caller decides whether the
-// returned error is worth one log line.
+// returned error is worth one log line. Credential prompts are disabled —
+// terminal and GUI alike — so an unauthenticated push fails fast instead of
+// hanging a hook invocation on a prompt nobody can see.
 func Push(repoDir string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(
 		ctx, "git", "-C", repoDir, "push", "origin", RefName+":"+RefName,
 	)
+	cmd.Env = pushEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf(
@@ -104,6 +107,32 @@ func Push(repoDir string) error {
 		)
 	}
 	return nil
+}
+
+// pushDetached fire-and-forgets the sync from hook context: the hook process
+// must exit immediately (an agent cancels slow hooks and surfaces the noise),
+// so the push runs in its own session and outlives it. No timeout: prompts
+// are disabled, so git either finishes or fails on its own.
+func pushDetached(repoDir string) {
+	cmd := exec.Command(
+		"git", "-C", repoDir, "push", "origin", RefName+":"+RefName,
+	)
+	cmd.Env = pushEnv()
+	detach(cmd)
+	if cmd.Start() == nil {
+		_ = cmd.Process.Release()
+	}
+}
+
+// pushEnv disables credential prompts, terminal and GUI alike, so an
+// unauthenticated push fails fast instead of hanging on a prompt nobody can
+// see.
+func pushEnv() []string {
+	return append(os.Environ(),
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_ASKPASS=echo",
+		"GCM_INTERACTIVE=never",
+	)
 }
 
 // gitIn runs git -C dir with an optional stdin and returns trimmed stdout.
