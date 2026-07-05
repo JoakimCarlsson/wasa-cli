@@ -2,6 +2,7 @@ package launch
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -303,6 +304,137 @@ func createPlainSession(
 	return s, nil
 }
 
+// PauseSession soft-stops s: its tmux is killed and its worktree removed, but —
+// unlike finish — its branch and its registry record are kept, and the session
+// is marked paused so ResumeSession can rebuild it. A plain session simply has
+// its tmux stopped. force discards uncommitted worktree changes; when false a
+// dirty worktree blocks the pause with git's error and the session stays
+// running. It does not Save reg; the caller persists.
+func PauseSession(
+	reg *registry.Registry,
+	be backend.SessionBackend,
+	home string,
+	s *registry.Session,
+	force bool,
+) error {
+	ws, ok := reg.Workspace(s.WorkspaceID)
+	if s.WorktreePath != "" && !ok {
+		return fmt.Errorf("workspace %s not found", s.WorkspaceID)
+	}
+	var wt *worktree.Manager
+	if ok {
+		wt = worktree.New(ws.RepoPath, home, ws.ID)
+	}
+
+	ops := finishOps{tmux: be, wt: wt, home: home}
+	if _, err := finish.Pause(ops, s, force); err != nil {
+		return err
+	}
+	reg.MarkPaused(s.ID)
+	return nil
+}
+
+// ResumeSession rebuilds a paused session and spawns it again: the worktree is
+// re-attached to the saved branch (which still exists, so no branch is
+// created), the profile bootstrap, environment and post-worktree hook are
+// re-applied, and the program is re-spawned under the session's original tmux
+// name. A profile port is re-allocated rather than reused, since the old port
+// may have been taken while the session was paused. The session's BaseCommit is
+// deliberately left untouched, so the diff after a resume is still measured
+// from the original session start, not the resume point. A plain session is
+// simply re-spawned in its working directory. It does not Save reg; the caller
+// persists.
+func ResumeSession(
+	home string,
+	reg *registry.Registry,
+	s *registry.Session,
+) error {
+	return resumeSession(defaultOps(), home, reg, s)
+}
+
+func resumeSession(
+	o ops,
+	home string,
+	reg *registry.Registry,
+	s *registry.Session,
+) error {
+	if s.Status == registry.StatusRunning {
+		return errors.New("session is already running")
+	}
+
+	var (
+		ws   *registry.Workspace
+		prof registry.Profile
+		env  []string
+	)
+	if s.WorkspaceID != "" {
+		var ok bool
+		ws, ok = reg.Workspace(s.WorkspaceID)
+		if !ok {
+			return fmt.Errorf("workspace %s not found", s.WorkspaceID)
+		}
+		var err error
+		prof, err = ws.SelectProfile(s.ProfileName)
+		if err != nil {
+			return err
+		}
+		env, err = profile.Resolve(prof, s.Program)
+		if err != nil {
+			return err
+		}
+	}
+
+	dir := s.WorkingDir
+	if s.Branch != "" {
+		if ws == nil {
+			return errors.New("a worktree session requires a workspace")
+		}
+		worktreePath, _, err := o.addWorktree(
+			ws.RepoPath, home, ws.ID, s.Branch,
+		)
+		if err != nil {
+			return err
+		}
+
+		if err := o.applyPaths(ws.RepoPath, worktreePath, prof); err != nil {
+			return err
+		}
+
+		if prof.PortEnv != "" {
+			port, err := o.allocatePort()
+			if err != nil {
+				return err
+			}
+			env = append(env, prof.PortEnv+"="+strconv.Itoa(port))
+		}
+
+		if err := o.runHook(hook.Hook{
+			Command:      prof.PostWorktreeHook,
+			RepoPath:     ws.RepoPath,
+			WorktreePath: worktreePath,
+			Branch:       s.Branch,
+			Session:      s.ID,
+			Env:          env,
+		}); err != nil {
+			return err
+		}
+
+		o.installRecordHooks(worktreePath, s.Program)
+
+		s.WorktreePath = worktreePath
+		dir = worktreePath
+	}
+
+	spawnEnv := o.prepareHooks(home, s.ID, s.Program, env)
+	if err := o.spawn(s.TmuxName, dir, spawnEnv, s.Program); err != nil {
+		return err
+	}
+
+	s.Status = registry.StatusRunning
+	reg.MarkAttached(s.ID)
+	return nil
+}
+
 // KillSession kills the session's tmux session and marks it exited in reg. It
 // does not Save reg and does not remove the worktree, which is the separate
 // finish lifecycle. A tmux failure is returned without changing the recorded
@@ -397,6 +529,12 @@ func (o finishOps) DeleteBranch(branch string) error {
 	return o.wt.DeleteBranch(branch, true)
 }
 
+// RecordCheckpoint writes the closing checkpoint. A nil worktree manager means
+// the session ran outside any workspace, with no repository to record against,
+// so recording is skipped.
 func (o finishOps) RecordCheckpoint(s *registry.Session) {
+	if o.wt == nil {
+		return
+	}
 	record.FinishSession(o.home, o.wt.RepoDir, s)
 }

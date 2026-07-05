@@ -318,6 +318,8 @@ func (m Model) menuBar() string {
 		{m.menuKey(config.ActionAttach), "attach"},
 		{m.menuKey(config.ActionKill), "kill"},
 		{m.menuKey(config.ActionDelete), "delete"},
+		{m.menuKey(config.ActionPause), "pause"},
+		{m.menuKey(config.ActionResume), "resume"},
 		{m.menuKey(config.ActionFilter), "filter"},
 		{m.menuKey(config.ActionWorkspaceAdd), "+ws"},
 		{m.menuKey(config.ActionWorkspaceDelete), "-ws"},
@@ -407,6 +409,8 @@ func statusDot(theme theme.Theme, s sessionstatus.Status) string {
 		return theme.IdleDotStyle.Render(idleIcon)
 	case sessionstatus.Exited:
 		return theme.ExitedDotStyle.Render(exitedIcon)
+	case sessionstatus.Paused:
+		return theme.ExitedDotStyle.Render(pausedIcon)
 	default:
 		return theme.RunningDotStyle.Render(runningIcon)
 	}
@@ -703,6 +707,17 @@ func (m *Model) ensureDiffCmd() tea.Cmd {
 	if s == nil {
 		return nil
 	}
+	if s.Status == registry.StatusPaused {
+		if m.tabbed.Diff.SID() == s.ID {
+			return nil
+		}
+		sid := s.ID
+		return func() tea.Msg {
+			return pane.NewDiffErr(
+				sid, fmt.Errorf("session is paused; resume it to see its diff"),
+			)
+		}
+	}
 	if s.Branch != "" && s.WorktreePath != "" && s.BaseCommit != "" {
 		ws, ok := m.reg.Workspace(s.WorkspaceID)
 		if !ok {
@@ -727,8 +742,9 @@ func (m *Model) ensureDiffCmd() tea.Cmd {
 // refreshDiffCmd recomputes the selected worktree session's diff on the churn
 // tick so the pane reflects the agent's ongoing edits in place. It runs only
 // while the Diff tab is the active right-pane tab and a worktree session is
-// selected — off the Diff tab, on a plain session, or with no selection it is a
-// no-op — and routes through the Diff pane's RefreshCmd, which bypasses the
+// selected — off the Diff tab, on a plain or paused session, or with no
+// selection it is a no-op — and routes through the Diff pane's RefreshCmd,
+// which bypasses the
 // already-loaded guard EnsureCmd keeps for selection changes. A worktree session
 // whose workspace cannot be resolved is left showing its last diff rather than
 // recomputed against an empty repo path.
@@ -738,7 +754,7 @@ func (m *Model) refreshDiffCmd() tea.Cmd {
 	}
 	s := m.selectedSession()
 	if s == nil || s.Branch == "" || s.WorktreePath == "" ||
-		s.BaseCommit == "" {
+		s.BaseCommit == "" || s.Status == registry.StatusPaused {
 		return nil
 	}
 	ws, ok := m.reg.Workspace(s.WorkspaceID)

@@ -363,6 +363,159 @@ func TestCreateSessionWorktreeNoPortEnvSkipsAllocation(t *testing.T) {
 	}
 }
 
+// pausedWorktreeSession registers a paused worktree session the resume tests
+// rebuild: branch, old worktree path, preserved base commit and tmux name.
+func pausedWorktreeSession(
+	reg *registry.Registry, ws *registry.Workspace,
+) *registry.Session {
+	s := &registry.Session{
+		ID:           "sess1",
+		WorkspaceID:  ws.ID,
+		ProfileName:  ws.Profiles[0].Name,
+		Program:      "claude",
+		Branch:       "feature/x",
+		WorktreePath: "/wt/old",
+		BaseCommit:   "base123",
+		TmuxName:     "wasa_ws_sess1",
+	}
+	reg.AddSession(s)
+	s.Status = registry.StatusPaused
+	return s
+}
+
+func TestResumeSessionWorktreeRebuilds(t *testing.T) {
+	reg := testRegistry(t)
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	ws.Profiles[0].PostWorktreeHook = "echo hi"
+	ws.Profiles[0].PortEnv = "PORT"
+	s := pausedWorktreeSession(reg, ws)
+
+	o := &recordingOps{
+		worktree:   "/wt/feature-x",
+		baseCommit: "head999",
+		port:       4242,
+	}
+	if err := resumeSession(o.ops(), "/home", reg, s); err != nil {
+		t.Fatalf("resumeSession: %v", err)
+	}
+
+	if !o.addCalled || o.addBranch != "feature/x" {
+		t.Fatalf("resume did not re-add the worktree for the branch: %+v", o)
+	}
+	if o.applyTree != "/wt/feature-x" {
+		t.Fatalf(
+			"bootstrap applied to %q, want the fresh worktree",
+			o.applyTree,
+		)
+	}
+	if !o.portCalled {
+		t.Fatal("PortEnv set but the port was not re-allocated")
+	}
+	if !o.hookCalled || o.hookCommand != "echo hi" {
+		t.Fatalf("resume did not re-run the post-worktree hook: %+v", o)
+	}
+	if o.recordTree != "/wt/feature-x" {
+		t.Fatalf(
+			"record hooks installed in %q, want the fresh worktree",
+			o.recordTree,
+		)
+	}
+	if o.spawnName != "wasa_ws_sess1" || o.spawnDir != "/wt/feature-x" {
+		t.Fatalf(
+			"spawned %q in %q, want the original tmux name in the worktree",
+			o.spawnName,
+			o.spawnDir,
+		)
+	}
+	if s.Status != registry.StatusRunning {
+		t.Fatalf(
+			"status after resume = %q, want %q",
+			s.Status,
+			registry.StatusRunning,
+		)
+	}
+	if s.WorktreePath != "/wt/feature-x" {
+		t.Fatalf("WorktreePath = %q, want the re-created path", s.WorktreePath)
+	}
+	if s.BaseCommit != "base123" {
+		t.Fatalf(
+			"BaseCommit = %q, want the preserved base123 — resume must not reset it",
+			s.BaseCommit,
+		)
+	}
+}
+
+func TestResumeSessionPlainRespawnsInWorkingDir(t *testing.T) {
+	reg := testRegistry(t)
+	s := &registry.Session{
+		ID:         "plain1",
+		Program:    "claude",
+		WorkingDir: "/work/here",
+		TmuxName:   "wasa__plain1",
+	}
+	reg.AddSession(s)
+	s.Status = registry.StatusPaused
+
+	o := &recordingOps{}
+	if err := resumeSession(o.ops(), "/home", reg, s); err != nil {
+		t.Fatalf("resumeSession: %v", err)
+	}
+
+	if o.addCalled || o.hookCalled {
+		t.Fatalf("plain resume touched worktree machinery: %+v", o)
+	}
+	if o.spawnDir != "/work/here" {
+		t.Fatalf("spawned in %q, want the working directory", o.spawnDir)
+	}
+	if s.Status != registry.StatusRunning {
+		t.Fatalf(
+			"status after resume = %q, want %q",
+			s.Status,
+			registry.StatusRunning,
+		)
+	}
+}
+
+func TestResumeSessionRunningIsRejected(t *testing.T) {
+	reg := testRegistry(t)
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	s := pausedWorktreeSession(reg, ws)
+	s.Status = registry.StatusRunning
+
+	o := &recordingOps{}
+	if err := resumeSession(o.ops(), "/home", reg, s); err == nil {
+		t.Fatal("resumeSession accepted an already-running session")
+	}
+	if o.addCalled {
+		t.Fatal("addWorktree called for an already-running session")
+	}
+}
+
+// TestPauseSessionPlainMarksPaused drives PauseSession over a plain session with
+// no workspace: only its tmux is probed (dead, so nothing is killed), and the
+// session ends paused with its record retained.
+func TestPauseSessionPlainMarksPaused(t *testing.T) {
+	reg := testRegistry(t)
+	s := &registry.Session{
+		ID:         "plain1",
+		Program:    "claude",
+		WorkingDir: "/work",
+		TmuxName:   "wasa__plain1",
+	}
+	reg.AddSession(s)
+
+	be := &fakeBackend{}
+	if err := PauseSession(reg, be, t.TempDir(), s, false); err != nil {
+		t.Fatalf("PauseSession: %v", err)
+	}
+	if s.Status != registry.StatusPaused {
+		t.Fatalf("status = %q, want %q", s.Status, registry.StatusPaused)
+	}
+	if _, ok := reg.Session("plain1"); !ok {
+		t.Fatal("session record removed on pause; it must be retained")
+	}
+}
+
 func TestCreateSessionWorktreeRequiresWorkspace(t *testing.T) {
 	reg := testRegistry(t)
 

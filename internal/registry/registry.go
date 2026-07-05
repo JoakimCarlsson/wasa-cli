@@ -221,6 +221,20 @@ func (r *Registry) MarkExited(sessionID string) bool {
 	return false
 }
 
+// MarkPaused sets the given session's status to paused, recording a soft stop:
+// the session's tmux and worktree are gone but its record — branch, base commit
+// and profile wiring — is kept so Resume can rebuild it. It reports whether the
+// session was found.
+func (r *Registry) MarkPaused(sessionID string) bool {
+	for _, s := range r.sess {
+		if s.ID == sessionID {
+			s.Status = StatusPaused
+			return true
+		}
+	}
+	return false
+}
+
 // Reconcile marks every running session whose tmux session no longer exists as
 // exited, using has to probe tmux. A probe error leaves that session unchanged.
 // It reports whether any session's status changed.

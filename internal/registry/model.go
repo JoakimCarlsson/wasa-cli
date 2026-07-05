@@ -9,10 +9,13 @@ import (
 	"time"
 )
 
-// Session status values. At minimum a session is either running or has exited.
+// Session status values. A session is running, has exited, or is paused — soft-
+// stopped with its tmux and worktree freed but its branch and record kept so it
+// can be resumed.
 const (
 	StatusRunning = "running"
 	StatusExited  = "exited"
+	StatusPaused  = "paused"
 )
 
 // DefaultProfileName is the name given to the single profile created when a

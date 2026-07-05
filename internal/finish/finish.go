@@ -57,6 +57,38 @@ type Result struct {
 // branch itself is always force-deleted, because wasa never merges and a
 // session's branch is therefore routinely unmerged at teardown.
 func Session(ops Ops, s *registry.Session, force bool) (Result, error) {
+	res, err := softStop(ops, s, force)
+	if err != nil {
+		return res, err
+	}
+
+	if s.Branch != "" {
+		if err := ops.DeleteBranch(s.Branch); err != nil {
+			return res, fmt.Errorf("delete branch: %w", err)
+		}
+		res.DeletedBranch = true
+	}
+
+	return res, nil
+}
+
+// Pause soft-stops s: it stops the session's tmux if it is still alive, records
+// the session's closing checkpoint, then removes the worktree. Unlike Session it
+// never deletes the branch — the branch, together with the session's registry
+// record, is what Resume rebuilds the session from; the caller marks the session
+// paused rather than removing it. When force is false a dirty worktree blocks
+// the removal, leaving the session intact so the caller can re-run with force
+// once the user has dealt with the changes; force discards the worktree's
+// uncommitted changes (its commits live on the kept branch).
+func Pause(ops Ops, s *registry.Session, force bool) (Result, error) {
+	return softStop(ops, s, force)
+}
+
+// softStop is the shared tmux → checkpoint → worktree sequence of both
+// teardowns. tmux dies before the worktree is removed so no process holds its
+// files open, and the checkpoint is recorded while branch and worktree still
+// exist.
+func softStop(ops Ops, s *registry.Session, force bool) (Result, error) {
 	if s == nil {
 		return Result{}, errors.New("session must not be nil")
 	}
@@ -83,13 +115,6 @@ func Session(ops Ops, s *registry.Session, force bool) (Result, error) {
 			return res, fmt.Errorf("remove worktree: %w", err)
 		}
 		res.RemovedWorktree = true
-	}
-
-	if s.Branch != "" {
-		if err := ops.DeleteBranch(s.Branch); err != nil {
-			return res, fmt.Errorf("delete branch: %w", err)
-		}
-		res.DeletedBranch = true
 	}
 
 	return res, nil
