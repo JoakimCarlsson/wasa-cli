@@ -206,7 +206,13 @@ type killedMsg struct{ err error }
 
 type deletedMsg struct{ err error }
 
-type pausedMsg struct{ err error }
+// pausedMsg carries the outcome of a pause. retry, when set, is the session
+// whose non-forced pause was blocked (typically by a dirty worktree); the
+// update loop offers a force retry for it.
+type pausedMsg struct {
+	err   error
+	retry *registry.Session
+}
 
 type resumedMsg struct{ err error }
 
@@ -292,6 +298,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case pausedMsg:
 		if msg.err != nil {
+			if msg.retry != nil {
+				return m.enterConfirmForcePause(msg.retry, msg.err)
+			}
 			m.err = msg.err
 			return m, nil
 		}
@@ -815,20 +824,20 @@ func (m Model) enterConfirmKill() (tea.Model, tea.Cmd) {
 }
 
 // enterConfirmPause opens the pause-confirmation modal for the selected
-// session. Pause applies only to a running session; with no session selected or
-// a non-running one it is a no-op. The body says what pause keeps (the branch
-// and its commits) and what it discards (uncommitted worktree changes), since
-// the pause command removes the worktree with force.
+// session. Any non-paused session can be paused: a running one is soft-stopped,
+// and an exited one that still owns a worktree has it freed — which is also the
+// recovery path for a session stranded by a pause that failed after its tmux
+// died. The first attempt never discards uncommitted changes: a dirty worktree
+// blocks it and routes to the force confirmation instead.
 func (m Model) enterConfirmPause() (tea.Model, tea.Cmd) {
 	s := m.selectedSession()
-	if s == nil || s.Status != registry.StatusRunning {
+	if s == nil || s.Status == registry.StatusPaused {
 		return m, nil
 	}
 	title, _ := sessionLabel(s)
 	prompt := fmt.Sprintf(
 		"Pause %q?\nIts tmux stops and the worktree is removed. The branch "+
-			"and its commits are kept; uncommitted changes are discarded. "+
-			"Resume rebuilds it.",
+			"and its commits are kept; resume rebuilds it.",
 		title,
 	)
 	if s.WorktreePath == "" {
@@ -841,7 +850,30 @@ func (m Model) enterConfirmPause() (tea.Model, tea.Cmd) {
 			m.theme, "Pause session", confirmBody(m.theme, prompt, s),
 			"Pause", "Cancel", true,
 		),
-		m.pauseCmd(s),
+		m.pauseCmd(s, false),
+	)
+}
+
+// enterConfirmForcePause opens the second, force-pause confirmation after a
+// non-forced pause was blocked — typically by uncommitted worktree changes.
+// Only this explicit second confirmation discards them, mirroring how finish
+// treats a dirty worktree as an error unless the caller opts into force.
+// Cancelling leaves the session's worktree intact; its tmux was already
+// stopped by the failed attempt, so pressing pause again retries from there.
+func (m Model) enterConfirmForcePause(
+	s *registry.Session, cause error,
+) (tea.Model, tea.Cmd) {
+	title, _ := sessionLabel(s)
+	body := confirmBody(m.theme, fmt.Sprintf(
+		"Pause of %q was blocked:\n%s\n\nDiscard the worktree's uncommitted "+
+			"changes and pause anyway?",
+		title, cause,
+	), s)
+	return m.enterConfirm(
+		modal.NewConfirmDialog(
+			m.theme, "Force pause", body, "Discard and pause", "Cancel", true,
+		),
+		m.pauseCmd(s, true),
 	)
 }
 
@@ -1057,19 +1089,25 @@ func (m Model) deleteCmd(s *registry.Session) tea.Cmd {
 	}
 }
 
-// pauseCmd soft-stops the session: tmux killed, worktree removed with force
-// (the confirm dialog has warned that uncommitted changes go), branch and
-// registry record kept, status set to paused. The companion shell dies with it,
-// like on kill and delete.
-func (m Model) pauseCmd(s *registry.Session) tea.Cmd {
+// pauseCmd soft-stops the session: companion shell and tmux killed, worktree
+// removed, branch and registry record kept, status set to paused. The companion
+// dies before the worktree is removed so no process holds the tree while git
+// tears it down; if the pause then fails, the Terminal tab respawns the
+// companion on demand. When force is false a blocked worktree removal does not
+// discard anything: the failure routes back as a retry so only the explicit
+// force confirmation discards uncommitted changes.
+func (m Model) pauseCmd(s *registry.Session, force bool) tea.Cmd {
 	reg, home := m.reg, m.home
 	be := m.tmux
 	term := companionName(s.TmuxName)
 	return func() tea.Msg {
-		if err := launch.PauseSession(reg, be, home, s, true); err != nil {
+		_ = be.Kill(term)
+		if err := launch.PauseSession(reg, be, home, s, force); err != nil {
+			if !force {
+				return pausedMsg{err: err, retry: s}
+			}
 			return pausedMsg{err: err}
 		}
-		_ = be.Kill(term)
 		if err := reg.Save(); err != nil {
 			return pausedMsg{err: err}
 		}

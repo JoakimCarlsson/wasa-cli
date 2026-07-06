@@ -279,6 +279,23 @@ func TestMarkPaused(t *testing.T) {
 	}
 }
 
+func TestMarkRunning(t *testing.T) {
+	reg, _ := newTestRegistry(t)
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	reg.AddSession(&Session{ID: "s", WorkspaceID: ws.ID, TmuxName: "wasa_s"})
+	reg.MarkPaused("s")
+
+	if !reg.MarkRunning("s") {
+		t.Fatal("MarkRunning did not find session")
+	}
+	if got := reg.ListSessions()[0].Status; got != StatusRunning {
+		t.Fatalf("status after MarkRunning = %q, want %q", got, StatusRunning)
+	}
+	if reg.MarkRunning("missing") {
+		t.Fatal("MarkRunning reported finding an unknown session")
+	}
+}
+
 // TestReconcileLeavesPausedAlone asserts that a paused session — which by
 // definition has no tmux session — is never downgraded to exited by the
 // startup reconcile.

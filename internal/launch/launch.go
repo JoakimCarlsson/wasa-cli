@@ -342,8 +342,10 @@ func PauseSession(
 // may have been taken while the session was paused. The session's BaseCommit is
 // deliberately left untouched, so the diff after a resume is still measured
 // from the original session start, not the resume point. A plain session is
-// simply re-spawned in its working directory. It does not Save reg; the caller
-// persists.
+// simply re-spawned in its working directory. Only a paused session can be
+// resumed: anything else — including an exited worktree session whose worktree
+// may still exist on disk — is rejected rather than reaching git with a path
+// that already has a worktree. It does not Save reg; the caller persists.
 func ResumeSession(
 	home string,
 	reg *registry.Registry,
@@ -358,8 +360,8 @@ func resumeSession(
 	reg *registry.Registry,
 	s *registry.Session,
 ) error {
-	if s.Status == registry.StatusRunning {
-		return errors.New("session is already running")
+	if s.Status != registry.StatusPaused {
+		return errors.New("only a paused session can be resumed")
 	}
 
 	var (
@@ -430,7 +432,7 @@ func resumeSession(
 		return err
 	}
 
-	s.Status = registry.StatusRunning
+	reg.MarkRunning(s.ID)
 	reg.MarkAttached(s.ID)
 	return nil
 }

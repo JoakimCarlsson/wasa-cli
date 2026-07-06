@@ -212,13 +212,7 @@ func (r *Registry) MarkAttached(sessionID string) bool {
 // reports whether the session was found. Unlike Reconcile it does not probe
 // tmux; the caller has already stopped the session.
 func (r *Registry) MarkExited(sessionID string) bool {
-	for _, s := range r.sess {
-		if s.ID == sessionID {
-			s.Status = StatusExited
-			return true
-		}
-	}
-	return false
+	return r.setStatus(sessionID, StatusExited)
 }
 
 // MarkPaused sets the given session's status to paused, recording a soft stop:
@@ -226,9 +220,21 @@ func (r *Registry) MarkExited(sessionID string) bool {
 // and profile wiring — is kept so Resume can rebuild it. It reports whether the
 // session was found.
 func (r *Registry) MarkPaused(sessionID string) bool {
+	return r.setStatus(sessionID, StatusPaused)
+}
+
+// MarkRunning sets the given session's status back to running, recording a
+// resume. It reports whether the session was found.
+func (r *Registry) MarkRunning(sessionID string) bool {
+	return r.setStatus(sessionID, StatusRunning)
+}
+
+// setStatus sets the given session's status, reporting whether the session was
+// found.
+func (r *Registry) setStatus(sessionID, status string) bool {
 	for _, s := range r.sess {
 		if s.ID == sessionID {
-			s.Status = StatusPaused
+			s.Status = status
 			return true
 		}
 	}

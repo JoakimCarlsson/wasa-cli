@@ -491,6 +491,25 @@ func TestResumeSessionRunningIsRejected(t *testing.T) {
 	}
 }
 
+// TestResumeSessionExitedIsRejected pins the seam contract: only a paused
+// session can be resumed. An exited worktree session may still own its
+// worktree on disk, so letting it through would hand git a path that already
+// has a worktree and surface a raw git error.
+func TestResumeSessionExitedIsRejected(t *testing.T) {
+	reg := testRegistry(t)
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	s := pausedWorktreeSession(reg, ws)
+	s.Status = registry.StatusExited
+
+	o := &recordingOps{}
+	if err := resumeSession(o.ops(), "/home", reg, s); err == nil {
+		t.Fatal("resumeSession accepted an exited session")
+	}
+	if o.addCalled {
+		t.Fatal("addWorktree called for an exited session")
+	}
+}
+
 // TestPauseSessionPlainMarksPaused drives PauseSession over a plain session with
 // no workspace: only its tmux is probed (dead, so nothing is killed), and the
 // session ends paused with its record retained.
