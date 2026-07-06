@@ -11,13 +11,14 @@ import (
 	"github.com/joakimcarlsson/wasa-cli/internal/tui/component"
 )
 
-// The filter's status tokens. A leading "running" or "exited" word narrows the
-// list to that liveness state; the rest of the query is fuzzy text. These are the
-// only two tokens — the richer activity states (waiting/idle) depend on the
-// live-status work and are not invented here.
+// The filter's status tokens. A leading "running", "exited" or "paused" word
+// narrows the list to that liveness state; the rest of the query is fuzzy text.
+// These are the only three tokens — the richer activity states (waiting/idle)
+// depend on the live-status work and are not invented here.
 const (
 	tokenRunning = "running"
 	tokenExited  = "exited"
+	tokenPaused  = "paused"
 )
 
 // filterState is the cockpit's transient session filter: a one-line fuzzy query
@@ -31,14 +32,14 @@ type filterState struct {
 
 // parseFilterQuery splits a raw filter query into an optional leading status
 // token and the remaining fuzzy text. The first whitespace-delimited word, when
-// it is exactly "running" or "exited", selects that liveness state and the rest
-// is the fuzzy text; otherwise the whole query is fuzzy text and no status token
-// applies. Matching is case-insensitive.
+// it is exactly "running", "exited" or "paused", selects that liveness state
+// and the rest is the fuzzy text; otherwise the whole query is fuzzy text and
+// no status token applies. Matching is case-insensitive.
 func parseFilterQuery(raw string) (status, text string) {
 	raw = strings.TrimSpace(raw)
 	first, rest, _ := strings.Cut(raw, " ")
 	switch strings.ToLower(first) {
-	case tokenRunning, tokenExited:
+	case tokenRunning, tokenExited, tokenPaused:
 		return strings.ToLower(first), strings.TrimSpace(rest)
 	default:
 		return "", raw
@@ -53,10 +54,11 @@ func sessionHaystack(s *registry.Session) string {
 	return title + " " + ref + " " + filepath.Base(s.WorkingDir)
 }
 
-// matchesFilter reports whether s passes a parsed filter: the status token, when
-// set, must match its liveness (running, or exited for anything not running), and
-// the fuzzy text, when set, must be a subsequence of its haystack. An all-empty
-// filter matches every session.
+// matchesFilter reports whether s passes a parsed filter: the status token,
+// when set, must match its liveness exactly — paused is its own state, so
+// "exited" no longer means "anything not running" — and the fuzzy text, when
+// set, must be a subsequence of its haystack. An all-empty filter matches every
+// session.
 func matchesFilter(s *registry.Session, status, text string) bool {
 	switch status {
 	case tokenRunning:
@@ -64,7 +66,11 @@ func matchesFilter(s *registry.Session, status, text string) bool {
 			return false
 		}
 	case tokenExited:
-		if s.Status == registry.StatusRunning {
+		if s.Status != registry.StatusExited {
+			return false
+		}
+	case tokenPaused:
+		if s.Status != registry.StatusPaused {
 			return false
 		}
 	}
@@ -84,7 +90,7 @@ func (m Model) enterFilter() (tea.Model, tea.Cmd) {
 	}
 	in := textinput.New()
 	in.Prompt = "> "
-	in.Placeholder = "filter — prefix running/exited"
+	in.Placeholder = "filter — prefix running/exited/paused"
 	in.CharLimit = 200
 	in.Width = max(m.listColWidth()-4, 10)
 	in.Focus()

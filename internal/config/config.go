@@ -135,6 +135,8 @@ const (
 	ActionAttach          = "attach"
 	ActionKill            = "kill"
 	ActionDelete          = "delete"
+	ActionPause           = "pause"
+	ActionResume          = "resume"
 	ActionTabNext         = "tab-next"
 	ActionTabPrev         = "tab-prev"
 	ActionPaneTab         = "pane-tab"
@@ -166,6 +168,8 @@ var defaultBindings = []binding{
 	{ActionAttach, modeList, KeyList{"enter"}},
 	{ActionKill, modeList, KeyList{"k"}},
 	{ActionDelete, modeList, KeyList{"d"}},
+	{ActionPause, modeList, KeyList{"p"}},
+	{ActionResume, modeList, KeyList{"r"}},
 	{ActionTabNext, modeList, KeyList{"tab", "right", "]"}},
 	{ActionTabPrev, modeList, KeyList{"shift+tab", "left", "["}},
 	{ActionPaneTab, modeList, KeyList{"ctrl+t"}},

@@ -260,6 +260,62 @@ func TestMarkExitedDoesNotTouchLastUsedAt(t *testing.T) {
 	}
 }
 
+func TestMarkPaused(t *testing.T) {
+	reg, _ := newTestRegistry(t)
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	reg.AddSession(&Session{ID: "s", WorkspaceID: ws.ID, TmuxName: "wasa_s"})
+
+	if !reg.MarkPaused("s") {
+		t.Fatal("MarkPaused did not find session")
+	}
+	if got := reg.ListSessions()[0].Status; got != StatusPaused {
+		t.Fatalf("status after MarkPaused = %q, want %q", got, StatusPaused)
+	}
+	if _, ok := reg.Session("s"); !ok {
+		t.Fatal("session record removed on pause; it must be retained")
+	}
+	if reg.MarkPaused("missing") {
+		t.Fatal("MarkPaused reported finding an unknown session")
+	}
+}
+
+func TestMarkRunning(t *testing.T) {
+	reg, _ := newTestRegistry(t)
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	reg.AddSession(&Session{ID: "s", WorkspaceID: ws.ID, TmuxName: "wasa_s"})
+	reg.MarkPaused("s")
+
+	if !reg.MarkRunning("s") {
+		t.Fatal("MarkRunning did not find session")
+	}
+	if got := reg.ListSessions()[0].Status; got != StatusRunning {
+		t.Fatalf("status after MarkRunning = %q, want %q", got, StatusRunning)
+	}
+	if reg.MarkRunning("missing") {
+		t.Fatal("MarkRunning reported finding an unknown session")
+	}
+}
+
+// TestReconcileLeavesPausedAlone asserts that a paused session — which by
+// definition has no tmux session — is never downgraded to exited by the
+// startup reconcile.
+func TestReconcileLeavesPausedAlone(t *testing.T) {
+	reg, _ := newTestRegistry(t)
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	reg.AddSession(&Session{ID: "p", WorkspaceID: ws.ID, TmuxName: "wasa_p"})
+	reg.MarkPaused("p")
+
+	changed := reg.Reconcile(func(string) (bool, error) {
+		return false, nil
+	})
+	if changed {
+		t.Fatal("Reconcile changed a paused session")
+	}
+	if got := reg.ListSessions()[0].Status; got != StatusPaused {
+		t.Fatalf("paused session reconciled to %q, want %q", got, StatusPaused)
+	}
+}
+
 func TestReconcileIgnoresProbeError(t *testing.T) {
 	reg, _ := newTestRegistry(t)
 	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")

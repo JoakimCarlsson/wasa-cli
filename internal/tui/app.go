@@ -206,6 +206,16 @@ type killedMsg struct{ err error }
 
 type deletedMsg struct{ err error }
 
+// pausedMsg carries the outcome of a pause. retry, when set, is the session
+// whose non-forced pause was blocked (typically by a dirty worktree); the
+// update loop offers a force retry for it.
+type pausedMsg struct {
+	err   error
+	retry *registry.Session
+}
+
+type resumedMsg struct{ err error }
+
 type workspaceDeletedMsg struct {
 	name string
 	err  error
@@ -284,6 +294,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err = nil
 		m.status = "deleted session"
+		return m, m.refresh()
+
+	case pausedMsg:
+		if msg.err != nil {
+			if msg.retry != nil {
+				return m.enterConfirmForcePause(msg.retry, msg.err)
+			}
+			m.err = msg.err
+			return m, nil
+		}
+		m.err = nil
+		m.status = "paused session — branch kept, worktree freed"
+		return m, m.refresh()
+
+	case resumedMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		m.err = nil
+		m.status = "resumed session"
 		return m, m.refresh()
 
 	case workspaceDeletedMsg:
@@ -455,6 +486,10 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.enterConfirmKill()
 	case config.ActionDelete:
 		return m.enterConfirmDelete()
+	case config.ActionPause:
+		return m.enterConfirmPause()
+	case config.ActionResume:
+		return m.resume()
 	case config.ActionConfig:
 		return m.enterConfig()
 	}
@@ -788,6 +823,81 @@ func (m Model) enterConfirmKill() (tea.Model, tea.Cmd) {
 	)
 }
 
+// enterConfirmPause opens the pause-confirmation modal for the selected
+// session. Any non-paused session can be paused: a running one is soft-stopped,
+// and an exited one that still owns a worktree has it freed — which is also the
+// recovery path for a session stranded by a pause that failed after its tmux
+// died. The first attempt never discards uncommitted changes: a dirty worktree
+// blocks it and routes to the force confirmation instead.
+func (m Model) enterConfirmPause() (tea.Model, tea.Cmd) {
+	s := m.selectedSession()
+	if s == nil || s.Status == registry.StatusPaused {
+		return m, nil
+	}
+	title, _ := sessionLabel(s)
+	prompt := fmt.Sprintf(
+		"Pause %q?\nIts tmux stops and the worktree is removed. The branch "+
+			"and its commits are kept; resume rebuilds it.",
+		title,
+	)
+	if s.WorktreePath == "" {
+		prompt = fmt.Sprintf(
+			"Pause %q?\nIts tmux stops; resume restarts it.", title,
+		)
+	}
+	return m.enterConfirm(
+		modal.NewConfirmDialog(
+			m.theme, "Pause session", confirmBody(m.theme, prompt, s),
+			"Pause", "Cancel", true,
+		),
+		m.pauseCmd(s, false),
+	)
+}
+
+// enterConfirmForcePause opens the second, force-pause confirmation after a
+// non-forced pause was blocked — typically by uncommitted worktree changes.
+// Only this explicit second confirmation discards them, mirroring how finish
+// treats a dirty worktree as an error unless the caller opts into force.
+// Cancelling leaves the session's worktree intact; its tmux was already
+// stopped by the failed attempt, so pressing pause again retries from there.
+func (m Model) enterConfirmForcePause(
+	s *registry.Session, cause error,
+) (tea.Model, tea.Cmd) {
+	title, _ := sessionLabel(s)
+	body := confirmBody(m.theme, fmt.Sprintf(
+		"Pause of %q was blocked:\n%s\n\nDiscard the worktree's uncommitted "+
+			"changes and pause anyway?",
+		title, cause,
+	), s)
+	return m.enterConfirm(
+		modal.NewConfirmDialog(
+			m.theme, "Force pause", body, "Discard and pause", "Cancel", true,
+		),
+		m.pauseCmd(s, true),
+	)
+}
+
+// resume re-spawns the selected paused session. It is deliberately confirm-less:
+// resuming is additive and destroys nothing. On a session that is not paused it
+// is a no-op with a clear message rather than an error.
+func (m Model) resume() (tea.Model, tea.Cmd) {
+	s := m.selectedSession()
+	if s == nil {
+		return m, nil
+	}
+	if s.Status == registry.StatusRunning {
+		m.status = "session is already running"
+		return m, nil
+	}
+	if s.Status != registry.StatusPaused {
+		m.status = "only a paused session can be resumed"
+		return m, nil
+	}
+	m.err = nil
+	m.status = "resuming session…"
+	return m, m.resumeCmd(s)
+}
+
 // enterConfirm opens dialog as a modal and stores onConfirm as the command to
 // run if it is accepted.
 func (m Model) enterConfirm(
@@ -979,6 +1089,47 @@ func (m Model) deleteCmd(s *registry.Session) tea.Cmd {
 	}
 }
 
+// pauseCmd soft-stops the session: companion shell and tmux killed, worktree
+// removed, branch and registry record kept, status set to paused. The companion
+// dies before the worktree is removed so no process holds the tree while git
+// tears it down; if the pause then fails, the Terminal tab respawns the
+// companion on demand. When force is false a blocked worktree removal does not
+// discard anything: the failure routes back as a retry so only the explicit
+// force confirmation discards uncommitted changes.
+func (m Model) pauseCmd(s *registry.Session, force bool) tea.Cmd {
+	reg, home := m.reg, m.home
+	be := m.tmux
+	term := companionName(s.TmuxName)
+	return func() tea.Msg {
+		_ = be.Kill(term)
+		if err := launch.PauseSession(reg, be, home, s, force); err != nil {
+			if !force {
+				return pausedMsg{err: err, retry: s}
+			}
+			return pausedMsg{err: err}
+		}
+		if err := reg.Save(); err != nil {
+			return pausedMsg{err: err}
+		}
+		return pausedMsg{}
+	}
+}
+
+// resumeCmd rebuilds the paused session — worktree, bootstrap, env, hook — and
+// re-spawns its tmux, persisting the registry once it is running again.
+func (m Model) resumeCmd(s *registry.Session) tea.Cmd {
+	reg, home := m.reg, m.home
+	return func() tea.Msg {
+		if err := launch.ResumeSession(home, reg, s); err != nil {
+			return resumedMsg{err: err}
+		}
+		if err := reg.Save(); err != nil {
+			return resumedMsg{err: err}
+		}
+		return resumedMsg{}
+	}
+}
+
 // refresh re-reads the most-recently-used workspaces and clamps the cursor. It
 // preserves the active tab by id — a workspace or the synthetic orphan tab —
 // falling back to the first tab when the active one has gone away. It returns a
@@ -1021,6 +1172,10 @@ func (m *Model) sweepStatuses() {
 	keep := make(map[string]bool)
 	for _, s := range m.reg.ListSessions() {
 		keep[s.ID] = true
+		if s.Status == registry.StatusPaused {
+			m.transition(s, sessionstatus.Paused, focused)
+			continue
+		}
 		if s.Status != registry.StatusRunning {
 			if wasRunning[s.ID] {
 				m.transition(s, sessionstatus.Exited, focused)
@@ -1179,11 +1334,15 @@ func (m Model) churnCmd() tea.Cmd {
 // churnTargets gathers the worktree sessions whose churn the tick recomputes: a
 // session is included only when it has the branch, worktree and base commit a
 // diff needs and its workspace (the repository the diff runs against) resolves.
-// Plain sessions and sessions whose workspace has gone away are skipped, so the
-// returned slice being empty is exactly the "no git on tick" case.
+// Plain sessions, paused sessions (their worktree is removed, so a numstat
+// could only error) and sessions whose workspace has gone away are skipped, so
+// the returned slice being empty is exactly the "no git on tick" case.
 func (m Model) churnTargets() []churnTarget {
 	var targets []churnTarget
 	for _, s := range m.reg.ListSessions() {
+		if s.Status == registry.StatusPaused {
+			continue
+		}
 		if s.Branch == "" || s.WorktreePath == "" || s.BaseCommit == "" {
 			continue
 		}
@@ -1204,26 +1363,32 @@ func (m Model) churnTargets() []churnTarget {
 
 // applyChurn replaces the cached churn stats with a freshly computed batch,
 // dropping any entry whose session no longer exists so a delivery that races a
-// session deletion cannot revive a stale row.
+// session deletion cannot revive a stale row. A paused session is absent from
+// the batch (its worktree is gone, so the tick skips it); its last-known churn
+// is carried over so the row freezes at the pre-pause numbers rather than
+// blanking.
 func (m *Model) applyChurn(msg churnMsg) {
-	existing := make(map[string]bool)
-	for _, s := range m.reg.ListSessions() {
-		existing[s.ID] = true
-	}
 	next := make(map[string]churnStat, len(msg.stats))
-	for id, c := range msg.stats {
-		if existing[id] {
-			next[id] = c
+	for _, s := range m.reg.ListSessions() {
+		if c, ok := msg.stats[s.ID]; ok {
+			next[s.ID] = c
+			continue
+		}
+		if c, ok := m.churn[s.ID]; ok && s.Status == registry.StatusPaused {
+			next[s.ID] = c
 		}
 	}
 	m.churn = next
 }
 
-// runtimeStatus is the status the list renders for a session: exited when the
-// registry says so (the persisted source of truth), otherwise the derived
-// runtime status, falling back to working for a running session not yet
+// runtimeStatus is the status the list renders for a session: paused or exited
+// when the registry says so (the persisted source of truth), otherwise the
+// derived runtime status, falling back to working for a running session not yet
 // observed.
 func (m Model) runtimeStatus(s *registry.Session) sessionstatus.Status {
+	if s.Status == registry.StatusPaused {
+		return sessionstatus.Paused
+	}
 	if s.Status != registry.StatusRunning {
 		return sessionstatus.Exited
 	}

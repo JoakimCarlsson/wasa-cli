@@ -1,18 +1,21 @@
 package sessionstatus
 
 // Status is a session's activity state. Working/Waiting/Idle are the activity
-// states a hook or the heuristic can produce; Exited reflects registry liveness
-// and Unknown is a running session not yet observed. The zero value is Unknown.
+// states a hook or the heuristic can produce; Exited and Paused reflect registry
+// liveness and Unknown is a running session not yet observed. The zero value is
+// Unknown.
 type Status string
 
-// The activity states, plus the two the cockpit assigns directly: Exited from
-// registry liveness and Unknown (the zero value) for a session not yet observed.
+// The activity states, plus the three the cockpit assigns directly: Exited and
+// Paused from registry liveness and Unknown (the zero value) for a session not
+// yet observed.
 const (
 	Unknown Status = ""
 	Working Status = "working"
 	Waiting Status = "waiting"
 	Idle    Status = "idle"
 	Exited  Status = "exited"
+	Paused  Status = "paused"
 )
 
 // Activity reports whether s is one of the states a hook or the heuristic may
@@ -39,6 +42,8 @@ func (s Status) Label() string {
 		return "idle"
 	case Exited:
 		return "exited"
+	case Paused:
+		return "paused"
 	default:
 		return "running"
 	}
