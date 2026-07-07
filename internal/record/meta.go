@@ -2,8 +2,18 @@ package record
 
 import "time"
 
-// RefName is the dedicated ref every checkpoint lives on, one per repository.
-const RefName = "refs/wasa/checkpoints"
+// RefPrefix is the namespace every checkpoint ref lives under, one ref per
+// checkpoint: refs/wasa/checkpoints/<shard>/<ulid>. It is also the name of
+// the pre-ref-store chain ref the writer deletes on sight.
+const RefPrefix = "refs/wasa/checkpoints"
+
+// FetchRefspec transfers the whole record to a fresh clone in one fetch:
+// git fetch origin "refs/wasa/checkpoints/*:refs/wasa/checkpoints/*".
+const FetchRefspec = "refs/wasa/checkpoints/*:refs/wasa/checkpoints/*"
+
+// StorageVersion tags meta.json with the on-disk layout so readers can
+// dispatch on it forever after. "refs-1" is the per-checkpoint ref store.
+const StorageVersion = "refs-1"
 
 // Version is the wasa build version stamped into every checkpoint's
 // meta.json. The CLI entry point sets it at startup; the zero value marks a
@@ -45,6 +55,9 @@ type Meta struct {
 	Unmanaged bool `json:"unmanaged,omitempty"`
 	// WasaVersion is the wasa build that wrote the checkpoint.
 	WasaVersion string `json:"wasaVersion"`
+	// StorageVersion is the on-disk layout the checkpoint was written with,
+	// so readers can dispatch on it. Always StorageVersion for new writes.
+	StorageVersion string `json:"storageVersion"`
 	// Gaps notes what a degraded checkpoint is missing (e.g. "transcript
 	// unavailable"), so an incomplete record is honest about it.
 	Gaps []string `json:"gaps,omitempty"`

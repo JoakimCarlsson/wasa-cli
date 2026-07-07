@@ -29,8 +29,8 @@ Gemini CLI, Codex CLI, Copilot CLI, Cursor — e.g. .claude/settings.json,
 .gemini/settings.json, .codex/hooks.json, .github/hooks/wasa.json,
 .cursor/hooks.json) in the repository containing the current directory, so
 ANY agent session run in it — including sessions started directly, with no
-wasa session around them — is recorded as checkpoints on the
-` + record.RefName + ` ref. "disable" removes the hooks; "status" reports
+wasa session around them — is recorded as checkpoints under the
+` + record.RefPrefix + `/ refs. "disable" removes the hooks; "status" reports
 the current state.
 
 Recorded transcripts are redacted for common secret formats (API keys,
@@ -38,7 +38,7 @@ tokens, credentials) before they enter the repository. Redaction is
 best-effort: it catches the common token shapes, not every possible secret.
 
 The settings file is kept out of git status via the repository's
-.git/info/exclude. Recording writes only to ` + record.RefName + `; branches,
+.git/info/exclude. Recording writes only to ` + record.RefPrefix + `/*; branches,
 index and working copy are never touched. See "wasa checkpoints" to read the
 record back.
 
@@ -86,9 +86,9 @@ func runRecord(args []string) error {
 		fmt.Fprintf(
 			os.Stdout,
 			"recording enabled for %s (%s)\nagent sessions run in this "+
-				"repository now record to %s (transcripts redacted "+
+				"repository now record to %s/* (transcripts redacted "+
 				"best-effort)\n",
-			repoPath, strings.Join(tools, ", "), record.RefName,
+			repoPath, strings.Join(tools, ", "), record.RefPrefix,
 		)
 	case "disable":
 		if err := record.RemoveHooks(repoPath); err != nil {

@@ -3,7 +3,6 @@ package finish
 import (
 	"os"
 	"os/exec"
-	"strings"
 	"testing"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/record"
@@ -70,14 +69,12 @@ func TestSessionAgainstRealRepo(t *testing.T) {
 		t.Fatalf("teardown incomplete: %+v", res)
 	}
 
-	subject, err := exec.Command(
-		"git", "-C", repo, "log", "--format=%s", record.RefName,
-	).Output()
-	if err != nil {
-		t.Fatalf("no checkpoint ref after finish: %v", err)
+	entries, err := record.List(repo)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("checkpoints after finish = %v, %v; want 1", entries, err)
 	}
-	if strings.TrimSpace(string(subject)) != "sess1" {
-		t.Fatalf("checkpoint subject = %q, want sess1", subject)
+	if entries[0].Meta.SessionID != "sess1" {
+		t.Fatalf("checkpoint session = %q, want sess1", entries[0].Meta.SessionID)
 	}
 
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
