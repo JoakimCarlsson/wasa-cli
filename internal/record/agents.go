@@ -147,34 +147,16 @@ var agents = []agentSpec{
 	{
 		tool: "copilot",
 		exe:  "copilot",
-		install: func(dir, wasaExe string) error {
-			return installFlat(
-				settingsFile(
-					dir,
-					filepath.Join(".github", "hooks"),
-					"wasa.json",
-				),
-				dir,
-				"copilot",
-				wasaExe,
-				[]hookEvent{
-					{name: "userPromptSubmitted"},
-					{name: "postToolUse"},
-					{name: "sessionEnd", end: true},
-				},
-				copilotEntry,
-			)
+		install: func(_, wasaExe string) error {
+			return installCopilot(wasaExe, []hookEvent{
+				{name: "userPromptSubmitted"},
+				{name: "postToolUse"},
+				{name: "sessionEnd", end: true},
+			})
 		},
-		remove: func(dir string) error {
-			return removeFlat(settingsFile(
-				dir, filepath.Join(".github", "hooks"), "wasa.json",
-			))
-		},
-		installed: func(dir string) bool {
-			return flatInstalled(settingsFile(
-				dir, filepath.Join(".github", "hooks"), "wasa.json",
-			))
-		},
+		remove:    func(_ string) error { return removeCopilot() },
+		installed: func(_ string) bool { return copilotInstalled() },
+
 		transcript:       copilotTranscript,
 		transcriptTarget: copilotTranscriptPath,
 		resumeArgs:       resumeFlag,

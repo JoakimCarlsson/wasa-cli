@@ -96,11 +96,11 @@ func HandleEvent(home string, ev Event) {
 		if len(transcript) == 0 {
 			m.Gaps = append(m.Gaps, "transcript unavailable")
 		}
-		if Write(repoDir, Checkpoint{
+		if ref, err := Write(repoDir, Checkpoint{
 			Meta: m, Intent: st.Intent, Transcript: transcript,
-		}) == nil {
+		}); err == nil {
 			removeState(home, sid)
-			pushDetached(repoDir)
+			pushDetached(repoDir, []string{ref})
 			return
 		}
 	}
@@ -167,6 +167,7 @@ func checkpointNewCommits(repoDir string, st state, head string) state {
 		newCommits = newCommits[len(newCommits)-1:]
 	}
 	st.Commits = append(st.Commits, burst...)
+	var refs []string
 	for _, c := range newCommits {
 		st.Commits = append(st.Commits, c)
 		m := st.meta()
@@ -180,12 +181,14 @@ func checkpointNewCommits(repoDir string, st state, head string) state {
 		if len(transcript) == 0 {
 			m.Gaps = append(m.Gaps, "transcript unavailable")
 		}
-		_ = Write(repoDir, Checkpoint{
+		if ref, err := Write(repoDir, Checkpoint{
 			Meta: m, Intent: st.Intent, Transcript: transcript,
-		})
+		}); err == nil {
+			refs = append(refs, ref)
+		}
 	}
 	st.LastHead = head
-	pushDetached(repoDir)
+	pushDetached(repoDir, refs)
 	return st
 }
 
@@ -276,13 +279,14 @@ func Finish(home string, info FinishInfo) error {
 		intent = FirstUserMessage(transcript)
 	}
 
-	if err := Write(repoDir, Checkpoint{
+	ref, err := Write(repoDir, Checkpoint{
 		Meta: m, Intent: intent, Transcript: transcript,
-	}); err != nil {
+	})
+	if err != nil {
 		return err
 	}
 	removeState(home, info.SessionID)
-	if err := Push(repoDir); err != nil {
+	if err := Push(repoDir, ref); err != nil {
 		log.Printf("wasa: checkpoint sync skipped: %v", err)
 	}
 	return nil

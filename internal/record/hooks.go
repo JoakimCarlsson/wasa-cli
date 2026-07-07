@@ -64,10 +64,6 @@ func codexEntry(command string) settingsHookEntry {
 	return settingsHookEntry{Type: "command", Command: command, Timeout: 30}
 }
 
-func copilotEntry(command string) settingsHookEntry {
-	return settingsHookEntry{Type: "command", Bash: command}
-}
-
 func cursorEntry(command string) settingsHookEntry {
 	return settingsHookEntry{Command: command}
 }
@@ -261,6 +257,63 @@ func removeFlat(f configFile) error {
 
 func flatInstalled(f configFile) bool {
 	data, err := os.ReadFile(f.path)
+	return err == nil && strings.Contains(string(data), hookMarker)
+}
+
+// copilotHookPath is wasa's recorder hook file in Copilot's per-user hook
+// directory ~/.copilot/hooks/. Unlike every other supported agent, Copilot
+// discovers hooks only there (see internal/sessionstatus), never in the
+// repository, so the copilot recorder is installed once per machine rather
+// than per-repo: it records Copilot sessions run in ANY repository, and each
+// checkpoint still lands on the repository the session ran in. The file is
+// wasa-owned and distinct from the sessionstatus status hook, so install
+// rewrites it and remove deletes it; a foreign file without wasa's marker is
+// left untouched. Being outside any repository, it needs no info/exclude.
+func copilotHookPath() string {
+	return filepath.Join(
+		agentHome("", ".copilot"), "hooks", "wasa-record.json",
+	)
+}
+
+// installCopilot writes the copilot recorder hook to copilotHookPath in the
+// flat {"hooks":{"<event>":[{"type":"command","command":...}]}} shape Copilot
+// reads — no version wrapper, command not bash, matching the status hook.
+func installCopilot(wasaExe string, events []hookEvent) error {
+	path := copilotHookPath()
+	if data, err := os.ReadFile(path); err == nil &&
+		!strings.Contains(string(data), hookMarker) {
+		return fmt.Errorf("%s exists and is not wasa's; not overwriting", path)
+	}
+	hooks := map[string][]settingsHookEntry{}
+	for _, event := range events {
+		hooks[event.name] = []settingsHookEntry{
+			{Type: "command", Command: HookCommand(wasaExe, "copilot", event.end)},
+		}
+	}
+	rawHooks, err := json.Marshal(hooks)
+	if err != nil {
+		return err
+	}
+	return writeJSONFile(path, map[string]json.RawMessage{"hooks": rawHooks})
+}
+
+func removeCopilot() error {
+	path := copilotHookPath()
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(data), hookMarker) {
+		return nil
+	}
+	return os.Remove(path)
+}
+
+func copilotInstalled() bool {
+	data, err := os.ReadFile(copilotHookPath())
 	return err == nil && strings.Contains(string(data), hookMarker)
 }
 

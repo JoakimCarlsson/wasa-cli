@@ -8,6 +8,21 @@ import (
 	"testing"
 )
 
+// TestMain isolates HOME to a throwaway directory for the whole package, so
+// the copilot recorder hook (installed per-user under ~/.copilot/hooks/) never
+// reads or deletes the developer's real hook files during tests.
+func TestMain(m *testing.M) {
+	home, err := os.MkdirTemp("", "wasa-record-home-*")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("HOME", home)
+	os.Setenv("USERPROFILE", home)
+	code := m.Run()
+	os.RemoveAll(home)
+	os.Exit(code)
+}
+
 func claudeSettingsPath(dir string) string {
 	return filepath.Join(dir, ".claude", "settings.json")
 }
@@ -25,14 +40,14 @@ func readSettings(t *testing.T, path string) map[string]any {
 	return m
 }
 
-// agentConfigPaths maps each supported tool to the hook config file its
-// installer owns.
+// agentConfigPaths maps each repo-scoped tool to the hook config file its
+// installer owns. Copilot is intentionally absent: its hooks live per-user
+// under ~/.copilot/hooks/, not in the repository (see TestCopilotHookInstall).
 var agentConfigPaths = map[string]string{
-	"claude":  filepath.Join(".claude", "settings.json"),
-	"gemini":  filepath.Join(".gemini", "settings.json"),
-	"codex":   filepath.Join(".codex", "hooks.json"),
-	"copilot": filepath.Join(".github", "hooks", "wasa.json"),
-	"cursor":  filepath.Join(".cursor", "hooks.json"),
+	"claude": filepath.Join(".claude", "settings.json"),
+	"gemini": filepath.Join(".gemini", "settings.json"),
+	"codex":  filepath.Join(".codex", "hooks.json"),
+	"cursor": filepath.Join(".cursor", "hooks.json"),
 }
 
 func TestInstallRemoveStatusAllAgents(t *testing.T) {
@@ -294,5 +309,80 @@ func TestAgentForProgram(t *testing.T) {
 			t.Errorf("AgentForProgram(%q) = %q %v, want %q",
 				program, got, ok, want)
 		}
+	}
+}
+
+// TestCopilotHookInstall checks the copilot recorder lands in Copilot's
+// per-user ~/.copilot/hooks/ directory in the flat command shape Copilot reads
+// — not the repository, not a bash field, no version wrapper — and installs,
+// reports, and removes without ever writing into the repo. HOME is isolated by
+// TestMain.
+func TestCopilotHookInstall(t *testing.T) {
+	repo := initRepo(t)
+	if err := InstallHooks(repo, "copilot", "/opt/wasa"); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if got := InstalledAgents(repo); len(got) != 1 || got[0] != "copilot" {
+		t.Errorf("InstalledAgents = %v, want [copilot]", got)
+	}
+
+	data, err := os.ReadFile(copilotHookPath())
+	if err != nil {
+		t.Fatalf("hook not at %s: %v", copilotHookPath(), err)
+	}
+	got := string(data)
+	for _, want := range []string{
+		`"command"`, "/opt/wasa record-hook --tool copilot",
+		"--event end", "sessionEnd", "userPromptSubmitted",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("hook file missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, `"bash"`) || strings.Contains(got, `"version"`) {
+		t.Errorf("copilot hook has a bash field or version wrapper:\n%s", got)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".github")); !os.IsNotExist(err) {
+		t.Error("copilot install wrote into the repository")
+	}
+	if status := mustGit(t, repo, "status", "--porcelain"); status != "" {
+		t.Errorf("copilot install dirtied git status: %q", status)
+	}
+
+	if err := RemoveHooks(repo); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if copilotInstalled() {
+		t.Error("copilot hook still installed after remove")
+	}
+	if _, err := os.Stat(copilotHookPath()); !os.IsNotExist(err) {
+		t.Error("copilot hook file survived remove")
+	}
+}
+
+// TestCopilotHookLeavesForeignFile checks a non-wasa file at the copilot hook
+// path is neither overwritten by install nor deleted by remove.
+func TestCopilotHookLeavesForeignFile(t *testing.T) {
+	path := copilotHookPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	foreign := `{"hooks":{"sessionEnd":[{"type":"command","command":"other"}]}}`
+	if err := os.WriteFile(path, []byte(foreign), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(path) })
+
+	if err := InstallHooks(initRepo(t), "copilot", "/opt/wasa"); err == nil {
+		t.Error("install overwrote a foreign hook file without error")
+	}
+	if data, _ := os.ReadFile(path); string(data) != foreign {
+		t.Error("foreign hook file was modified")
+	}
+	if err := RemoveHooks(initRepo(t)); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		t.Error("remove deleted a foreign hook file")
 	}
 }
