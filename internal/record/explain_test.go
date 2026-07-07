@@ -46,7 +46,10 @@ func TestExplain(t *testing.T) {
 		t.Fatalf("Explain: %v", err)
 	}
 	if len(matches) != 1 {
-		t.Fatalf("default returned %d matches, want the newest one", len(matches))
+		t.Fatalf(
+			"default returned %d matches, want the newest one",
+			len(matches),
+		)
 	}
 	if matches[0].Meta.SessionID != "sess1" ||
 		matches[0].Intent != "why the change exists" {

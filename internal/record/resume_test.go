@@ -43,7 +43,10 @@ func TestBuildPreambleWithoutTranscriptStillHasIntent(t *testing.T) {
 		t.Errorf("preamble missing intent:\n%s", got)
 	}
 	if strings.Contains(got, "Recent conversation") {
-		t.Errorf("empty transcript should not add a conversation section:\n%s", got)
+		t.Errorf(
+			"empty transcript should not add a conversation section:\n%s",
+			got,
+		)
 	}
 }
 
@@ -55,7 +58,12 @@ func TestResumeArgsPerAgent(t *testing.T) {
 		ok      bool
 	}{
 		{"claude", "s1", []string{"--resume", "s1"}, true},
-		{"/usr/bin/claude --dangerously", "s1", []string{"--resume", "s1"}, true},
+		{
+			"/usr/bin/claude --dangerously",
+			"s1",
+			[]string{"--resume", "s1"},
+			true,
+		},
 		{"gemini", "s2", []string{"--resume", "s2"}, true},
 		{"codex", "s3", []string{"resume", "s3"}, true},
 		{"copilot", "s4", []string{"--resume", "s4"}, true},
@@ -66,11 +74,23 @@ func TestResumeArgsPerAgent(t *testing.T) {
 	for _, c := range cases {
 		got, ok := ResumeArgs(c.program, c.id)
 		if ok != c.ok {
-			t.Errorf("ResumeArgs(%q,%q) ok=%v want %v", c.program, c.id, ok, c.ok)
+			t.Errorf(
+				"ResumeArgs(%q,%q) ok=%v want %v",
+				c.program,
+				c.id,
+				ok,
+				c.ok,
+			)
 			continue
 		}
 		if !equalStrings(got, c.want) {
-			t.Errorf("ResumeArgs(%q,%q)=%v want %v", c.program, c.id, got, c.want)
+			t.Errorf(
+				"ResumeArgs(%q,%q)=%v want %v",
+				c.program,
+				c.id,
+				got,
+				c.want,
+			)
 		}
 	}
 }
@@ -106,7 +126,9 @@ func TestRestoreTranscriptUnsupportedAgent(t *testing.T) {
 	if err := RestoreTranscript(
 		"cursor-agent", "s1", t.TempDir(), []byte("x"),
 	); err == nil {
-		t.Error("expected error restoring for an agent with no transcript target")
+		t.Error(
+			"expected error restoring for an agent with no transcript target",
+		)
 	}
 }
 

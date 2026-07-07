@@ -117,7 +117,10 @@ func TestWriteAndReadBack(t *testing.T) {
 		t.Fatalf("List: %v", err)
 	}
 	if len(entries) != 1 {
-		t.Fatalf("List returned %d entries, want 1 (one per session)", len(entries))
+		t.Fatalf(
+			"List returned %d entries, want 1 (one per session)",
+			len(entries),
+		)
 	}
 	e := entries[0]
 	if e.Meta.SessionID != "abc123" || e.Meta.Branch != "task/x" {
@@ -153,7 +156,13 @@ func TestWriteDeletesLegacyChainRef(t *testing.T) {
 		Meta: Meta{SessionID: "s1", WasaVersion: "test"},
 	})
 
-	refs := mustGit(t, dir, "for-each-ref", "--format=%(refname)", RefPrefix+"/")
+	refs := mustGit(
+		t,
+		dir,
+		"for-each-ref",
+		"--format=%(refname)",
+		RefPrefix+"/",
+	)
 	if strings.Count(strings.TrimSpace(refs), "\n") != 0 || refs == "" {
 		t.Errorf("want exactly one sharded ref, got %q", refs)
 	}
@@ -211,7 +220,13 @@ func TestFindAmbiguousAndMissing(t *testing.T) {
 
 func TestPrune(t *testing.T) {
 	dir := initRepo(t)
-	branchesBefore := mustGit(t, dir, "for-each-ref", "--format=%(refname)", "refs/heads")
+	branchesBefore := mustGit(
+		t,
+		dir,
+		"for-each-ref",
+		"--format=%(refname)",
+		"refs/heads",
+	)
 	for _, sid := range []string{"p1", "p2"} {
 		mustWrite(t, dir, Checkpoint{
 			Meta: Meta{SessionID: sid, WasaVersion: "test"},

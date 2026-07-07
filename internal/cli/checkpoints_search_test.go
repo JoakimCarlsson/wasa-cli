@@ -8,7 +8,13 @@ import (
 func TestPartitionArgs(t *testing.T) {
 	takes := map[string]bool{"branch": true, "since": true, "limit": true}
 	flags, pos := partitionArgs(
-		[]string{"retry logic", "--intent-only", "--branch", "task/x", "--limit=5"},
+		[]string{
+			"retry logic",
+			"--intent-only",
+			"--branch",
+			"task/x",
+			"--limit=5",
+		},
 		takes,
 	)
 	if len(pos) != 1 || pos[0] != "retry logic" {

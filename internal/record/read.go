@@ -204,7 +204,13 @@ func Prune(repoDir string, before time.Time) (int, error) {
 		if !r.when.Before(before) {
 			continue
 		}
-		if _, err := gitIn(repoDir, nil, "update-ref", "-d", r.ref); err != nil {
+		if _, err := gitIn(
+			repoDir,
+			nil,
+			"update-ref",
+			"-d",
+			r.ref,
+		); err != nil {
 			return deleted, fmt.Errorf("prune %s: %w", r.ref, err)
 		}
 		deleted++
