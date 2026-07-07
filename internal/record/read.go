@@ -3,6 +3,7 @@ package record
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -165,13 +166,15 @@ type refInfo struct {
 	session string
 }
 
-// forEachRef lists every checkpoint ref, newest first. ULIDs sort
-// chronologically, so a descending refname sort is a reverse-chronological
-// listing. A repository with no checkpoint ref yields nil, nil: no record is
-// a normal state, not an error.
+// forEachRef lists every checkpoint ref, newest first. Ordering is by the
+// ULID (the ref's leaf), which is timestamp-prefixed and so sorts
+// chronologically; the full refname cannot be used because the shard segment
+// — the ULID's last two characters — precedes the ULID in the path and would
+// scramble the order. A repository with no checkpoint ref yields nil, nil: no
+// record is a normal state, not an error.
 func forEachRef(repoDir string) ([]refInfo, error) {
 	out, err := gitIn(
-		repoDir, nil, "for-each-ref", "--sort=-refname",
+		repoDir, nil, "for-each-ref",
 		"--format=%(refname)\x1f%(objectname)\x1f%(committerdate:unix)"+
 			"\x1f%(contents:subject)",
 		RefPrefix+"/",
@@ -195,6 +198,9 @@ func forEachRef(repoDir string) ([]refInfo, error) {
 			session: parts[3],
 		})
 	}
+	slices.SortFunc(refs, func(a, b refInfo) int {
+		return strings.Compare(b.id, a.id)
+	})
 	return refs, nil
 }
 

@@ -26,8 +26,8 @@ const recordHelp = `usage: wasa record <enable|disable|status>
 Repo-level session recording. "enable" installs persistent hook
 configuration for every supported agent found on your PATH (Claude Code,
 Gemini CLI, Codex CLI, Copilot CLI, Cursor — e.g. .claude/settings.json,
-.gemini/settings.json, .codex/hooks.json, .github/hooks/wasa.json,
-.cursor/hooks.json) in the repository containing the current directory, so
+.gemini/settings.json, .codex/hooks.json, .cursor/hooks.json, and Copilot's
+per-user ~/.copilot/hooks/) in the repository containing the current directory, so
 ANY agent session run in it — including sessions started directly, with no
 wasa session around them — is recorded as checkpoints under the
 ` + record.RefPrefix + `/ refs. "disable" removes the hooks; "status" reports
