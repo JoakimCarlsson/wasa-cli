@@ -53,6 +53,9 @@ type Meta struct {
 	// Unmanaged marks a session recorded via repo-level hooks with no wasa
 	// session around it.
 	Unmanaged bool `json:"unmanaged,omitempty"`
+	// Imported marks a checkpoint backfilled from a pre-existing agent
+	// transcript (wasa checkpoints import) rather than recorded live.
+	Imported bool `json:"imported,omitempty"`
 	// WasaVersion is the wasa build that wrote the checkpoint.
 	WasaVersion string `json:"wasaVersion"`
 	// StorageVersion is the on-disk layout the checkpoint was written with,

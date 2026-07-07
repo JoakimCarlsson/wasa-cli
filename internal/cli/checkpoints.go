@@ -26,9 +26,10 @@ func init() {
 }
 
 const checkpointsUsage = "usage: wasa checkpoints " +
-	"[show <id> | explain <commit-ish> | search <query> | prune --before <date>]"
+	"[show <id> | explain <commit-ish> | search <query> | " +
+	"import [--dry-run] [--from <dir>] | prune --before <date>]"
 
-const checkpointsHelp = `usage: wasa checkpoints [show <id> | explain <commit-ish> | search <query> | prune --before <date>]
+const checkpointsHelp = `usage: wasa checkpoints [show <id> | explain <commit-ish> | search <query> | import [--dry-run] [--from <dir>] | prune --before <date>]
 
 Read back the session record of the repository containing the current
 directory. Without arguments, lists every recorded session: id, branch, when
@@ -38,9 +39,11 @@ id or a checkpoint ULID, and either may be a unique prefix. "explain" answers
 "why does this commit exist?": it finds the checkpoint(s) that produced
 <commit-ish> and prints that session's intent, meta, and transcript. "search"
 finds sessions by intent or transcript content and prints one block per match
-so you can pick one for show/explain. "prune" deletes every checkpoint
-recorded before <date> (YYYY-MM-DD or RFC3339), locally only — push afterwards
-to prune a remote.
+so you can pick one for show/explain. "import" backfills the record from this
+repo's pre-existing Claude Code transcripts (one checkpoint per past session,
+redacted like a live one); it is idempotent — a re-run imports only what is
+new. "prune" deletes every checkpoint recorded before <date> (YYYY-MM-DD or
+RFC3339), locally only — push afterwards to prune a remote.
 
 Read-only (apart from prune) and plain git underneath: it works on any clone
 that has the record, which transfers with
@@ -60,6 +63,10 @@ search flags:
       --branch <name>   only search sessions on this branch
       --since <date>    only search checkpoints recorded on or after <date> (YYYY-MM-DD or RFC3339)
       --limit N         stop after N matching sessions (default 20)
+
+import flags:
+      --dry-run         list the sessions that would be imported, write nothing
+      --from <dir>      import transcripts from <dir> instead of ~/.claude/projects/<slug>/
 `
 
 func runCheckpoints(args []string) error {
@@ -89,6 +96,8 @@ func runCheckpoints(args []string) error {
 		return searchCheckpoints(repoPath, rest[1:])
 	case len(rest) >= 1 && rest[0] == "prune":
 		return pruneCheckpoints(repoPath, rest[1:])
+	case len(rest) >= 1 && rest[0] == "import":
+		return importCheckpoints(repoPath, rest[1:])
 	default:
 		return errors.New(checkpointsUsage)
 	}
@@ -116,7 +125,9 @@ func listCheckpoints(repoPath string) error {
 		if !e.Meta.FinishedAt.IsZero() {
 			state = "finished"
 		}
-		if e.Meta.Unmanaged {
+		if e.Meta.Imported {
+			state += ", imported"
+		} else if e.Meta.Unmanaged {
 			state += ", unmanaged"
 		}
 		fmt.Fprintf(
@@ -422,6 +433,51 @@ func pruneCheckpoints(repoPath string, args []string) error {
 		os.Stdout, "pruned %d checkpoint(s) recorded before %s (local only; "+
 			"push to prune a remote)\n",
 		n, cutoff.Local().Format("2006-01-02 15:04"),
+	)
+	return nil
+}
+
+func importCheckpoints(repoPath string, args []string) error {
+	fs := newFlagSet("wasa checkpoints import")
+	dryRun := fs.Bool(
+		"dry-run", false, "list what would be imported, write nothing",
+	)
+	from := fs.String(
+		"from", "", "import transcripts from this directory instead of the "+
+			"default ~/.claude/projects/<slug>/",
+	)
+	flags, positional := partitionArgs(args, map[string]bool{"from": true})
+	if err := fs.Parse(flags); err != nil {
+		return err
+	}
+	if len(positional) != 0 {
+		return errors.New(
+			"usage: wasa checkpoints import [--dry-run] [--from <dir>]",
+		)
+	}
+
+	res, err := record.Import(repoPath, *from, *dryRun)
+	if err != nil {
+		return err
+	}
+
+	for _, w := range res.Warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+	}
+	if *dryRun {
+		for _, c := range res.Imported {
+			when := c.Meta.StartedAt.Local().Format("2006-01-02 15:04")
+			fmt.Fprintf(os.Stdout, "would import %s  %s\n", c.SessionID, when)
+		}
+		fmt.Fprintf(
+			os.Stdout, "dry run: %d to import, %d already present, %d failed\n",
+			len(res.Imported), res.Skipped, res.Failed,
+		)
+		return nil
+	}
+	fmt.Fprintf(
+		os.Stdout, "imported %d, skipped %d (already present), failed %d\n",
+		len(res.Imported), res.Skipped, res.Failed,
 	)
 	return nil
 }

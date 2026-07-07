@@ -22,6 +22,10 @@ type Checkpoint struct {
 	Meta       Meta
 	Intent     string
 	Transcript []byte
+	// Timestamp, when non-zero, stamps both the checkpoint's ULID and its
+	// commit date, so a backfilled session sorts and dates by its real time
+	// rather than the moment of import. Zero means "now" — live recording.
+	Timestamp time.Time
 }
 
 // Write commits cp to its own ref refs/wasa/checkpoints/<shard>/<ulid> in the
@@ -67,13 +71,23 @@ func Write(repoDir string, cp Checkpoint) (string, error) {
 		return "", fmt.Errorf("mktree: %w", err)
 	}
 
-	commit, err := gitIn(
-		repoDir, nil, "commit-tree", treeSHA, "-m", cp.Meta.SessionID,
+	var dateEnv []string
+	if !cp.Timestamp.IsZero() {
+		stamp := cp.Timestamp.Format(time.RFC3339)
+		dateEnv = []string{
+			"GIT_AUTHOR_DATE=" + stamp, "GIT_COMMITTER_DATE=" + stamp,
+		}
+	}
+	commit, err := gitInEnv(
+		repoDir, nil, dateEnv, "commit-tree", treeSHA, "-m", cp.Meta.SessionID,
 	)
 	if err != nil {
 		return "", fmt.Errorf("commit-tree: %w", err)
 	}
 	id := newULID()
+	if !cp.Timestamp.IsZero() {
+		id = newULIDAt(cp.Timestamp)
+	}
 	ref := RefPrefix + "/" + shard(id) + "/" + id
 	if _, err := gitIn(repoDir, nil, "update-ref", ref, commit); err != nil {
 		return "", fmt.Errorf("update %s: %w", ref, err)
@@ -159,6 +173,14 @@ func pushEnv() []string {
 // Checkpoint commits get a fixed machine identity so recording works in
 // repositories where user.name/user.email are unset.
 func gitIn(dir string, stdin io.Reader, args ...string) (string, error) {
+	return gitInEnv(dir, stdin, nil, args...)
+}
+
+// gitInEnv is gitIn with extra environment entries (e.g. GIT_*_DATE for a
+// backfilled commit) appended after the fixed machine identity.
+func gitInEnv(
+	dir string, stdin io.Reader, env []string, args ...string,
+) (string, error) {
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	cmd.Stdin = stdin
 	cmd.Env = append(os.Environ(),
@@ -167,6 +189,7 @@ func gitIn(dir string, stdin io.Reader, args ...string) (string, error) {
 		"GIT_COMMITTER_NAME=wasa",
 		"GIT_COMMITTER_EMAIL=wasa@localhost",
 	)
+	cmd.Env = append(cmd.Env, env...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

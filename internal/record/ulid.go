@@ -24,7 +24,14 @@ var (
 // reroll it — so a burst of checkpoints from one session sorts in the order
 // it was written.
 func newULID() string {
-	ms := uint64(time.Now().UnixMilli())
+	return newULIDAt(time.Now())
+}
+
+// newULIDAt is newULID with an explicit timestamp, so a backfilled checkpoint
+// gets a ULID that sorts by its real session time rather than the moment of
+// import. Monotonic within the process the same way newULID is.
+func newULIDAt(t time.Time) string {
+	ms := uint64(t.UnixMilli())
 
 	ulidMu.Lock()
 	if ms <= ulidLastMS {
