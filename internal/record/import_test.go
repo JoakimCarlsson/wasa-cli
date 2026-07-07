@@ -63,7 +63,10 @@ func TestImport(t *testing.T) {
 			len(res.Imported), res.Failed)
 	}
 	if len(res.Warnings) != 1 {
-		t.Fatalf("want one warning for the truncated file, got %v", res.Warnings)
+		t.Fatalf(
+			"want one warning for the truncated file, got %v",
+			res.Warnings,
+		)
 	}
 
 	entries, err := List(dir)
@@ -90,7 +93,8 @@ func TestImport(t *testing.T) {
 		strings.Contains(intent, "ide_selection") {
 		t.Errorf("intent not sanitized: %q", intent)
 	}
-	if strings.Contains(intent, "ghp_") || !strings.Contains(intent, placeholder) {
+	if strings.Contains(intent, "ghp_") ||
+		!strings.Contains(intent, placeholder) {
 		t.Errorf("intent not redacted: %q", intent)
 	}
 	if strings.Contains(string(transcript), "ghp_") {

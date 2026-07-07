@@ -309,7 +309,8 @@ func overlapsAny(cands []ImportCandidate, i int) bool {
 		if b.StartedAt.IsZero() || b.FinishedAt.IsZero() {
 			continue
 		}
-		if !a.StartedAt.After(b.FinishedAt) && !b.StartedAt.After(a.FinishedAt) {
+		if !a.StartedAt.After(b.FinishedAt) &&
+			!b.StartedAt.After(a.FinishedAt) {
 			return true
 		}
 	}
