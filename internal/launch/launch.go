@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/backend"
 	"github.com/joakimcarlsson/wasa-cli/internal/bootstrap"
@@ -39,6 +40,10 @@ type Params struct {
 	// ResumedFrom is the session id this session was resumed from, recorded into
 	// its checkpoints.
 	ResumedFrom string
+	// HistoryMaxBytes, when > 0, prepends a recorded-history preamble selected
+	// from this repo's checkpoints to InitialPrompt, capped at that many bytes.
+	// Callers set it from config unless history is disabled; 0 injects nothing.
+	HistoryMaxBytes int
 }
 
 // ops are the side-effecting operations the create flow performs, injected so
@@ -172,6 +177,27 @@ func CreateSession(
 	return createSession(defaultOps(), home, reg, ws, p)
 }
 
+// seedPrompt returns the prompt a session's agent is seeded with as its first
+// message: the caller's InitialPrompt, prefixed with a recorded-history preamble
+// when p.HistoryMaxBytes > 0 and the workspace has a repository to read from. A
+// program with no recording integration — a shell, an unknown agent — cannot be
+// handed a positional prompt safely (it would run as a command), so it is seeded
+// nothing regardless of what the caller passed.
+func seedPrompt(ws *registry.Workspace, program string, p Params) string {
+	if _, ok := record.AgentForProgram(program); !ok {
+		return ""
+	}
+	prompt := p.InitialPrompt
+	if p.HistoryMaxBytes > 0 && ws != nil {
+		if h := record.HistoryPreamble(
+			ws.RepoPath, p.Branch, prompt, p.HistoryMaxBytes,
+		); h != "" {
+			prompt = strings.TrimSpace(h + "\n\n" + prompt)
+		}
+	}
+	return prompt
+}
+
 func createSession(
 	o ops,
 	home string,
@@ -180,6 +206,7 @@ func createSession(
 	p Params,
 ) (*registry.Session, error) {
 	program := p.Program
+	p.InitialPrompt = seedPrompt(ws, program, p)
 
 	var (
 		prof registry.Profile
@@ -300,7 +327,9 @@ func createPlainSession(
 	sessionID := registry.NewSessionID()
 	tmuxName := registry.TmuxName(workspaceID, sessionID)
 	spawnEnv := o.prepareHooks(home, sessionID, program, env)
-	if err := o.spawn(tmuxName, p.WorkingDir, spawnEnv, program); err != nil {
+	if err := o.spawn(
+		tmuxName, p.WorkingDir, spawnEnv, launchProgram(program, p),
+	); err != nil {
 		return nil, err
 	}
 

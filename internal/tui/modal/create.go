@@ -20,6 +20,7 @@ const (
 	fieldDir = iota
 	fieldBranch
 	fieldTitle
+	fieldPrompt
 	fieldProgram
 	fieldAutonomous
 	fieldProfile
@@ -110,6 +111,10 @@ func NewCreateForm(
 	title.Placeholder = "optional title"
 	title.CharLimit = 200
 
+	prompt := textinput.New()
+	prompt.Placeholder = "optional — what this session should do"
+	prompt.CharLimit = 4096
+
 	shell := launch.Shell()
 	programs := append(launch.DetectAgents(), shell)
 
@@ -119,7 +124,7 @@ func NewCreateForm(
 
 	f := CreateForm{
 		theme:         theme,
-		inputs:        []textinput.Model{dir, branch, title, program},
+		inputs:        []textinput.Model{dir, branch, title, prompt, program},
 		profiles:      profiles,
 		programs:      programs,
 		shell:         shell,
@@ -382,9 +387,10 @@ func (f CreateForm) Params() launch.Params {
 		program = launch.WithAutonomous(program)
 	}
 	p := launch.Params{
-		Title:   strings.TrimSpace(f.inputs[fieldTitle].Value()),
-		Program: program,
-		Profile: prof,
+		Title:         strings.TrimSpace(f.inputs[fieldTitle].Value()),
+		Program:       program,
+		Profile:       prof,
+		InitialPrompt: strings.TrimSpace(f.inputs[fieldPrompt].Value()),
 	}
 	branch := ""
 	if f.BranchEnabled() {
@@ -407,8 +413,8 @@ func (f CreateForm) View() string {
 	b.WriteString(f.theme.TitleStyle.Render("New session"))
 	b.WriteString("\n\n")
 
-	labels := []string{"Directory", "Branch", "Title"}
-	for i := fieldDir; i <= fieldTitle; i++ {
+	labels := []string{"Directory", "Branch", "Title", "Prompt"}
+	for i := fieldDir; i <= fieldPrompt; i++ {
 		if i == fieldDir && !f.dirEnabled() {
 			continue
 		}

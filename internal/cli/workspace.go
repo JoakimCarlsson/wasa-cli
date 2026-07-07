@@ -10,6 +10,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/backend"
+	"github.com/joakimcarlsson/wasa-cli/internal/config"
 	"github.com/joakimcarlsson/wasa-cli/internal/launch"
 	"github.com/joakimcarlsson/wasa-cli/internal/registry"
 	"github.com/joakimcarlsson/wasa-cli/internal/repo"
@@ -347,7 +348,8 @@ func runSession(args []string) error {
 
 func sessionNew(args []string) error {
 	fs := newFlagSet("wasa session new")
-	var profileName, program, branch, title, dir string
+	var profileName, program, branch, title, dir, prompt string
+	var noHistory bool
 	fs.StringVar(
 		&profileName,
 		"profile",
@@ -373,6 +375,18 @@ func sessionNew(args []string) error {
 		"working directory for a plain session (default: current directory)",
 	)
 	fs.StringVar(&title, "title", "", "human-readable session title")
+	fs.StringVar(
+		&prompt,
+		"prompt",
+		"",
+		"initial prompt seeded to the agent as its first message",
+	)
+	fs.BoolVar(
+		&noHistory,
+		"no-history",
+		false,
+		"do not inject recorded history from prior sessions",
+	)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -415,6 +429,14 @@ func sessionNew(args []string) error {
 			Program:    program,
 			Profile:    profileName,
 			WorkingDir: workdir,
+		}
+	}
+
+	params.InitialPrompt = prompt
+	if !noHistory {
+		if cfg, cerr := config.Load(wasaHome()); cerr == nil &&
+			cfg.History.Enabled {
+			params.HistoryMaxBytes = cfg.History.MaxBytes
 		}
 	}
 
