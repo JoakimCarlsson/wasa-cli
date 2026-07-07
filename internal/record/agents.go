@@ -1,6 +1,7 @@
 package record
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,6 +34,18 @@ type agentSpec struct {
 	// transcript best-effort locates the agent's transcript for a session
 	// when hook payloads did not carry a path. May be nil.
 	transcript func(sessionID, repoDir string) string
+	// transcriptTarget computes where the agent's transcript for a session
+	// would live, without checking that it exists, so a resumed session can
+	// restore a recorded transcript to that path before a native resume. Only
+	// set for agents whose transcript is a single deterministic file. May be
+	// nil, in which case a session with no live local transcript falls back to
+	// the checkpoint preamble.
+	transcriptTarget func(sessionID, repoDir string) string
+	// resumeArgs returns the argv appended to the launch program to make the
+	// agent continue a prior session natively (e.g. {"--resume", id}). Nil for
+	// an agent with no CLI resume, whose resumed sessions always take the
+	// checkpoint preamble instead.
+	resumeArgs func(sessionID string) []string
 }
 
 // agents are the supported recording integrations. Event choices per agent:
@@ -66,11 +79,14 @@ var agents = []agentSpec{
 				settingsFile(dir, ".claude", "settings.json"),
 			)
 		},
-		transcript: claudeTranscript,
+		transcript:       claudeTranscript,
+		transcriptTarget: claudeTranscriptPath,
+		resumeArgs:       resumeFlag,
 	},
 	{
-		tool: "gemini",
-		exe:  "gemini",
+		tool:       "gemini",
+		exe:        "gemini",
+		resumeArgs: resumeFlag,
 		install: func(dir, wasaExe string) error {
 			return installNested(
 				settingsFile(dir, ".gemini", "settings.json"),
@@ -126,6 +142,7 @@ var agents = []agentSpec{
 			return nestedInstalled(settingsFile(dir, ".codex", "hooks.json"))
 		},
 		transcript: codexTranscript,
+		resumeArgs: func(id string) []string { return []string{"resume", id} },
 	},
 	{
 		tool: "copilot",
@@ -158,7 +175,9 @@ var agents = []agentSpec{
 				dir, filepath.Join(".github", "hooks"), "wasa.json",
 			))
 		},
-		transcript: copilotTranscript,
+		transcript:       copilotTranscript,
+		transcriptTarget: copilotTranscriptPath,
+		resumeArgs:       resumeFlag,
 	},
 	{
 		tool: "cursor",
@@ -206,6 +225,69 @@ func AgentForProgram(program string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// resumeFlag is the common native-resume argv "--resume <id>", shared by the
+// agents whose CLI resumes a session that way (claude, gemini, copilot).
+func resumeFlag(id string) []string { return []string{"--resume", id} }
+
+// ResumeArgs returns the argv to append to a launch program so its agent
+// continues the session agentSessionID natively (e.g. {"--resume", id}), and
+// whether that agent supports native resume at all. An empty agentSessionID or
+// an agent with no CLI resume reports false, and the caller falls back to the
+// checkpoint preamble.
+func ResumeArgs(program, agentSessionID string) ([]string, bool) {
+	if agentSessionID == "" {
+		return nil, false
+	}
+	tool, ok := AgentForProgram(program)
+	if !ok {
+		return nil, false
+	}
+	a, _ := specFor(tool)
+	if a.resumeArgs == nil {
+		return nil, false
+	}
+	return a.resumeArgs(agentSessionID), true
+}
+
+// LocalTranscript returns the path to the live local transcript program's agent
+// keeps for agentSessionID under worktreePath, or "" when none is present. A
+// present transcript means a native resume can continue without restoring
+// anything.
+func LocalTranscript(program, agentSessionID, worktreePath string) string {
+	tool, ok := AgentForProgram(program)
+	if !ok {
+		return ""
+	}
+	a, _ := specFor(tool)
+	if a.transcript == nil || agentSessionID == "" {
+		return ""
+	}
+	return a.transcript(agentSessionID, worktreePath)
+}
+
+// RestoreTranscript writes data to where program's agent expects the transcript
+// for agentSessionID under worktreePath, so a native resume finds it when the
+// live local transcript is gone (e.g. resuming on another machine). It errors
+// when the agent has no deterministic transcript path — the caller then falls
+// back to the checkpoint preamble rather than a native resume.
+func RestoreTranscript(
+	program, agentSessionID, worktreePath string, data []byte,
+) error {
+	tool, ok := AgentForProgram(program)
+	if !ok {
+		return fmt.Errorf("unknown agent for program %q", program)
+	}
+	a, _ := specFor(tool)
+	if a.transcriptTarget == nil || agentSessionID == "" {
+		return fmt.Errorf("agent %q has no restorable transcript path", tool)
+	}
+	path := a.transcriptTarget(agentSessionID, worktreePath)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
 }
 
 // InstallHooks installs tool's recording hooks into dir, a repository root
@@ -262,12 +344,18 @@ func fallbackTranscript(tool, sessionID, repoDir string) string {
 	return a.transcript(sessionID, repoDir)
 }
 
-// claudeTranscript is ~/.claude/projects/<sanitized-repo>/<session>.jsonl.
-func claudeTranscript(sessionID, repoDir string) string {
-	return existing(filepath.Join(
+// claudeTranscriptPath is ~/.claude/projects/<sanitized-repo>/<session>.jsonl,
+// computed without checking that the file exists so a resume can restore it.
+func claudeTranscriptPath(sessionID, repoDir string) string {
+	return filepath.Join(
 		agentHome("CLAUDE_CONFIG_DIR", ".claude"),
 		"projects", sanitizePath(repoDir), sessionID+".jsonl",
-	))
+	)
+}
+
+// claudeTranscript is claudeTranscriptPath if that file exists, else "".
+func claudeTranscript(sessionID, repoDir string) string {
+	return existing(claudeTranscriptPath(sessionID, repoDir))
 }
 
 // codexTranscript globs the dated session store
@@ -283,12 +371,18 @@ func codexTranscript(sessionID, _ string) string {
 	return m[len(m)-1]
 }
 
-// copilotTranscript is ~/.copilot/session-state/<session>/events.jsonl.
-func copilotTranscript(sessionID, _ string) string {
-	return existing(filepath.Join(
+// copilotTranscriptPath is ~/.copilot/session-state/<session>/events.jsonl,
+// computed without checking that the file exists.
+func copilotTranscriptPath(sessionID, _ string) string {
+	return filepath.Join(
 		agentHome("", ".copilot"),
 		"session-state", sessionID, "events.jsonl",
-	))
+	)
+}
+
+// copilotTranscript is copilotTranscriptPath if that file exists, else "".
+func copilotTranscript(sessionID, repoDir string) string {
+	return existing(copilotTranscriptPath(sessionID, repoDir))
 }
 
 // cursorTranscript is ~/.cursor/projects/<sanitized-repo>/agent-transcripts/

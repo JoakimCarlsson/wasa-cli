@@ -29,6 +29,16 @@ type Params struct {
 	Program    string
 	Profile    string
 	WorkingDir string
+	// InitialPrompt, when set, is handed to the agent as its first message so a
+	// resumed session continues from recorded context; it is passed to the
+	// spawned program but never stored as the session's Program.
+	InitialPrompt string
+	// ResumeArgs, when set, is the agent's native resume argv (e.g.
+	// {"--resume", id}) appended to the program instead of seeding a prompt.
+	ResumeArgs []string
+	// ResumedFrom is the session id this session was resumed from, recorded into
+	// its checkpoints.
+	ResumedFrom string
 }
 
 // ops are the side-effecting operations the create flow performs, injected so
@@ -245,7 +255,9 @@ func createWorktreeSession(
 
 	tmuxName := registry.TmuxName(ws.ID, sessionID)
 	spawnEnv := o.prepareHooks(home, sessionID, program, env)
-	if err := o.spawn(tmuxName, worktreePath, spawnEnv, program); err != nil {
+	if err := o.spawn(
+		tmuxName, worktreePath, spawnEnv, launchProgram(program, p),
+	); err != nil {
 		return nil, err
 	}
 
@@ -259,6 +271,7 @@ func createWorktreeSession(
 		WorktreePath: worktreePath,
 		BaseCommit:   baseCommit,
 		TmuxName:     tmuxName,
+		ResumedFrom:  p.ResumedFrom,
 	}
 	reg.AddSession(s)
 	return s, nil

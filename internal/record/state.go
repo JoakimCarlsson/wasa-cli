@@ -18,6 +18,8 @@ type state struct {
 	RepoDir        string    `json:"repoDir"`
 	WorkspaceID    string    `json:"workspaceId,omitempty"`
 	Agent          string    `json:"agent,omitempty"`
+	AgentSessionID string    `json:"agentSessionId,omitempty"`
+	ResumedFrom    string    `json:"resumedFrom,omitempty"`
 	Branch         string    `json:"branch,omitempty"`
 	BaseCommit     string    `json:"baseCommit,omitempty"`
 	LastHead       string    `json:"lastHead,omitempty"`
@@ -31,15 +33,17 @@ type state struct {
 // meta projects the state into checkpoint metadata.
 func (st state) meta() Meta {
 	return Meta{
-		SessionID:   st.SessionID,
-		WorkspaceID: st.WorkspaceID,
-		Agent:       st.Agent,
-		Branch:      st.Branch,
-		BaseCommit:  st.BaseCommit,
-		Commits:     slices.Clone(st.Commits),
-		StartedAt:   st.StartedAt,
-		Unmanaged:   st.Unmanaged,
-		WasaVersion: Version,
+		SessionID:      st.SessionID,
+		WorkspaceID:    st.WorkspaceID,
+		Agent:          st.Agent,
+		AgentSessionID: st.AgentSessionID,
+		ResumedFrom:    st.ResumedFrom,
+		Branch:         st.Branch,
+		BaseCommit:     st.BaseCommit,
+		Commits:        slices.Clone(st.Commits),
+		StartedAt:      st.StartedAt,
+		Unmanaged:      st.Unmanaged,
+		WasaVersion:    Version,
 	}
 }
 

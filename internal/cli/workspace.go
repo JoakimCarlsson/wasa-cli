@@ -319,7 +319,7 @@ func workspaceProfiles(args []string) error {
 	return tw.Flush()
 }
 
-const sessionUsage = "usage: wasa session <list|new>"
+const sessionUsage = "usage: wasa session <list|new|pause|resume>"
 
 func runSession(args []string) error {
 	if len(args) == 0 {
@@ -332,6 +332,10 @@ func runSession(args []string) error {
 		return sessionList(rest)
 	case "new":
 		return sessionNew(rest)
+	case "pause":
+		return sessionPause(rest)
+	case "resume":
+		return sessionResume(rest)
 	default:
 		return fmt.Errorf(
 			"unknown session subcommand %q\n%s",

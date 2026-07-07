@@ -21,6 +21,12 @@ type Meta struct {
 	WorkspaceID string `json:"workspaceId,omitempty"`
 	// Agent is the base executable of the recorded agent, e.g. "claude".
 	Agent string `json:"agent,omitempty"`
+	// AgentSessionID is the agent's own session identifier, captured so a
+	// resumed session can hand it to the agent's native resume command.
+	AgentSessionID string `json:"agentSessionId,omitempty"`
+	// ResumedFrom is the session id this session was resumed from, empty for a
+	// session that started fresh.
+	ResumedFrom string `json:"resumedFrom,omitempty"`
 	// Branch is the branch the session worked on.
 	Branch string `json:"branch,omitempty"`
 	// BaseCommit is the commit the session's work started from.
