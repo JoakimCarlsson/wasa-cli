@@ -102,6 +102,10 @@ type Session struct {
 	TmuxName     string    `json:"tmuxName"`
 	Status       string    `json:"status"`
 	CreatedAt    time.Time `json:"createdAt"`
+	// ResumedFrom is the session id this session was resumed from, set by
+	// "wasa session resume" and recorded into the session's checkpoints. Empty
+	// for a session that started fresh.
+	ResumedFrom string `json:"resumedFrom,omitempty"`
 }
 
 // DefaultProfile returns the workspace's default profile, which is its first.

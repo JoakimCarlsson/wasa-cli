@@ -22,18 +22,18 @@ func init() {
 	})
 }
 
-const finishUsage = "usage: wasa finish [--force] <session>"
+const finishUsage = "usage: wasa finish [--force] [--discard] <session>"
 
-const finishHelp = `usage: wasa finish [--force] <session>
+const finishHelp = `usage: wasa finish [--force] [--discard] <session>
 
-Tear down a session: stop its tmux session if it is still running, remove its
-git worktree and delete its branch. <session> is a session id or title (a unique
-id prefix also works); see "wasa session list".
+Finish a session: stop its tmux session if it is still running and remove its
+git worktree. By default the branch is KEPT and the session is marked exited, so
+you can pick the work back up later with "wasa session resume <session>".
+<session> is a session id or title (a unique id prefix also works); see
+"wasa session list".
 
 wasa NEVER merges. finish performs no merge, rebase, push or pull request — it
-removes local artifacts only. The session's branch is force-deleted, so any
-commits on it that you did not merge or push beforehand are discarded for good.
-If you want to keep the work, merge or push it yourself before running finish.
+removes local artifacts only.
 
 Before the worktree is removed, a closing checkpoint of the session (intent,
 redacted transcript, commit list) is recorded to refs/wasa/checkpoints; see
@@ -43,17 +43,27 @@ Flags:
   --force      remove the worktree even if it has uncommitted or untracked
                changes (discards them); without it, a dirty worktree blocks
                teardown and is reported so you can decide what to do
+  --discard    also delete the branch and drop the session record entirely, the
+               way finish used to behave. Any commits on the branch you did not
+               merge or push beforehand are discarded for good, and the session
+               can no longer be resumed
   -h, --help   show this help and exit
 `
 
 func runFinish(args []string) error {
 	fs := newFlagSet("wasa finish")
-	var force bool
+	var force, discard bool
 	fs.BoolVar(
 		&force,
 		"force",
 		false,
 		"remove the worktree even if it is dirty (discards changes)",
+	)
+	fs.BoolVar(
+		&discard,
+		"discard",
+		false,
+		"also delete the branch and drop the record (old finish behavior)",
 	)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -97,7 +107,12 @@ func runFinish(args []string) error {
 	}
 
 	ops := newFinishOps(ws)
-	res, err := finish.Session(ops, s, force)
+
+	teardown := finish.Pause
+	if discard {
+		teardown = finish.Session
+	}
+	res, err := teardown(ops, s, force)
 	if err != nil {
 		if !res.RemovedWorktree && !force {
 			return fmt.Errorf(
@@ -109,14 +124,19 @@ func runFinish(args []string) error {
 		return err
 	}
 
-	if !reg.RemoveSession(s.ID) {
-		return fmt.Errorf("session %s vanished from the registry", s.ID)
+	if discard {
+		if !reg.RemoveSession(s.ID) {
+			return fmt.Errorf("session %s vanished from the registry", s.ID)
+		}
+	} else {
+		reg.MarkExited(s.ID)
+		s.WorktreePath = ""
 	}
 	if err := reg.Save(); err != nil {
 		return err
 	}
 
-	printFinish(s, res)
+	printFinish(s, res, discard)
 	return nil
 }
 
@@ -197,7 +217,7 @@ func resolveSession(
 	}
 }
 
-func printFinish(s *registry.Session, res finish.Result) {
+func printFinish(s *registry.Session, res finish.Result, discarded bool) {
 	label := s.ID
 	if s.Title != "" {
 		label = fmt.Sprintf("%s (%s)", s.ID, s.Title)
@@ -210,11 +230,18 @@ func printFinish(s *registry.Session, res finish.Result) {
 	if res.RemovedWorktree {
 		fmt.Fprintf(os.Stdout, "  removed worktree %s\n", res.WorktreePath)
 	}
-	if res.DeletedBranch {
+	switch {
+	case res.DeletedBranch:
 		fmt.Fprintf(
 			os.Stdout,
 			"  DISCARDED branch %s — any unmerged work on it is gone for good\n",
 			res.Branch,
+		)
+	case res.Branch != "":
+		fmt.Fprintf(
+			os.Stdout,
+			"  kept branch %s — resume with \"wasa session resume %s\"\n",
+			res.Branch, s.ID,
 		)
 	}
 	fmt.Fprintln(

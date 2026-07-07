@@ -66,6 +66,9 @@ func HandleEvent(home string, ev Event) {
 	if !ok {
 		st = newState(home, sid, repoDir, ev)
 	}
+	if ev.AgentSessionID != "" {
+		st.AgentSessionID = ev.AgentSessionID
+	}
 	if ev.TranscriptPath != "" {
 		st.TranscriptPath = ev.TranscriptPath
 	}
@@ -131,6 +134,7 @@ func newState(home, sid, repoDir string, ev Event) state {
 		return st
 	}
 	st.WorkspaceID = s.WorkspaceID
+	st.ResumedFrom = s.ResumedFrom
 	if s.Branch != "" {
 		st.Branch = s.Branch
 	}
@@ -200,6 +204,9 @@ type FinishInfo struct {
 	// RepoDir is the repository the session ran against.
 	RepoDir   string
 	StartedAt time.Time
+	// ResumedFrom is the session id this session was resumed from, empty when
+	// the session started fresh.
+	ResumedFrom string
 }
 
 // Finish writes a session's closing checkpoint: the final transcript, the
@@ -236,6 +243,9 @@ func Finish(home string, info FinishInfo) error {
 	}
 	if info.BaseCommit != "" {
 		m.BaseCommit = info.BaseCommit
+	}
+	if info.ResumedFrom != "" {
+		m.ResumedFrom = info.ResumedFrom
 	}
 	if !info.StartedAt.IsZero() {
 		m.StartedAt = info.StartedAt
@@ -295,6 +305,7 @@ func FinishSession(home, repoDir string, s *registry.Session) {
 		BaseCommit:  s.BaseCommit,
 		RepoDir:     repoDir,
 		StartedAt:   s.CreatedAt,
+		ResumedFrom: s.ResumedFrom,
 	})
 	if err != nil {
 		log.Printf("wasa: session %s not recorded: %v", s.ID, err)

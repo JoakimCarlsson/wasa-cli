@@ -307,6 +307,13 @@ func (m *Manager) DeleteBranch(branch string, force bool) error {
 	return err
 }
 
+// BranchExists reports whether branch exists locally in the repository. Resume
+// uses it to fail before creating anything when a recorded branch is gone,
+// rather than letting Add recreate the branch from scratch.
+func (m *Manager) BranchExists(branch string) bool {
+	return m.branchExists(branch)
+}
+
 func (m *Manager) branchExists(branch string) bool {
 	cmd := exec.Command(
 		m.bin(),
