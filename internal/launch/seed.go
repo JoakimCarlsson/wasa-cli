@@ -29,10 +29,8 @@ func resumeProgram(program string, args []string) string {
 // first message, so a resumed session whose agent has no native resume still
 // continues from the recorded context. The prompt is passed as one positional
 // argument, shell-quoted, and the program string is run through the shell by
-// tmux.
-//
-// ponytail: a positional prompt fits claude/codex/gemini/copilot/cursor; an
-// agent that needs a prompt flag would get a per-agent override added here.
+// tmux. A positional prompt fits claude/codex/gemini/copilot/cursor; an agent
+// that needs a prompt flag would get a per-agent override added here.
 func seedProgram(program, prompt string) string {
 	return program + " " + shellQuote(prompt)
 }

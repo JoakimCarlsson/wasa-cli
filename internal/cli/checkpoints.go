@@ -26,9 +26,9 @@ func init() {
 }
 
 const checkpointsUsage = "usage: wasa checkpoints " +
-	"[show <id> | explain <commit-ish> | prune --before <date>]"
+	"[show <id> | explain <commit-ish> | search <query> | prune --before <date>]"
 
-const checkpointsHelp = `usage: wasa checkpoints [show <id> | explain <commit-ish> | prune --before <date>]
+const checkpointsHelp = `usage: wasa checkpoints [show <id> | explain <commit-ish> | search <query> | prune --before <date>]
 
 Read back the session record of the repository containing the current
 directory. Without arguments, lists every recorded session: id, branch, when
@@ -36,9 +36,11 @@ it was last checkpointed and how many commits it produced. "show" prints one
 session's intent and metadata and pages its transcript; <id> may be a session
 id or a checkpoint ULID, and either may be a unique prefix. "explain" answers
 "why does this commit exist?": it finds the checkpoint(s) that produced
-<commit-ish> and prints that session's intent, meta, and transcript. "prune"
-deletes every checkpoint recorded before <date> (YYYY-MM-DD or RFC3339),
-locally only — push afterwards to prune a remote.
+<commit-ish> and prints that session's intent, meta, and transcript. "search"
+finds sessions by intent or transcript content and prints one block per match
+so you can pick one for show/explain. "prune" deletes every checkpoint
+recorded before <date> (YYYY-MM-DD or RFC3339), locally only — push afterwards
+to prune a remote.
 
 Read-only (apart from prune) and plain git underneath: it works on any clone
 that has the record, which transfers with
@@ -51,6 +53,13 @@ Flags:
 explain flags:
       --all             print every checkpoint referencing the commit, not just the newest
       --no-transcript   print intent and meta only, skip the transcript
+
+search flags:
+      --regex           match <query> as a regular expression, not a case-insensitive substring
+      --intent-only     search intents only, skip transcripts
+      --branch <name>   only search sessions on this branch
+      --since <date>    only search checkpoints recorded on or after <date> (YYYY-MM-DD or RFC3339)
+      --limit N         stop after N matching sessions (default 20)
 `
 
 func runCheckpoints(args []string) error {
@@ -76,6 +85,8 @@ func runCheckpoints(args []string) error {
 		return showCheckpoint(repoPath, rest[1])
 	case len(rest) >= 1 && rest[0] == "explain":
 		return explainCheckpoint(repoPath, rest[1:])
+	case len(rest) >= 1 && rest[0] == "search":
+		return searchCheckpoints(repoPath, rest[1:])
 	case len(rest) >= 1 && rest[0] == "prune":
 		return pruneCheckpoints(repoPath, rest[1:])
 	default:
@@ -152,7 +163,7 @@ func explainCheckpoint(repoPath string, args []string) error {
 		"no-transcript", false,
 		"print intent and meta only, skip the transcript",
 	)
-	flags, positional := splitFlags(args)
+	flags, positional := partitionArgs(args, nil)
 	if err := fs.Parse(flags); err != nil {
 		return err
 	}
@@ -192,15 +203,161 @@ func explainCheckpoint(repoPath string, args []string) error {
 	return nil
 }
 
-// splitFlags separates dash-prefixed flags from positional arguments so the
-// commit-ish may appear before or after the flags. Both explain flags are
-// booleans with no separate value, and a commit-ish never starts with a dash.
-func splitFlags(args []string) (flags, positional []string) {
-	for _, a := range args {
-		if strings.HasPrefix(a, "-") {
-			flags = append(flags, a)
-		} else {
+func searchCheckpoints(repoPath string, args []string) error {
+	fs := newFlagSet("wasa checkpoints search")
+	regex := fs.Bool(
+		"regex", false,
+		"match query as a regular expression instead of a substring",
+	)
+	intentOnly := fs.Bool(
+		"intent-only", false, "search intents only, skip transcripts",
+	)
+	branch := fs.String("branch", "", "only search sessions on this branch")
+	since := fs.String(
+		"since", "", "only search checkpoints recorded on or after this date",
+	)
+	limit := fs.Int("limit", 20, "stop after this many matching sessions")
+
+	flags, positional := partitionArgs(
+		args, map[string]bool{"branch": true, "since": true, "limit": true},
+	)
+	if err := fs.Parse(flags); err != nil {
+		return err
+	}
+	if len(positional) != 1 {
+		return errors.New(
+			"usage: wasa checkpoints search [--regex] [--intent-only] " +
+				"[--branch <name>] [--since <date>] [--limit N] <query>",
+		)
+	}
+
+	opts := record.SearchOpts{
+		Query:      positional[0],
+		Regex:      *regex,
+		IntentOnly: *intentOnly,
+		Branch:     *branch,
+		Limit:      *limit,
+	}
+	if *since != "" {
+		t, err := parseDate(*since)
+		if err != nil {
+			return err
+		}
+		opts.Since = t
+	}
+
+	hits, err := record.Search(repoPath, opts)
+	if errors.Is(err, record.ErrNoRecord) {
+		return fmt.Errorf(
+			"recording has never run in %s (no %s; on a clone, fetch it with: "+
+				"git fetch origin %q)",
+			repoPath, record.RefPrefix, record.FetchRefspec,
+		)
+	}
+	if err != nil {
+		return err
+	}
+	if len(hits) == 0 {
+		return fmt.Errorf("no recorded session matches %q", opts.Query)
+	}
+
+	color := isatty.IsTerminal(os.Stdout.Fd())
+	for _, h := range hits {
+		branch := h.Meta.Branch
+		if branch == "" {
+			branch = "(none)"
+		}
+		fmt.Fprintf(os.Stdout, "%s  %s  %s  %s\n",
+			h.Meta.SessionID, branch,
+			h.When.Local().Format("2006-01-02 15:04"), h.File,
+		)
+		text, hs, he := makeSnippet(h.LineText, h.Start, h.End, 100)
+		fmt.Fprintf(os.Stdout, "  %s\n\n", highlight(text, hs, he, color))
+	}
+	return nil
+}
+
+// makeSnippet trims a matching line and, when it is longer than width, returns
+// a window centred on the match with "…" markers, adjusting the match span to
+// the returned string.
+func makeSnippet(
+	line string, start, end, width int,
+) (out string, hs, he int) {
+	trimmed := strings.TrimLeft(line, " \t")
+	off := len(line) - len(trimmed)
+	line, start, end = trimmed, start-off, end-off
+	if start < 0 {
+		start = 0
+	}
+	if end < start {
+		end = start
+	}
+	if len(line) <= width {
+		return line, start, end
+	}
+
+	pad := (width - (end - start)) / 2
+	if pad < 0 {
+		pad = 0
+	}
+	ws := start - pad
+	if ws < 0 {
+		ws = 0
+	}
+	we := ws + width
+	if we > len(line) {
+		we, ws = len(line), len(line)-width
+		if ws < 0 {
+			ws = 0
+		}
+	}
+
+	prefix, suffix := "", ""
+	if ws > 0 {
+		prefix = "…"
+	}
+	if we < len(line) {
+		suffix = "…"
+	}
+	out = prefix + line[ws:we] + suffix
+	hs, he = start-ws+len(prefix), end-ws+len(prefix)
+	if he > len(out) {
+		he = len(out)
+	}
+	return out, hs, he
+}
+
+// highlight wraps text[hs:he] in bold yellow when color is set, else returns
+// text unchanged. A pipe or file gets a plain snippet.
+func highlight(text string, hs, he int, color bool) string {
+	if !color || hs < 0 || he > len(text) || hs >= he {
+		return text
+	}
+	return text[:hs] + "\x1b[1;33m" + text[hs:he] + "\x1b[0m" + text[he:]
+}
+
+// partitionArgs separates flags (and the values of flags that take one) from
+// positional arguments, so a positional may appear before or after the flags
+// — Go's flag package stops at the first non-flag argument. takesValue holds
+// the bare names of flags that consume the next argument as their value when
+// it is not given inline with "=".
+func partitionArgs(
+	args []string, takesValue map[string]bool,
+) (flags, positional []string) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if !strings.HasPrefix(a, "-") {
 			positional = append(positional, a)
+			continue
+		}
+		flags = append(flags, a)
+		name := strings.TrimLeft(a, "-")
+		if strings.Contains(name, "=") {
+			continue
+		}
+		if takesValue[name] && i+1 < len(args) {
+			i++
+			flags = append(flags, args[i])
 		}
 	}
 	return flags, positional
