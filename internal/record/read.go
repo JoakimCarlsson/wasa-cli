@@ -2,12 +2,17 @@ package record
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// ErrNoRecord marks a repository that has no checkpoint ref at all: recording
+// has never run there (or a clone never fetched the record).
+var ErrNoRecord = errors.New("no checkpoint record")
 
 // Entry is one checkpoint read back from the ref store.
 type Entry struct {
@@ -134,6 +139,56 @@ func findByID(refs []refInfo, query string) (*refInfo, error) {
 		)
 	}
 	return match, nil
+}
+
+// Match is a checkpoint that produced a commit, with its intent and redacted
+// transcript, as returned by Explain.
+type Match struct {
+	Entry
+	Intent     string
+	Transcript []byte
+}
+
+// Explain resolves commitish to a commit and returns the checkpoint(s) whose
+// meta.json lists it among produced commits, newest first. When all is false it
+// returns at most the newest match. searched is how many checkpoints were
+// scanned. It returns ErrNoRecord when the repo has no checkpoint ref, and a
+// resolution error when commitish names no commit. The scan is linear, one file
+// read per ref; an index is only worth it if repos reach tens of thousands of
+// checkpoints.
+func Explain(repoDir, commitish string, all bool) ([]Match, int, error) {
+	sha, err := gitIn(
+		repoDir, nil, "rev-parse", "--verify", "-q", commitish+"^{commit}",
+	)
+	if err != nil {
+		return nil, 0, fmt.Errorf("cannot resolve %q to a commit", commitish)
+	}
+	refs, err := forEachRef(repoDir)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(refs) == 0 {
+		return nil, 0, ErrNoRecord
+	}
+
+	var matches []Match
+	searched := 0
+	for _, r := range refs {
+		searched++
+		e := readEntry(repoDir, r)
+		if !slices.Contains(e.Meta.Commits, sha) {
+			continue
+		}
+		intent, _ := gitIn(repoDir, nil, "show", r.sha+":intent.md")
+		transcript, _ := gitIn(repoDir, nil, "show", r.sha+":transcript.jsonl")
+		matches = append(matches, Match{
+			Entry: e, Intent: intent, Transcript: []byte(transcript),
+		})
+		if !all {
+			break
+		}
+	}
+	return matches, searched, nil
 }
 
 // Prune deletes every checkpoint whose commit time is before the given
