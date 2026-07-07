@@ -86,6 +86,7 @@ type recordingOps struct {
 	spawnDir     string
 	spawnEnv     []string
 	spawnName    string
+	spawnProgram string
 	worktree     string
 	baseCommit   string
 	recordTree   string
@@ -116,10 +117,11 @@ func (o *recordingOps) ops() ops {
 			o.hookEnv = h.Env
 			return nil
 		},
-		spawn: func(name, dir string, env []string, _ string) error {
+		spawn: func(name, dir string, env []string, program string) error {
 			o.spawnName = name
 			o.spawnDir = dir
 			o.spawnEnv = env
+			o.spawnProgram = program
 			return nil
 		},
 		prepareHooks: func(_, _, _ string, env []string) []string {
@@ -176,6 +178,39 @@ func TestCreateSessionPlainMakesNoWorktree(t *testing.T) {
 	}
 	if _, ok := reg.Session(s.ID); !ok {
 		t.Fatal("plain session was not registered")
+	}
+}
+
+// TestCreateSessionSeedsAgentPrompt checks the launch-prompt seam: an agent
+// session's InitialPrompt reaches the spawned command (so a recorded-history
+// preamble would too), while a shell — which cannot take a positional prompt —
+// is spawned bare even when a prompt was passed.
+func TestCreateSessionSeedsAgentPrompt(t *testing.T) {
+	reg := testRegistry(t)
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+
+	o := &recordingOps{}
+	if _, err := createSession(o.ops(), "/home", reg, ws, Params{
+		Program:       "claude",
+		WorkingDir:    "/work",
+		InitialPrompt: "add snowflake ids",
+	}); err != nil {
+		t.Fatalf("createSession: %v", err)
+	}
+	if !strings.Contains(o.spawnProgram, "add snowflake ids") {
+		t.Fatalf("agent prompt not seeded: spawned %q", o.spawnProgram)
+	}
+
+	shell := &recordingOps{}
+	if _, err := createSession(shell.ops(), "/home", reg, ws, Params{
+		Program:       "/bin/bash",
+		WorkingDir:    "/work",
+		InitialPrompt: "add snowflake ids",
+	}); err != nil {
+		t.Fatalf("createSession shell: %v", err)
+	}
+	if shell.spawnProgram != "/bin/bash" {
+		t.Fatalf("shell was seeded a prompt: spawned %q", shell.spawnProgram)
 	}
 }
 

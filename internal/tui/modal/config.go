@@ -205,6 +205,41 @@ func configFields() []cfgField {
 			return nil
 		},
 	})
+
+	fs = append(fs, cfgField{
+		section: "History",
+		label:   "enabled",
+		kind:    kindText,
+		get: func(cfg config.Config) string {
+			return strconv.FormatBool(cfg.History.Enabled)
+		},
+		set: func(cfg *config.Config, s string) error {
+			v, err := strconv.ParseBool(strings.TrimSpace(s))
+			if err != nil {
+				return fmt.Errorf("expected true or false, got %q", s)
+			}
+			cfg.History.Enabled = v
+			return nil
+		},
+	}, cfgField{
+		section: "History",
+		label:   "maxBytes",
+		kind:    kindText,
+		get: func(cfg config.Config) string {
+			return strconv.Itoa(cfg.History.MaxBytes)
+		},
+		set: func(cfg *config.Config, s string) error {
+			v, err := strconv.Atoi(strings.TrimSpace(s))
+			if err != nil || v < 0 {
+				return fmt.Errorf(
+					"expected a non-negative whole number, got %q",
+					s,
+				)
+			}
+			cfg.History.MaxBytes = v
+			return nil
+		},
+	})
 	return fs
 }
 

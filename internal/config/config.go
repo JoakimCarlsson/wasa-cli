@@ -18,12 +18,21 @@ const fileName = "config.json"
 // obtain one from Default or Load. Path records where the file was looked for,
 // for the `wasa config` affordance, and is never serialised.
 type Config struct {
-	Theme  Theme  `json:"theme"`
-	Keys   Keys   `json:"keys"`
-	Layout Layout `json:"layout"`
-	Notify Notify `json:"notify"`
+	Theme   Theme   `json:"theme"`
+	Keys    Keys    `json:"keys"`
+	Layout  Layout  `json:"layout"`
+	Notify  Notify  `json:"notify"`
+	History History `json:"history"`
 
 	Path string `json:"-"`
+}
+
+// History controls injecting recorded history from prior checkpoints into a new
+// session's starting context. Enabled by default; MaxBytes caps the injected
+// block so it never crowds out the task the session was launched for.
+type History struct {
+	Enabled  bool `json:"enabled"`
+	MaxBytes int  `json:"maxBytes"`
 }
 
 // Notify selects how the cockpit announces a session that transitions into
@@ -212,8 +221,9 @@ func Default() Config {
 			CompactWidth:  40,
 			CompactHeight: 8,
 		},
-		Keys:   defaultKeys(),
-		Notify: NotifyBell,
+		Keys:    defaultKeys(),
+		Notify:  NotifyBell,
+		History: History{Enabled: true, MaxBytes: 6000},
 	}
 }
 
@@ -290,6 +300,9 @@ func (c Config) validate() error {
 
 	if err := ValidateNotify(c.Notify); err != nil {
 		return err
+	}
+	if c.History.MaxBytes < 0 {
+		return fmt.Errorf("history.maxBytes must not be negative")
 	}
 	return c.Layout.validate()
 }

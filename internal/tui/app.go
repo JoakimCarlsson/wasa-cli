@@ -537,6 +537,9 @@ func (m Model) submitCreate() (tea.Model, tea.Cmd) {
 			params.WorkingDir = cwd
 		}
 	}
+	if m.cfg.History.Enabled {
+		params.HistoryMaxBytes = m.cfg.History.MaxBytes
+	}
 	m.mode = modeList
 	m.status = "creating session…"
 	return m, m.createCmd(ws, params)
