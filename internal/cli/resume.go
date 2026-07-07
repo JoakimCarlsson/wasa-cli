@@ -113,7 +113,11 @@ func sessionResume(args []string) error {
 			agentLabel(src.Program), entry.Meta.AgentSessionID,
 		)
 	} else {
-		params.InitialPrompt = record.BuildPreamble(intent, entry.Meta, transcript)
+		params.InitialPrompt = record.BuildPreamble(
+			intent,
+			entry.Meta,
+			transcript,
+		)
 		fmt.Fprintln(
 			os.Stdout,
 			"resuming from checkpoint record, agent-native session not found",

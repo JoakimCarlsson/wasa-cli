@@ -287,7 +287,10 @@ func installCopilot(wasaExe string, events []hookEvent) error {
 	hooks := map[string][]settingsHookEntry{}
 	for _, event := range events {
 		hooks[event.name] = []settingsHookEntry{
-			{Type: "command", Command: HookCommand(wasaExe, "copilot", event.end)},
+			{
+				Type:    "command",
+				Command: HookCommand(wasaExe, "copilot", event.end),
+			},
 		}
 	}
 	rawHooks, err := json.Marshal(hooks)

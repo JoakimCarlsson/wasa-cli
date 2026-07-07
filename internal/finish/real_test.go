@@ -74,7 +74,10 @@ func TestSessionAgainstRealRepo(t *testing.T) {
 		t.Fatalf("checkpoints after finish = %v, %v; want 1", entries, err)
 	}
 	if entries[0].Meta.SessionID != "sess1" {
-		t.Fatalf("checkpoint session = %q, want sess1", entries[0].Meta.SessionID)
+		t.Fatalf(
+			"checkpoint session = %q, want sess1",
+			entries[0].Meta.SessionID,
+		)
 	}
 
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
