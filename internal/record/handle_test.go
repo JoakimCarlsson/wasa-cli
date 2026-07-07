@@ -80,6 +80,43 @@ func TestHandleEventUnmanagedLifecycle(t *testing.T) {
 	}
 }
 
+func TestFinalizeWithoutStateIsNoOp(t *testing.T) {
+	dir := initRepo(t)
+	home := t.TempDir()
+	if err := Finalize(home, "never-seen"); err != nil {
+		t.Errorf("Finalize with no state = %v, want nil", err)
+	}
+	if entries, _ := List(dir); len(entries) != 0 {
+		t.Errorf("Finalize wrote a checkpoint from nothing: %v", entries)
+	}
+}
+
+func TestHandleEventEndPersistsStateForFinalizer(t *testing.T) {
+	dir := initRepo(t)
+	home := t.TempDir()
+	transcript := writeTranscript(t, sampleTranscript)
+	ev := Event{
+		Agent:          "claude",
+		AgentSessionID: "cc-handoff",
+		TranscriptPath: transcript,
+		Dir:            dir,
+		End:            true,
+	}
+	orig := startFinalize
+	var got string
+	startFinalize = func(_, sid string) { got = sid }
+	defer func() { startFinalize = orig }()
+
+	HandleEvent(home, ev)
+
+	if got != "cc-handoff" {
+		t.Errorf("end event did not hand off to the finalizer, got %q", got)
+	}
+	if _, ok := loadState(home, "cc-handoff"); !ok {
+		t.Error("state must be persisted for the detached finalizer to read")
+	}
+}
+
 func TestHandleEventPromptBecomesIntent(t *testing.T) {
 	dir := initRepo(t)
 	home := t.TempDir()

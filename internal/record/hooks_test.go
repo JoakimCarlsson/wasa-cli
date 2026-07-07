@@ -18,6 +18,7 @@ func TestMain(m *testing.M) {
 	}
 	os.Setenv("HOME", home)
 	os.Setenv("USERPROFILE", home)
+	startFinalize = func(home, sid string) { _ = Finalize(home, sid) }
 	code := m.Run()
 	os.RemoveAll(home)
 	os.Exit(code)
