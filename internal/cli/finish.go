@@ -136,7 +136,7 @@ func runFinish(args []string) error {
 		return err
 	}
 
-	printFinish(s, res, discard)
+	printFinish(s, res)
 	return nil
 }
 
@@ -217,7 +217,7 @@ func resolveSession(
 	}
 }
 
-func printFinish(s *registry.Session, res finish.Result, discarded bool) {
+func printFinish(s *registry.Session, res finish.Result) {
 	label := s.ID
 	if s.Title != "" {
 		label = fmt.Sprintf("%s (%s)", s.ID, s.Title)
