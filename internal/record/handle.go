@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -89,22 +90,64 @@ func HandleEvent(home string, ev Event) {
 		st = checkpointNewCommits(repoDir, st, head)
 	}
 
-	if ev.End && st.Unmanaged {
-		transcript, _ := os.ReadFile(st.TranscriptPath)
-		m := st.meta()
-		m.FinishedAt = time.Now()
-		if len(transcript) == 0 {
-			m.Gaps = append(m.Gaps, "transcript unavailable")
-		}
-		if ref, err := Write(repoDir, Checkpoint{
-			Meta: m, Intent: st.Intent, Transcript: transcript,
-		}); err == nil {
-			removeState(home, sid)
-			pushDetached(repoDir, []string{ref})
-			return
-		}
-	}
 	_ = saveState(home, st)
+	if ev.End && st.Unmanaged {
+		startFinalize(home, sid)
+	}
+}
+
+// startFinalize writes an unmanaged session's closing checkpoint. In
+// production it spawns a detached child (spawnFinalize) so that an agent
+// cancelling its SessionEnd hook — as headless Claude Code does on exit —
+// cannot abort the write; tests override it to run Finalize inline.
+var startFinalize = spawnFinalize
+
+// spawnFinalize launches "wasa record-finalize --session <sid>" in its own
+// session, so the closing checkpoint is written off the hook's lifecycle and
+// survives the hook process being killed. The child re-derives $WASA_HOME from
+// the inherited environment. Best-effort: an exec failure leaves the state on
+// disk for the next run to finalize.
+func spawnFinalize(_, sid string) {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	cmd := exec.Command(exe, "record-finalize", "--session", sid)
+	cmd.Env = os.Environ()
+	detach(cmd)
+	if cmd.Start() == nil {
+		_ = cmd.Process.Release()
+	}
+}
+
+// Finalize writes a session's closing checkpoint from its persisted recording
+// state: any commits since the last event, the final transcript, the commit
+// list and the finish timestamp, then drops the state. It is what the detached
+// finalizer runs for an unmanaged session. A session with no state or no known
+// repository is a no-op.
+func Finalize(home, sid string) error {
+	st, ok := loadState(home, sid)
+	if !ok || st.RepoDir == "" {
+		return nil
+	}
+	if head := headSHA(st.RepoDir); head != "" && head != st.LastHead {
+		st = checkpointNewCommits(st.RepoDir, st, head)
+	}
+	transcript, _ := os.ReadFile(st.TranscriptPath)
+	m := st.meta()
+	m.FinishedAt = time.Now()
+	if len(transcript) == 0 {
+		m.Gaps = append(m.Gaps, "transcript unavailable")
+	}
+	ref, err := Write(st.RepoDir, Checkpoint{
+		Meta: m, Intent: st.Intent, Transcript: transcript,
+	})
+	if err != nil {
+		return err
+	}
+	removeState(home, sid)
+	pushDetached(st.RepoDir, []string{ref})
+	return nil
 }
 
 // newState seeds the recording state the first time a session is seen. A

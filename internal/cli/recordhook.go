@@ -17,6 +17,29 @@ func init() {
 		Hidden:  true,
 		Run:     runRecordHook,
 	})
+	commands = append(commands, &Command{
+		Name:    "record-finalize",
+		Summary: "internal: write a session's closing checkpoint from state",
+		Hidden:  true,
+		Run:     runRecordFinalize,
+	})
+}
+
+// runRecordFinalize writes an unmanaged session's closing checkpoint from its
+// persisted state. record-hook spawns it detached on the session-end event so
+// the write outlives the agent cancelling its SessionEnd hook. Like the hook
+// it never fails outward: a bad flag or a recorder error is a silent no-op.
+func runRecordFinalize(args []string) error {
+	fs := flag.NewFlagSet("record-finalize", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	sid := fs.String("session", "", "session id to finalize")
+	if err := fs.Parse(args); err != nil {
+		return nil
+	}
+	if *sid != "" {
+		_ = record.Finalize(wasaHome(), *sid)
+	}
+	return nil
 }
 
 // runRecordHook is invoked by a recording hook on an agent's lifecycle

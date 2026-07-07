@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"regexp"
 	"strings"
 )
 
@@ -32,13 +33,53 @@ func FirstUserMessage(transcript []byte) string {
 		if line.Type != "user" || line.IsMeta {
 			continue
 		}
-		text := strings.TrimSpace(contentText(line.Message.Content))
-		if text == "" || isWrapper(text) {
+		text := contentText(line.Message.Content)
+		if text == "" || isWrapper(strings.TrimSpace(text)) {
+			continue
+		}
+		text = sanitizeIntent(text)
+		if text == "" {
 			continue
 		}
 		return text
 	}
 	return ""
+}
+
+// contextBlock builds a case-insensitive, DOTALL pattern matching a balanced
+// XML-ish block <name …>…</name> (RE2 has no backreferences, so the tag name
+// is fixed per pattern).
+func contextBlock(name string) *regexp.Regexp {
+	return regexp.MustCompile(`(?is)<` + name + `\b[^>]*>.*?</` + name + `>`)
+}
+
+// intentStrippers are the editor/IDE and Claude Code context wrappers that get
+// injected around or alongside a typed prompt. They carry machine context, not
+// what the human asked, so sanitizeIntent removes them from the extracted
+// intent — for live recording and import alike.
+var intentStrippers = []*regexp.Regexp{
+	contextBlock("system-reminder"),
+	contextBlock("context"),
+	contextBlock("command-name"),
+	contextBlock("command-message"),
+	contextBlock("command-args"),
+	contextBlock("local-command-stdout"),
+	contextBlock("local-command-stderr"),
+	// IDE integration blocks: <ide_selection>…</ide_selection>, <ide-opened-
+	// file>…, and the like — any ide_/ide- prefixed tag.
+	regexp.MustCompile(
+		`(?is)<ide[_-][a-z0-9_-]*\b[^>]*>.*?</ide[_-][a-z0-9_-]*>`,
+	),
+}
+
+// sanitizeIntent strips injected context/IDE wrappers from an extracted intent
+// so titles and search show what the human actually typed, then trims the
+// remainder. Shared by live recording and import: one extractor, one behavior.
+func sanitizeIntent(text string) string {
+	for _, re := range intentStrippers {
+		text = re.ReplaceAllString(text, "")
+	}
+	return strings.TrimSpace(text)
 }
 
 // isWrapper reports whether a user entry is Claude Code plumbing (slash
