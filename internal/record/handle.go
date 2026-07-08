@@ -48,7 +48,7 @@ type Event struct {
 // session is closed by the finish flow instead). It never returns anything:
 // the hook contract is fire-and-forget, so every failure is a silent no-op.
 func HandleEvent(home string, ev Event) {
-	if _, ok := specFor(ev.Agent); !ok || ev.Dir == "" {
+	if _, ok := recorderFor(ev.Agent); !ok || ev.Dir == "" {
 		return
 	}
 	repoDir, err := worktree.Toplevel(ev.Dir)
@@ -83,7 +83,7 @@ func HandleEvent(home string, ev Event) {
 	}
 	if st.Intent == "" {
 		transcript, _ := os.ReadFile(st.TranscriptPath)
-		st.Intent = FirstUserMessage(transcript)
+		st.Intent = intentFrom(st.Agent, transcript)
 	}
 
 	if head := headSHA(repoDir); head != "" && head != st.LastHead {
@@ -133,14 +133,14 @@ func Finalize(home, sid string) error {
 	if head := headSHA(st.RepoDir); head != "" && head != st.LastHead {
 		st = checkpointNewCommits(st.RepoDir, st, head)
 	}
-	transcript, _ := os.ReadFile(st.TranscriptPath)
+	native, _ := os.ReadFile(st.TranscriptPath)
 	m := st.meta()
 	m.FinishedAt = time.Now()
-	if len(transcript) == 0 {
+	if len(native) == 0 {
 		m.Gaps = append(m.Gaps, "transcript unavailable")
 	}
 	ref, err := Write(st.RepoDir, Checkpoint{
-		Meta: m, Intent: st.Intent, Transcript: transcript,
+		Meta: m, Intent: st.Intent, Transcript: normalize(st.Agent, native),
 	})
 	if err != nil {
 		return err
@@ -202,7 +202,8 @@ func checkpointNewCommits(repoDir string, st state, head string) state {
 		st.LastHead = head
 		return st
 	}
-	transcript, _ := os.ReadFile(st.TranscriptPath)
+	native, _ := os.ReadFile(st.TranscriptPath)
+	transcript := normalize(st.Agent, native)
 
 	var burst []string
 	if len(newCommits) > commitBurstLimit {
@@ -221,7 +222,7 @@ func checkpointNewCommits(repoDir string, st state, head string) state {
 				len(burst)+1,
 			))
 		}
-		if len(transcript) == 0 {
+		if len(native) == 0 {
 			m.Gaps = append(m.Gaps, "transcript unavailable")
 		}
 		if ref, err := Write(repoDir, Checkpoint{
@@ -310,20 +311,20 @@ func Finish(home string, info FinishInfo) error {
 		}
 	}
 
-	var transcript []byte
+	var native []byte
 	if st.TranscriptPath != "" {
-		transcript, _ = os.ReadFile(st.TranscriptPath)
+		native, _ = os.ReadFile(st.TranscriptPath)
 	}
-	if len(transcript) == 0 {
+	if len(native) == 0 {
 		m.Gaps = append(m.Gaps, "transcript unavailable")
 	}
 	intent := st.Intent
 	if intent == "" {
-		intent = FirstUserMessage(transcript)
+		intent = intentFrom(m.Agent, native)
 	}
 
 	ref, err := Write(repoDir, Checkpoint{
-		Meta: m, Intent: intent, Transcript: transcript,
+		Meta: m, Intent: intent, Transcript: normalize(m.Agent, native),
 	})
 	if err != nil {
 		return err

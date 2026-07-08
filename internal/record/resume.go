@@ -1,9 +1,6 @@
 package record
 
 import (
-	"bufio"
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -62,41 +59,4 @@ func shortSHA(sha string) string {
 		return sha[:12]
 	}
 	return sha
-}
-
-// recentMessages returns the last n user/assistant text turns of a Claude Code
-// transcript, each truncated, one per line. It reuses the same content
-// flattening as FirstUserMessage and skips wrapper/meta lines; a transcript in
-// another agent's format yields "".
-func recentMessages(transcript []byte, n int) string {
-	sc := bufio.NewScanner(bytes.NewReader(transcript))
-	sc.Buffer(make([]byte, 0, 64<<10), maxTranscriptLine)
-	var msgs []string
-	for sc.Scan() {
-		var line struct {
-			Type    string `json:"type"`
-			IsMeta  bool   `json:"isMeta"`
-			Message struct {
-				Content json.RawMessage `json:"content"`
-			} `json:"message"`
-		}
-		if err := json.Unmarshal(sc.Bytes(), &line); err != nil {
-			continue
-		}
-		if line.IsMeta || (line.Type != "user" && line.Type != "assistant") {
-			continue
-		}
-		text := strings.TrimSpace(contentText(line.Message.Content))
-		if text == "" || isWrapper(text) {
-			continue
-		}
-		if len(text) > 500 {
-			text = text[:500] + "…"
-		}
-		msgs = append(msgs, line.Type+": "+text)
-	}
-	if len(msgs) > n {
-		msgs = msgs[len(msgs)-n:]
-	}
-	return strings.Join(msgs, "\n")
 }

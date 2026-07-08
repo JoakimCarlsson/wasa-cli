@@ -110,7 +110,7 @@ func Import(repoDir, fromDir string, dryRun bool) (ImportResult, error) {
 		ref, err := Write(repoDir, Checkpoint{
 			Meta:       c.Meta,
 			Intent:     c.Intent,
-			Transcript: data,
+			Transcript: normalize(c.Meta.Agent, data),
 			Timestamp:  c.Meta.FinishedAt,
 		})
 		if err != nil {

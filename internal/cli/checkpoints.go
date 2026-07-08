@@ -161,7 +161,7 @@ func showCheckpoint(repoPath, query string) error {
 		return nil
 	}
 	fmt.Fprintln(os.Stdout, "transcript:")
-	return page(transcript)
+	return page([]byte(record.RenderTranscript(transcript)))
 }
 
 func explainCheckpoint(repoPath string, args []string) error {
@@ -406,7 +406,7 @@ func printExplained(m record.Match, withoutTranscript bool) error {
 		return nil
 	}
 	fmt.Fprintln(os.Stdout, "transcript:")
-	return page(m.Transcript)
+	return page([]byte(record.RenderTranscript(m.Transcript)))
 }
 
 func pruneCheckpoints(repoPath string, args []string) error {
