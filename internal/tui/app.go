@@ -36,6 +36,8 @@ const (
 	modePickWorkspace
 	modePickBranch
 	modeConfig
+	modeCheckpoints
+	modeCheckpointSearch
 )
 
 // Model is the cockpit's Bubble Tea model. It holds the registry it drives, the
@@ -71,6 +73,16 @@ type Model struct {
 	branch  component.BranchPicker
 	editor  modal.ConfigEditor
 	filter  filterState
+
+	// checkpoints backs the checkpoints browser (modeCheckpoints): the record of
+	// the active workspace's repo, browsable read-only without leaving the
+	// cockpit. It is built fresh on open and discarded on close.
+	checkpoints checkpointsState
+
+	// checkpointSearch backs the checkpoint search overlay (modeCheckpointSearch):
+	// a debounced fuzzy search over the active workspace's record whose result
+	// opens the browser on that checkpoint. Built fresh on open, cleared on close.
+	checkpointSearch checkpointSearchState
 
 	confirmCmd tea.Cmd
 
@@ -277,6 +289,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.sizeDiffViewport()
+		m.sizeCheckpoints()
 		return m, nil
 
 	case tickMsg:
@@ -416,6 +429,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case ckptSearchTickMsg:
+		if m.mode == modeCheckpointSearch {
+			return m.checkpointSearchTick(msg.gen)
+		}
+		return m, nil
+
+	case ckptSearchResultMsg:
+		if m.mode == modeCheckpointSearch {
+			return m.applyCheckpointSearchResult(msg)
+		}
+		return m, nil
+
 	case modal.ConfirmAcceptedMsg:
 		cmd := m.confirmCmd
 		m.mode = modeList
@@ -485,6 +510,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateBranchPick(msg)
 	case modeConfig:
 		return m.updateConfig(msg)
+	case modeCheckpoints:
+		return m.updateCheckpoints(msg)
+	case modeCheckpointSearch:
+		return m.updateCheckpointSearch(msg)
 	}
 	return m.updateList(msg)
 }
@@ -531,6 +560,10 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.enterWorkspaceDelete()
 	case config.ActionRecordToggle:
 		return m.toggleRecording()
+	case config.ActionCheckpoints:
+		return m.enterCheckpoints()
+	case config.ActionCheckpointSearch:
+		return m.enterCheckpointSearch()
 	case config.ActionNew:
 		return m.enterCreate()
 	case config.ActionAttach:

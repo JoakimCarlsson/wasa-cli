@@ -33,6 +33,10 @@ func (m Model) View() string {
 		return m.form.View() + "\n" + m.statusLine()
 	}
 
+	if m.mode == modeCheckpoints {
+		return m.checkpointsView()
+	}
+
 	if m.mode == modePick || m.mode == modePickBranch {
 		bg := lipgloss.Place(
 			max(m.width, m.cfg.Layout.CompactWidth), max(m.height-1, 1),
@@ -54,6 +58,9 @@ func (m Model) View() string {
 	}
 	if m.mode == modeConfig {
 		return component.Modal(m.editor.View(), base)
+	}
+	if m.mode == modeCheckpointSearch {
+		return component.Modal(m.checkpointSearchView(), base)
 	}
 	return base
 }
@@ -379,6 +386,8 @@ func (m Model) menuBar() string {
 		{m.menuKey(config.ActionWorkspaceAdd), "+ws"},
 		{m.menuKey(config.ActionWorkspaceDelete), "-ws"},
 		{m.menuKey(config.ActionRecordToggle), "record"},
+		{m.menuKey(config.ActionCheckpoints), "ckpts"},
+		{m.menuKey(config.ActionCheckpointSearch), "search"},
 		{m.menuKey(config.ActionTabNext), "tabs"},
 		{m.menuKey(config.ActionPaneTab), "panes"},
 		{
