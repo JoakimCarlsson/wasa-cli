@@ -1,6 +1,7 @@
 package record
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -260,64 +261,79 @@ func flatInstalled(f configFile) bool {
 	return err == nil && strings.Contains(string(data), hookMarker)
 }
 
-// copilotHookPath is wasa's recorder hook file in Copilot's per-user hook
-// directory ~/.copilot/hooks/. Unlike every other supported agent, Copilot
-// discovers hooks only there (see internal/sessionstatus), never in the
-// repository, so the copilot recorder is installed once per machine rather
-// than per-repo: it records Copilot sessions run in ANY repository, and each
-// checkpoint still lands on the repository the session ran in. The file is
-// wasa-owned and distinct from the sessionstatus status hook, so install
-// rewrites it and remove deletes it; a foreign file without wasa's marker is
-// left untouched. Being outside any repository, it needs no info/exclude.
-func copilotHookPath() string {
-	return filepath.Join(
-		agentHome("", ".copilot"), "hooks", "wasa-record.json",
-	)
+// copilotHookFile is wasa's recorder hook in the repository's .github/hooks
+// directory — the repo-level hook location Copilot reads (alongside any other
+// .github/hooks/*.json). The file is wasa-owned and distinctly named, so
+// installFlat rewrites it, removeFlat deletes it, and a foreign file without
+// wasa's marker is left untouched. It is added to info/exclude like every other
+// recorder config so recording never dirties git status.
+func copilotHookFile(dir string) configFile {
+	return settingsFile(dir, filepath.Join(".github", "hooks"), "wasa.json")
 }
 
-// installCopilot writes the copilot recorder hook to copilotHookPath in the
-// flat {"hooks":{"<event>":[{"type":"command","command":...}]}} shape Copilot
-// reads — no version wrapper, command not bash, matching the status hook.
-func installCopilot(wasaExe string, events []hookEvent) error {
-	path := copilotHookPath()
-	if data, err := os.ReadFile(path); err == nil &&
-		!strings.Contains(string(data), hookMarker) {
-		return fmt.Errorf("%s exists and is not wasa's; not overwriting", path)
+// copilotEntry is a Copilot repo-hook entry: {"type":"command","command":...}.
+func copilotEntry(command string) settingsHookEntry {
+	return settingsHookEntry{Type: "command", Command: command}
+}
+
+// ensureCopilotTrusted registers dir in Copilot's trustedFolders in
+// ~/.copilot/config.json. Copilot ignores repo-level hooks in a folder it does
+// not trust, so without this the recorder would install but never fire — the
+// analog of ensureExcluded for Copilot. It is idempotent and preserves every
+// other config key; it errors (rather than clobbering) on a config file that is
+// not valid JSON.
+func ensureCopilotTrusted(dir string) error {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		abs = dir
 	}
-	hooks := map[string][]settingsHookEntry{}
-	for _, event := range events {
-		hooks[event.name] = []settingsHookEntry{
-			{
-				Type:    "command",
-				Command: HookCommand(wasaExe, "copilot", event.end),
-			},
+	path := filepath.Join(agentHome("", ".copilot"), "config.json")
+	raw, _ := os.ReadFile(path)
+	header, body := splitConfigComments(raw)
+	top := map[string]json.RawMessage{}
+	if len(bytes.TrimSpace(body)) > 0 {
+		if err := json.Unmarshal(body, &top); err != nil {
+			return fmt.Errorf(
+				"copilot config %s is not valid JSON; leaving it untouched: %w",
+				path, err,
+			)
 		}
 	}
-	rawHooks, err := json.Marshal(hooks)
+	var trusted []string
+	if r, ok := top["trustedFolders"]; ok {
+		_ = json.Unmarshal(r, &trusted)
+	}
+	for _, f := range trusted {
+		if f == abs {
+			return nil
+		}
+	}
+	trusted = append(trusted, abs)
+	r, err := json.Marshal(trusted)
 	if err != nil {
 		return err
 	}
-	return writeJSONFile(path, map[string]json.RawMessage{"hooks": rawHooks})
-}
-
-func removeCopilot() error {
-	path := copilotHookPath()
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return nil
-	}
+	top["trustedFolders"] = r
+	out, err := json.MarshalIndent(top, "", "  ")
 	if err != nil {
 		return err
 	}
-	if !strings.Contains(string(data), hookMarker) {
-		return nil
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
 	}
-	return os.Remove(path)
+	return os.WriteFile(path, append(header, append(out, '\n')...), 0o600)
 }
 
-func copilotInstalled() bool {
-	data, err := os.ReadFile(copilotHookPath())
-	return err == nil && strings.Contains(string(data), hookMarker)
+// splitConfigComments separates the leading //-comment header Copilot keeps at
+// the top of its auto-managed config.json from the JSON object body, so the
+// body can be round-tripped (preserving every key, including the auth token)
+// while the header is written back verbatim.
+func splitConfigComments(raw []byte) (header, body []byte) {
+	i := bytes.IndexByte(raw, '{')
+	if i < 0 {
+		return nil, nil
+	}
+	return raw[:i], raw[i:]
 }
 
 // codexFeatureFlag is the config.toml content Codex needs before it runs
