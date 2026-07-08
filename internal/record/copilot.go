@@ -9,11 +9,11 @@ import (
 // copilotRecorder records GitHub Copilot CLI sessions. Its recording hooks live
 // in the repository at .github/hooks/wasa.json — the repo-level hook location
 // Copilot reads (alongside any other .github/hooks/*.json) — so recording is
-// per-repository like every other agent. Copilot only runs repo-level hooks in
-// a folder it trusts, so install also registers the repo in Copilot's
-// trustedFolders (see ensureCopilotTrusted). Its transcript is events.jsonl
-// under ~/.copilot/session-state/<session>/, one event per line as
-// {type, timestamp, data}.
+// per-repository like every other agent, never machine-wide. Copilot only runs
+// repo-level hooks in a folder the user has trusted, which Copilot prompts for
+// itself on first use; wasa does not touch Copilot's global config. Its
+// transcript is events.jsonl under ~/.copilot/session-state/<session>/, one
+// event per line as {type, timestamp, data}.
 type copilotRecorder struct{}
 
 var _ Recorder = copilotRecorder{}
@@ -22,7 +22,7 @@ func (copilotRecorder) Tool() string { return "copilot" }
 func (copilotRecorder) Exe() string  { return "copilot" }
 
 func (copilotRecorder) InstallHooks(dir, wasaExe string) error {
-	if err := installFlat(
+	return installFlat(
 		copilotHookFile(dir),
 		dir, "copilot", wasaExe,
 		[]hookEvent{
@@ -31,10 +31,7 @@ func (copilotRecorder) InstallHooks(dir, wasaExe string) error {
 			{name: "sessionEnd", end: true},
 		},
 		copilotEntry,
-	); err != nil {
-		return err
-	}
-	return ensureCopilotTrusted(dir)
+	)
 }
 
 func (copilotRecorder) RemoveHooks(dir string) error {

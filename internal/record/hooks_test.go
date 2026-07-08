@@ -43,8 +43,7 @@ func readSettings(t *testing.T, path string) map[string]any {
 
 // agentConfigPaths maps each tool to the repo hook config file its installer
 // owns. Every supported agent is per-repo, Copilot included: its repo-level
-// hook lives at .github/hooks/wasa.json (TestCopilotHookInstall additionally
-// covers the trustedFolders step install performs).
+// hook lives at .github/hooks/wasa.json.
 var agentConfigPaths = map[string]string{
 	"claude":  filepath.Join(".claude", "settings.json"),
 	"gemini":  filepath.Join(".gemini", "settings.json"),
@@ -316,10 +315,9 @@ func TestAgentForProgram(t *testing.T) {
 }
 
 // TestCopilotHookInstall checks the copilot recorder installs a repo-level hook
-// at .github/hooks/wasa.json in the flat command shape Copilot reads, registers
-// the repo in Copilot's trustedFolders (without which Copilot ignores repo-level
-// hooks), keeps git status clean via info/exclude, and installs/reports/removes
-// per-repo like every other agent. HOME is isolated by TestMain.
+// at .github/hooks/wasa.json in the flat command shape Copilot reads, keeps git
+// status clean via info/exclude, and installs/reports/removes per-repo like
+// every other agent. HOME is isolated by TestMain.
 func TestCopilotHookInstall(t *testing.T) {
 	repo := initRepo(t)
 	hookPath := filepath.Join(repo, ".github", "hooks", "wasa.json")
@@ -346,29 +344,6 @@ func TestCopilotHookInstall(t *testing.T) {
 	}
 	if strings.Contains(got, `"bash"`) {
 		t.Errorf("copilot hook uses a bash field:\n%s", got)
-	}
-
-	cfgData, err := os.ReadFile(
-		filepath.Join(os.Getenv("HOME"), ".copilot", "config.json"),
-	)
-	if err != nil {
-		t.Fatalf("copilot config not written: %v", err)
-	}
-	var cfg struct {
-		TrustedFolders []string `json:"trustedFolders"`
-	}
-	if err := json.Unmarshal(cfgData, &cfg); err != nil {
-		t.Fatalf("copilot config invalid JSON: %v", err)
-	}
-	abs, _ := filepath.Abs(repo)
-	trusted := false
-	for _, f := range cfg.TrustedFolders {
-		if f == abs {
-			trusted = true
-		}
-	}
-	if !trusted {
-		t.Errorf("trustedFolders %v missing repo %s", cfg.TrustedFolders, abs)
 	}
 
 	excl, _ := os.ReadFile(filepath.Join(repo, ".git", "info", "exclude"))
