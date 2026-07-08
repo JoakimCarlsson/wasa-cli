@@ -11,5 +11,6 @@ const (
 	idleIcon    = "○"
 	exitedIcon  = "●"
 	pausedIcon  = "◫"
+	recordIcon  = "⏺"
 	menuSep     = " • "
 )

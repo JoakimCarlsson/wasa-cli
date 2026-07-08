@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/joakimcarlsson/wasa-cli/internal/backend"
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
 	"github.com/joakimcarlsson/wasa-cli/internal/launch"
+	"github.com/joakimcarlsson/wasa-cli/internal/record"
 	"github.com/joakimcarlsson/wasa-cli/internal/registry"
 	"github.com/joakimcarlsson/wasa-cli/internal/repo"
 	"github.com/joakimcarlsson/wasa-cli/internal/sessionstatus"
@@ -84,6 +86,13 @@ type Model struct {
 	lastStatus   map[string]sessionstatus.Status
 	churn        map[string]churnStat
 
+	// recording maps a workspace ID to the recording agents wired in its repo
+	// (from record.InstalledAgents). It is derived, not stored: rebuilt on
+	// refresh and every tick so a change made by `wasa record` in another
+	// terminal converges without live filesystem watching. An empty or absent
+	// entry means recording is off for that workspace.
+	recording map[string][]string
+
 	status string
 	err    error
 }
@@ -114,6 +123,7 @@ func New(
 		lastNotifyAt: make(map[string]time.Time),
 		lastStatus:   make(map[string]sessionstatus.Status),
 		churn:        make(map[string]churnStat),
+		recording:    make(map[string][]string),
 	}
 	m.osHome, _ = os.UserHomeDir()
 	if s, ok := be.(backend.StreamingBackend); ok {
@@ -127,6 +137,7 @@ func New(
 	case len(m.workspaces) > 0:
 		m.activeID = m.workspaces[0].ID
 	}
+	m.refreshRecording()
 	return m
 }
 
@@ -237,6 +248,20 @@ type attachedMsg struct {
 	err       error
 }
 
+// recordToggledMsg carries the outcome of toggling repo-level recording for a
+// workspace back to the update loop. enabled says which direction the toggle
+// went; agents is the wired tool set when it was turned on; none is set when the
+// toggle was a no-op because no supported agent is on PATH (mirroring the
+// `wasa record enable` behaviour, but as a transient message rather than an
+// error).
+type recordToggledMsg struct {
+	wsName  string
+	enabled bool
+	agents  []string
+	none    bool
+	err     error
+}
+
 // Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -324,6 +349,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err = nil
 		m.status = "deleted workspace " + msg.name
+		return m, m.refresh()
+
+	case recordToggledMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		m.err = nil
+		switch {
+		case msg.none:
+			m.status = "no supported agents found on PATH"
+		case msg.enabled:
+			m.status = "recording enabled for " + msg.wsName +
+				" (" + strings.Join(msg.agents, ", ") + ")"
+		default:
+			m.status = "recording disabled for " + msg.wsName
+		}
 		return m, m.refresh()
 
 	case workspaceAddedMsg:
@@ -478,6 +520,8 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.enterWorkspaceAdd()
 	case config.ActionWorkspaceDelete:
 		return m.enterWorkspaceDelete()
+	case config.ActionRecordToggle:
+		return m.toggleRecording()
 	case config.ActionNew:
 		return m.enterCreate()
 	case config.ActionAttach:
@@ -730,6 +774,36 @@ func (m Model) workspaceDeleteCmd(ws *registry.Workspace) tea.Cmd {
 			return workspaceDeletedMsg{err: err}
 		}
 		return workspaceDeletedMsg{name: name}
+	}
+}
+
+// toggleRecording flips repo-level recording for the active workspace, off the
+// update loop. It is a no-op on the orphan tab (no workspace). The command reads
+// the current state fresh (record.InstalledAgents) rather than trusting the
+// cached m.recording map, so a concurrent CLI change can't make the toggle act
+// on stale state, and routes both directions through the same record package the
+// `wasa record` command uses.
+func (m Model) toggleRecording() (tea.Model, tea.Cmd) {
+	ws := m.currentWorkspace()
+	if ws == nil {
+		return m, nil
+	}
+	dir, name := ws.RepoPath, ws.Name
+	return m, func() tea.Msg {
+		if len(record.InstalledAgents(dir)) > 0 {
+			if err := record.RemoveHooks(dir); err != nil {
+				return recordToggledMsg{wsName: name, err: err}
+			}
+			return recordToggledMsg{wsName: name, enabled: false}
+		}
+		agents, err := record.Enable(dir)
+		if err != nil {
+			return recordToggledMsg{wsName: name, err: err}
+		}
+		if len(agents) == 0 {
+			return recordToggledMsg{wsName: name, none: true}
+		}
+		return recordToggledMsg{wsName: name, enabled: true, agents: agents}
 	}
 }
 
@@ -1150,7 +1224,22 @@ func (m *Model) refresh() tea.Cmd {
 		m.cursor = n - 1
 	}
 	m.cursor = max(m.cursor, 0)
+	m.refreshRecording()
 	return m.tabbed.Preview.SetTarget(m.previewTarget())
+}
+
+// refreshRecording rebuilds the derived per-workspace recording state from the
+// filesystem (record.InstalledAgents). It is cheap — a handful of stats per
+// workspace — and runs on refresh and every tick, so recording toggled from a
+// `wasa record` command in another terminal shows up here within a tick.
+func (m *Model) refreshRecording() {
+	next := make(map[string][]string, len(m.workspaces))
+	for _, w := range m.workspaces {
+		if agents := record.InstalledAgents(w.RepoPath); len(agents) > 0 {
+			next[w.ID] = agents
+		}
+	}
+	m.recording = next
 }
 
 // sweepStatuses refreshes the derived runtime status of every running session
@@ -1170,6 +1259,7 @@ func (m *Model) sweepStatuses() {
 	if m.reg.Reconcile(m.tmux.Has) {
 		_ = m.reg.Save()
 	}
+	m.refreshRecording()
 
 	focused := m.focusedSessionID()
 	keep := make(map[string]bool)

@@ -154,6 +154,7 @@ const (
 	ActionFilter          = "filter"
 	ActionWorkspaceAdd    = "workspace-add"
 	ActionWorkspaceDelete = "workspace-delete"
+	ActionRecordToggle    = "record-toggle"
 	ActionConfig          = "config"
 	ActionQuit            = "quit"
 )
@@ -187,6 +188,7 @@ var defaultBindings = []binding{
 	{ActionFilter, modeList, KeyList{"ctrl+f"}},
 	{ActionWorkspaceAdd, modeList, KeyList{"w"}},
 	{ActionWorkspaceDelete, modeList, KeyList{"W"}},
+	{ActionRecordToggle, modeList, KeyList{"R"}},
 	{ActionConfig, modeList, KeyList{","}},
 	{ActionQuit, modeList, KeyList{"q", "ctrl+c"}},
 }

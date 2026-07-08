@@ -6,10 +6,12 @@ import (
 	"time"
 )
 
-// copilotRecorder records GitHub Copilot CLI sessions. Copilot discovers hooks
-// only in its per-user directory, never in a repository, so the recorder is
-// installed once per machine at ~/.copilot/hooks/wasa-record.json (see
-// installCopilot) and records Copilot sessions run in any repository. Its
+// copilotRecorder records GitHub Copilot CLI sessions. Its recording hooks live
+// in the repository at .github/hooks/wasa.json — the repo-level hook location
+// Copilot reads (alongside any other .github/hooks/*.json) — so recording is
+// per-repository like every other agent, never machine-wide. Copilot only runs
+// repo-level hooks in a folder the user has trusted, which Copilot prompts for
+// itself on first use; wasa does not touch Copilot's global config. Its
 // transcript is events.jsonl under ~/.copilot/session-state/<session>/, one
 // event per line as {type, timestamp, data}.
 type copilotRecorder struct{}
@@ -19,17 +21,26 @@ var _ Recorder = copilotRecorder{}
 func (copilotRecorder) Tool() string { return "copilot" }
 func (copilotRecorder) Exe() string  { return "copilot" }
 
-func (copilotRecorder) InstallHooks(_, wasaExe string) error {
-	return installCopilot(wasaExe, []hookEvent{
-		{name: "userPromptSubmitted"},
-		{name: "postToolUse"},
-		{name: "sessionEnd", end: true},
-	})
+func (copilotRecorder) InstallHooks(dir, wasaExe string) error {
+	return installFlat(
+		copilotHookFile(dir),
+		dir, "copilot", wasaExe,
+		[]hookEvent{
+			{name: "userPromptSubmitted"},
+			{name: "postToolUse"},
+			{name: "sessionEnd", end: true},
+		},
+		copilotEntry,
+	)
 }
 
-func (copilotRecorder) RemoveHooks(string) error { return removeCopilot() }
+func (copilotRecorder) RemoveHooks(dir string) error {
+	return removeFlat(copilotHookFile(dir))
+}
 
-func (copilotRecorder) HooksInstalled(string) bool { return copilotInstalled() }
+func (copilotRecorder) HooksInstalled(dir string) bool {
+	return flatInstalled(copilotHookFile(dir))
+}
 
 func (copilotRecorder) LocateTranscript(sessionID, repoDir string) string {
 	return existing(copilotTranscriptPath(sessionID, repoDir))
