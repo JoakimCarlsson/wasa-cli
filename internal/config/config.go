@@ -155,6 +155,7 @@ const (
 	ActionWorkspaceAdd    = "workspace-add"
 	ActionWorkspaceDelete = "workspace-delete"
 	ActionRecordToggle    = "record-toggle"
+	ActionCheckpoints     = "checkpoints"
 	ActionConfig          = "config"
 	ActionQuit            = "quit"
 )
@@ -189,6 +190,7 @@ var defaultBindings = []binding{
 	{ActionWorkspaceAdd, modeList, KeyList{"w"}},
 	{ActionWorkspaceDelete, modeList, KeyList{"W"}},
 	{ActionRecordToggle, modeList, KeyList{"R"}},
+	{ActionCheckpoints, modeList, KeyList{"c"}},
 	{ActionConfig, modeList, KeyList{","}},
 	{ActionQuit, modeList, KeyList{"q", "ctrl+c"}},
 }
