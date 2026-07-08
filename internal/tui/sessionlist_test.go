@@ -4,7 +4,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
+	"github.com/joakimcarlsson/wasa-cli/internal/record"
 	"github.com/joakimcarlsson/wasa-cli/internal/registry"
 	"github.com/joakimcarlsson/wasa-cli/internal/sessionstatus"
 	"github.com/joakimcarlsson/wasa-cli/internal/tui/pane"
@@ -153,6 +156,101 @@ func TestSessionRowPlainSessionHasNoChurn(t *testing.T) {
 
 	if out := m.View(); strings.Contains(out, "+9/−9") {
 		t.Fatalf("plain session rendered a churn suffix:\n%s", out)
+	}
+}
+
+// TestRecordedTokenMatchesBySessionID checks the recorded indicator keys off the
+// session id: a session present in the recorded map renders the ⏺ glyph with the
+// checkpoint's commit count, and an absent session renders nothing.
+func TestRecordedTokenMatchesBySessionID(t *testing.T) {
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	m := New(t.TempDir(), reg, ws.ID, config.Default())
+	m.recorded["rec"] = record.Entry{
+		Meta: record.Meta{SessionID: "rec", Commits: []string{"a", "b", "c"}},
+	}
+
+	got := m.recordedToken(&registry.Session{ID: "rec"}, false)
+	if !strings.Contains(got, recordIcon) {
+		t.Fatalf("recorded token missing %q glyph: %q", recordIcon, got)
+	}
+	if !strings.Contains(got, "3") {
+		t.Fatalf("recorded token missing commit count 3: %q", got)
+	}
+
+	if got := m.recordedToken(
+		&registry.Session{ID: "other"},
+		false,
+	); got != "" {
+		t.Fatalf("un-recorded session got token %q, want empty", got)
+	}
+}
+
+// TestSessionRowShowsRecordedIndicator renders one finished session with a
+// checkpoint and one without, asserting only the recorded row grows the ⏺ N
+// indicator and the un-recorded row stays clean (absence is the signal).
+func TestSessionRowShowsRecordedIndicator(t *testing.T) {
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	for _, id := range []string{"rec", "plain"} {
+		reg.AddSession(&registry.Session{
+			ID: id, WorkspaceID: ws.ID, Branch: "feat/" + id,
+			Status: registry.StatusExited, TmuxName: "t-" + id,
+		})
+	}
+
+	m := New(t.TempDir(), reg, ws.ID, config.Default())
+	m.width, m.height = 200, 30
+	m.recorded["rec"] = record.Entry{
+		Meta: record.Meta{SessionID: "rec", Commits: []string{"x", "y"}},
+	}
+
+	out := m.View()
+	if !strings.Contains(out, recordIcon+" 2") &&
+		!strings.Contains(out, recordIcon) {
+		t.Fatalf(
+			"recorded session row missing %q indicator:\n%s",
+			recordIcon,
+			out,
+		)
+	}
+	if strings.Count(out, recordIcon) != 1 {
+		t.Fatalf(
+			"expected exactly one recorded indicator, got %d:\n%s",
+			strings.Count(out, recordIcon), out,
+		)
+	}
+}
+
+// TestSubLineDropsRecordedTokenWhenNarrow is the layout guard: at a width too
+// small for the indicator the sub-line drops it rather than wrapping or
+// overflowing the column.
+func TestSubLineDropsRecordedTokenWhenNarrow(t *testing.T) {
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
+	m := New(t.TempDir(), reg, ws.ID, config.Default())
+	m.recorded["rec"] = record.Entry{
+		Meta: record.Meta{SessionID: "rec", Commits: []string{"x", "y"}},
+	}
+	s := &registry.Session{ID: "rec", ProfileName: "claude"}
+
+	for _, w := range []int{20, 30, 40, 80} {
+		out := m.subLine(
+			s, "feature/a-fairly-long-branch-name",
+			sessionstatus.Idle, m.theme.RowDescStyle, false, w,
+		)
+		if got := ansi.StringWidth(out); got > w {
+			t.Fatalf("sub-line width %d exceeds column %d: %q", got, w, out)
+		}
 	}
 }
 
