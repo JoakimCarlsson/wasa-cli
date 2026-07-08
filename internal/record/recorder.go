@@ -199,6 +199,36 @@ func DetectedAgents() []string {
 	return tools
 }
 
+// executablePath and detectAgents are indirected so tests can drive Enable
+// without a real agent binary on PATH (mirrors the startFinalize seam).
+var (
+	executablePath = os.Executable
+	detectAgents   = DetectedAgents
+)
+
+// Enable turns on repo-level recording for dir: it installs recording hooks for
+// every supported agent found on PATH and returns the tool names it wired. An
+// empty slice with a nil error means no supported agent was detected — callers
+// decide how to surface that (the CLI errors, the TUI shows a transient
+// message). This is the one shared enable recipe; both the `wasa record enable`
+// command and the TUI toggle call it so the two never drift.
+func Enable(dir string) ([]string, error) {
+	exe, err := executablePath()
+	if err != nil {
+		return nil, err
+	}
+	tools := detectAgents()
+	if len(tools) == 0 {
+		return nil, nil
+	}
+	for _, tool := range tools {
+		if err := InstallHooks(dir, tool, exe); err != nil {
+			return nil, fmt.Errorf("%s: %w", tool, err)
+		}
+	}
+	return tools, nil
+}
+
 // fallbackTranscript best-effort locates a transcript for sessions whose
 // hook payloads never carried a path (Cursor and Copilot omit it on some
 // events; a Codex payload may null it).

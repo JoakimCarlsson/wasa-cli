@@ -74,7 +74,8 @@ func (m Model) listView() string {
 	previewW := m.width - listW - 4
 
 	list := m.theme.PaneStyle.Width(listW).Height(bodyH).Render(
-		m.paneTitle("sessions") + "\n" + m.sessionList(listW),
+		m.paneTitle("sessions") + m.recordingBadge() + "\n" +
+			m.sessionList(listW),
 	)
 	right := m.tabbedRightPane(previewW, bodyH)
 	body := lipgloss.JoinHorizontal(lipgloss.Top, list, right)
@@ -102,6 +103,23 @@ func (m Model) paneTitle(name string) string {
 	return m.theme.PaneTitleStyle.Render(name)
 }
 
+// recordingBadge renders the active workspace's repo-level recording state
+// beside the sessions title: the wired agent names when on, a dim "rec off"
+// when not. It is empty on the orphan tab, which has no repository to record.
+// State is the derived m.recording map, so it tracks a `wasa record` change made
+// in another terminal on the next refresh.
+func (m Model) recordingBadge() string {
+	if m.currentWorkspace() == nil {
+		return ""
+	}
+	agents := m.recording[m.activeID]
+	if len(agents) == 0 {
+		return m.theme.DimStyle.Render("  rec off")
+	}
+	return "  " + m.theme.RunningDotStyle.Render(recordIcon) +
+		m.theme.DimStyle.Render(" rec: "+strings.Join(agents, ", "))
+}
+
 func (m Model) tabBar() string {
 	tabs := m.tabList()
 	if len(tabs) == 0 {
@@ -110,10 +128,14 @@ func (m Model) tabBar() string {
 	active := m.tabIndex()
 	parts := make([]string, len(tabs))
 	for i, t := range tabs {
+		label := t.name
+		if len(m.recording[t.id]) > 0 {
+			label += " " + recordIcon
+		}
 		if i == active {
-			parts[i] = m.theme.ActiveTabStyle.Render(t.name)
+			parts[i] = m.theme.ActiveTabStyle.Render(label)
 		} else {
-			parts[i] = m.theme.InactiveTabStyle.Render(t.name)
+			parts[i] = m.theme.InactiveTabStyle.Render(label)
 		}
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Bottom, parts...)
@@ -323,6 +345,7 @@ func (m Model) menuBar() string {
 		{m.menuKey(config.ActionFilter), "filter"},
 		{m.menuKey(config.ActionWorkspaceAdd), "+ws"},
 		{m.menuKey(config.ActionWorkspaceDelete), "-ws"},
+		{m.menuKey(config.ActionRecordToggle), "record"},
 		{m.menuKey(config.ActionTabNext), "tabs"},
 		{m.menuKey(config.ActionPaneTab), "panes"},
 		{

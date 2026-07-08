@@ -67,21 +67,15 @@ func runRecord(args []string) error {
 
 	switch rest[0] {
 	case "enable":
-		exe, err := os.Executable()
+		tools, err := record.Enable(repoPath)
 		if err != nil {
 			return err
 		}
-		tools := record.DetectedAgents()
 		if len(tools) == 0 {
 			return errors.New(
 				"no supported agent found on PATH " +
 					"(claude, gemini, codex, copilot, cursor-agent)",
 			)
-		}
-		for _, tool := range tools {
-			if err := record.InstallHooks(repoPath, tool, exe); err != nil {
-				return fmt.Errorf("%s: %w", tool, err)
-			}
 		}
 		fmt.Fprintf(
 			os.Stdout,
