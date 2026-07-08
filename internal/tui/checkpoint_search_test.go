@@ -197,7 +197,10 @@ func TestSearchNoRecordShowsRecordingState(t *testing.T) {
 	m := searchModel(t)
 	m = typeSearch(t, m, "retry")
 
-	noRecord := ckptSearchResultMsg{gen: m.checkpointSearch.gen, err: record.ErrNoRecord}
+	noRecord := ckptSearchResultMsg{
+		gen: m.checkpointSearch.gen,
+		err: record.ErrNoRecord,
+	}
 	next, _ := m.applyCheckpointSearchResult(noRecord)
 	m = next.(Model)
 
