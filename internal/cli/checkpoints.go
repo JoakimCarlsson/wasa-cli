@@ -282,60 +282,10 @@ func searchCheckpoints(repoPath string, args []string) error {
 			h.Meta.SessionID, branch,
 			h.When.Local().Format("2006-01-02 15:04"), h.File,
 		)
-		text, hs, he := makeSnippet(h.LineText, h.Start, h.End, 100)
+		text, hs, he := record.Snippet(h.LineText, h.Start, h.End, 100)
 		fmt.Fprintf(os.Stdout, "  %s\n\n", highlight(text, hs, he, color))
 	}
 	return nil
-}
-
-// makeSnippet trims a matching line and, when it is longer than width, returns
-// a window centred on the match with "…" markers, adjusting the match span to
-// the returned string.
-func makeSnippet(
-	line string, start, end, width int,
-) (out string, hs, he int) {
-	trimmed := strings.TrimLeft(line, " \t")
-	off := len(line) - len(trimmed)
-	line, start, end = trimmed, start-off, end-off
-	if start < 0 {
-		start = 0
-	}
-	if end < start {
-		end = start
-	}
-	if len(line) <= width {
-		return line, start, end
-	}
-
-	pad := (width - (end - start)) / 2
-	if pad < 0 {
-		pad = 0
-	}
-	ws := start - pad
-	if ws < 0 {
-		ws = 0
-	}
-	we := ws + width
-	if we > len(line) {
-		we, ws = len(line), len(line)-width
-		if ws < 0 {
-			ws = 0
-		}
-	}
-
-	prefix, suffix := "", ""
-	if ws > 0 {
-		prefix = "…"
-	}
-	if we < len(line) {
-		suffix = "…"
-	}
-	out = prefix + line[ws:we] + suffix
-	hs, he = start-ws+len(prefix), end-ws+len(prefix)
-	if he > len(out) {
-		he = len(out)
-	}
-	return out, hs, he
 }
 
 // highlight wraps text[hs:he] in bold yellow when color is set, else returns

@@ -59,6 +59,9 @@ func (m Model) View() string {
 	if m.mode == modeConfig {
 		return component.Modal(m.editor.View(), base)
 	}
+	if m.mode == modeCheckpointSearch {
+		return component.Modal(m.checkpointSearchView(), base)
+	}
 	return base
 }
 
@@ -384,6 +387,7 @@ func (m Model) menuBar() string {
 		{m.menuKey(config.ActionWorkspaceDelete), "-ws"},
 		{m.menuKey(config.ActionRecordToggle), "record"},
 		{m.menuKey(config.ActionCheckpoints), "ckpts"},
+		{m.menuKey(config.ActionCheckpointSearch), "search"},
 		{m.menuKey(config.ActionTabNext), "tabs"},
 		{m.menuKey(config.ActionPaneTab), "panes"},
 		{

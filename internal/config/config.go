@@ -140,24 +140,25 @@ type Keys map[string]KeyList
 // Action names. These are the stable identifiers a user writes under the "keys"
 // section of the config file.
 const (
-	ActionNew             = "new"
-	ActionAttach          = "attach"
-	ActionKill            = "kill"
-	ActionDelete          = "delete"
-	ActionPause           = "pause"
-	ActionResume          = "resume"
-	ActionTabNext         = "tab-next"
-	ActionTabPrev         = "tab-prev"
-	ActionPaneTab         = "pane-tab"
-	ActionCursorUp        = "cursor-up"
-	ActionCursorDown      = "cursor-down"
-	ActionFilter          = "filter"
-	ActionWorkspaceAdd    = "workspace-add"
-	ActionWorkspaceDelete = "workspace-delete"
-	ActionRecordToggle    = "record-toggle"
-	ActionCheckpoints     = "checkpoints"
-	ActionConfig          = "config"
-	ActionQuit            = "quit"
+	ActionNew              = "new"
+	ActionAttach           = "attach"
+	ActionKill             = "kill"
+	ActionDelete           = "delete"
+	ActionPause            = "pause"
+	ActionResume           = "resume"
+	ActionTabNext          = "tab-next"
+	ActionTabPrev          = "tab-prev"
+	ActionPaneTab          = "pane-tab"
+	ActionCursorUp         = "cursor-up"
+	ActionCursorDown       = "cursor-down"
+	ActionFilter           = "filter"
+	ActionWorkspaceAdd     = "workspace-add"
+	ActionWorkspaceDelete  = "workspace-delete"
+	ActionRecordToggle     = "record-toggle"
+	ActionCheckpoints      = "checkpoints"
+	ActionCheckpointSearch = "checkpoint-search"
+	ActionConfig           = "config"
+	ActionQuit             = "quit"
 )
 
 // modeList is the cockpit's session-list mode. Duplicate-binding detection is
@@ -191,6 +192,7 @@ var defaultBindings = []binding{
 	{ActionWorkspaceDelete, modeList, KeyList{"W"}},
 	{ActionRecordToggle, modeList, KeyList{"R"}},
 	{ActionCheckpoints, modeList, KeyList{"c"}},
+	{ActionCheckpointSearch, modeList, KeyList{"/"}},
 	{ActionConfig, modeList, KeyList{","}},
 	{ActionQuit, modeList, KeyList{"q", "ctrl+c"}},
 }

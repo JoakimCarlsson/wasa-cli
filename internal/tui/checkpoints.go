@@ -61,13 +61,24 @@ func newTranscriptViewport() viewport.Model {
 	return vp
 }
 
-// enterCheckpoints opens the checkpoints view over the active workspace's repo,
+// enterCheckpoints opens the checkpoints view focused on the selected session's
+// checkpoint, so pressing the key on a recorded row lands on that row's record.
+func (m Model) enterCheckpoints() (tea.Model, tea.Cmd) {
+	var focus string
+	if s := m.selectedSession(); s != nil {
+		focus = s.ID
+	}
+	return m.openCheckpoints(focus)
+}
+
+// openCheckpoints opens the checkpoints view over the active workspace's repo,
 // reading the checkpoint list up front (record.List is a single for-each-ref, the
 // same call refreshRecording already runs each tick). It opens focused on the
-// selected session's checkpoint when that session produced one, so jumping in
-// from a recorded row lands on that row's record. The orphan tab has no repo to
-// read, so it stays in the list with a hint rather than opening an empty view.
-func (m Model) enterCheckpoints() (tea.Model, tea.Cmd) {
+// checkpoint of focusSessionID when that session produced one, so jumping in from
+// a recorded row or a search result lands on that record. The orphan tab has no
+// repo to read, so it stays in the list with a hint rather than opening an empty
+// view.
+func (m Model) openCheckpoints(focusSessionID string) (tea.Model, tea.Cmd) {
 	ws := m.currentWorkspace()
 	if ws == nil {
 		m.status = "checkpoints: select a workspace first"
@@ -86,9 +97,9 @@ func (m Model) enterCheckpoints() (tea.Model, tea.Cmd) {
 	} else {
 		cs.entries = entries
 	}
-	if s := m.selectedSession(); s != nil {
+	if focusSessionID != "" {
 		for i, e := range cs.entries {
-			if e.Meta.SessionID == s.ID {
+			if e.Meta.SessionID == focusSessionID {
 				cs.cursor = i
 				break
 			}
@@ -416,7 +427,15 @@ func (m Model) checkpointMeta(e record.Entry) string {
 // with recording on it is simply empty; with recording off it points at the
 // toggle (a repo with no checkpoints ref reads as off, which is the right hint).
 func (m Model) checkpointsEmptyMessage() string {
-	if m.checkpoints.recording {
+	return m.recordEmptyMessage(m.checkpoints.recording)
+}
+
+// recordEmptyMessage is the shared "nothing to show" text for a repo with no
+// checkpoints, keyed on whether recording is on: on → simply empty, off → point
+// at the toggle. Both the browser's empty pane and the search picker's empty
+// state read from it so they word the same situation identically.
+func (m Model) recordEmptyMessage(recording bool) string {
+	if recording {
 		return "  no checkpoints recorded yet"
 	}
 	return "  recording is off for this workspace\n" +
