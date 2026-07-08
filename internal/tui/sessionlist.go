@@ -228,21 +228,33 @@ func (m Model) subLine(
 		"   %s %s · %s · %s", branchIcon, ref, s.ProfileName, rs.Label(),
 	)
 	churn := m.churnToken(s, selected)
-	if churn == "" {
+	rec := m.recordedToken(s, selected)
+	if churn == "" && rec == "" {
 		return descS.Render(component.PadAnsi(plain, w))
 	}
 
 	pre := fmt.Sprintf("   %s %s ", branchIcon, ref)
 	post := fmt.Sprintf(" · %s · %s", s.ProfileName, rs.Label())
-	used := ansi.StringWidth(pre) + ansi.StringWidth(churn) +
+	base := ansi.StringWidth(pre) + ansi.StringWidth(churn) +
 		ansi.StringWidth(post)
-	if used > w {
+	if base > w {
 		return descS.Render(component.PadAnsi(plain, w))
 	}
-	if tail := w - used; tail > 0 {
-		post += strings.Repeat(" ", tail)
+
+	sep := " · "
+	used, recSeg := base, ""
+	if rec != "" {
+		add := ansi.StringWidth(sep) + ansi.StringWidth(rec)
+		if base+add <= w {
+			recSeg, used = descS.Render(sep)+rec, base+add
+		}
 	}
-	return descS.Render(pre) + churn + descS.Render(post)
+
+	line := descS.Render(pre) + churn + descS.Render(post) + recSeg
+	if tail := w - used; tail > 0 {
+		line += descS.Render(strings.Repeat(" ", tail))
+	}
+	return line
 }
 
 // churnToken renders a worktree session's +N/−M churn in the diff add/remove
@@ -266,6 +278,27 @@ func (m Model) churnToken(s *registry.Session, selected bool) string {
 	}
 	return add.Render(fmt.Sprintf("+%d", c.added)) + "/" +
 		del.Render(fmt.Sprintf("−%d", c.removed))
+}
+
+// recordedToken renders "⏺ N" for a session that produced a checkpoint, where N
+// is the commit count of the session's newest checkpoint — the same value the
+// `wasa checkpoints` COMMITS column shows. It returns "" when the session has no
+// checkpoint (recording off, or none written), so absence is the signal and a
+// not-recorded row is never marked and never shows an error state. On the
+// selected row the styles inherit the selection band's background so the token
+// sits on the band rather than punching a hole in it, mirroring churnToken.
+func (m Model) recordedToken(s *registry.Session, selected bool) string {
+	e, ok := m.recorded[s.ID]
+	if !ok {
+		return ""
+	}
+	icon, dim := m.theme.RunningDotStyle, m.theme.DimStyle
+	if selected {
+		bg := m.theme.SelRowDescStyle.GetBackground()
+		icon, dim = icon.Background(bg), dim.Background(bg)
+	}
+	return icon.Render(recordIcon) +
+		dim.Render(fmt.Sprintf(" %d", len(e.Meta.Commits)))
 }
 
 // highlightMatch lights up the fuzzy-matched characters of a row's title and ref

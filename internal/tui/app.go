@@ -93,6 +93,14 @@ type Model struct {
 	// entry means recording is off for that workspace.
 	recording map[string][]string
 
+	// recorded maps a session ID to its newest checkpoint entry, across all
+	// workspace repos. Like recording it is derived, not stored: rebuilt from
+	// record.List on refresh and every tick so a checkpoint written by a
+	// finishing session shows up here within a tick without live watching. An
+	// absent entry means the session produced no checkpoint (recording off, or
+	// none written) — absence is the signal, never an error state.
+	recorded map[string]record.Entry
+
 	status string
 	err    error
 }
@@ -124,6 +132,7 @@ func New(
 		lastStatus:   make(map[string]sessionstatus.Status),
 		churn:        make(map[string]churnStat),
 		recording:    make(map[string][]string),
+		recorded:     make(map[string]record.Entry),
 	}
 	m.osHome, _ = os.UserHomeDir()
 	if s, ok := be.(backend.StreamingBackend); ok {
@@ -1229,17 +1238,31 @@ func (m *Model) refresh() tea.Cmd {
 }
 
 // refreshRecording rebuilds the derived per-workspace recording state from the
-// filesystem (record.InstalledAgents). It is cheap — a handful of stats per
-// workspace — and runs on refresh and every tick, so recording toggled from a
-// `wasa record` command in another terminal shows up here within a tick.
+// filesystem (record.InstalledAgents) and the per-session checkpoint index from
+// the ref store (record.List). Both are cheap — a handful of stats plus one ref
+// walk per workspace — and run on refresh and every tick, so recording toggled
+// from a `wasa record` command in another terminal, or a checkpoint written by a
+// finishing session, shows up here within a tick without live watching.
+//
+// record.List returns the newest checkpoint per session; a repo with no record
+// yields an empty list. Errors are treated as "no record" — the indicator's
+// absence is the correct fallback, never an error state.
 func (m *Model) refreshRecording() {
 	next := make(map[string][]string, len(m.workspaces))
+	recorded := make(map[string]record.Entry)
 	for _, w := range m.workspaces {
 		if agents := record.InstalledAgents(w.RepoPath); len(agents) > 0 {
 			next[w.ID] = agents
 		}
+		entries, _ := record.List(w.RepoPath)
+		for _, e := range entries {
+			if e.Meta.SessionID != "" {
+				recorded[e.Meta.SessionID] = e
+			}
+		}
 	}
 	m.recording = next
+	m.recorded = recorded
 }
 
 // sweepStatuses refreshes the derived runtime status of every running session
