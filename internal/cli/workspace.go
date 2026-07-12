@@ -264,13 +264,24 @@ func resolveWorkspace(
 }
 
 func workspaceList(args []string) error {
-	if len(args) != 0 {
-		return errors.New("usage: wasa workspace list")
+	fs := newFlagSet("wasa workspace list")
+	asJSON := jsonFlag(fs)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return errors.New("usage: wasa workspace list [--json]")
 	}
 
 	reg, _, err := openRegistry()
 	if err != nil {
 		return err
+	}
+
+	if *asJSON {
+		return emitJSON(
+			os.Stdout, workspacesJSON{Workspaces: reg.ListWorkspaces()},
+		)
 	}
 
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -509,13 +520,22 @@ func resolveProgram() (string, error) {
 }
 
 func sessionList(args []string) error {
-	if len(args) != 0 {
-		return errors.New("usage: wasa session list")
+	fs := newFlagSet("wasa session list")
+	asJSON := jsonFlag(fs)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return errors.New("usage: wasa session list [--json]")
 	}
 
 	reg, _, err := openRegistry()
 	if err != nil {
 		return err
+	}
+
+	if *asJSON {
+		return emitJSON(os.Stdout, sessionsJSON{Sessions: reg.ListSessions()})
 	}
 
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)

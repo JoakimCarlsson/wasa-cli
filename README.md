@@ -110,6 +110,35 @@ local artifacts only, so merge or push any work you want to keep beforehand:
 wasa finish <session>
 ```
 
+### Machine-readable output (`--json`)
+
+For scripting and editor integrations, the read commands can emit structured
+JSON instead of the human-formatted tables. Pass `--json` to a command and it
+writes a single JSON document to stdout and nothing else; on error it writes to
+stderr and exits non-zero without printing a JSON document.
+
+```sh
+wasa version --json              # { "version": "1.2.3", "contract": 1 }
+wasa session list --json         # { "sessions": [ … ] }
+wasa workspace list --json       # { "workspaces": [ … ] }
+wasa checkpoints --json          # { "checkpoints": [ … ] }
+wasa checkpoints show <id> --json
+wasa config show --json          # the effective config, no leading "# path" line
+```
+
+List output is always wrapped in an object (`{"sessions": […]}`, never a bare
+array) so the shape can gain fields without breaking parsers. `checkpoints`
+items carry the checkpoint metadata at the top level (`sessionId`, `branch`, …)
+plus a derived `state`; `checkpoints show` adds `intent` and the rendered
+`transcript`.
+
+`wasa version --json` is the discovery surface: `version` is the build version
+and `contract` is an integer identifying this structured-output contract. A
+consumer should read `contract` and refuse to parse output from a wasa whose
+contract it does not understand. `contract` is bumped only on a
+backward-incompatible change to a `--json` payload; additive fields do not bump
+it.
+
 ### Session recording
 
 wasa records agent sessions **into the repository itself** — git-natively, with

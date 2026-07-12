@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -18,6 +19,58 @@ func TestRunVersion(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestRunVersionJSON(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run("1.2.3", []string{"version", "--json"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+
+	var got versionJSON
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf(
+			"stdout is not valid JSON: %v (stdout=%q)",
+			err,
+			stdout.String(),
+		)
+	}
+	if got.Version != "1.2.3" {
+		t.Fatalf("version = %q, want %q", got.Version, "1.2.3")
+	}
+	if got.Contract < 1 {
+		t.Fatalf("contract = %d, want >= 1", got.Contract)
+	}
+}
+
+func TestRunVersionSubcommandHuman(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run("1.2.3", []string{"version"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if got := strings.TrimSpace(stdout.String()); got != "wasa version 1.2.3" {
+		t.Fatalf("stdout = %q, want %q", got, "wasa version 1.2.3")
+	}
+}
+
+func TestRunVersionBadFlag(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run("1.2.3", []string{"version", "--nope"}, &stdout, &stderr)
+
+	if code == 0 {
+		t.Fatalf("exit code = 0, want non-zero for a bad flag")
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty (no success document on error)",
+			stdout.String())
 	}
 }
 

@@ -49,6 +49,9 @@ func run(version string, args []string, stdout, stderr io.Writer) int {
 	}
 
 	rest := fs.Args()
+	if len(rest) >= 1 && rest[0] == "version" {
+		return runVersionCmd(rest[1:], version, stdout, stderr)
+	}
 	if len(rest) == 0 {
 		if interactive(stdout) {
 			if err := runCockpit(); err != nil {
@@ -80,6 +83,38 @@ func versionLine(version string) string {
 	return fmt.Sprintf("%s version %s", programName, version)
 }
 
+// runVersionCmd handles the version subcommand. With --json it emits the build
+// version and the structured-output contract version as a JSON object, the
+// discovery surface a machine-readable consumer gates on; otherwise it prints
+// the same human line as the --version flag.
+func runVersionCmd(
+	args []string,
+	version string,
+	stdout, stderr io.Writer,
+) int {
+	fs := newFlagSet(programName + " version")
+	asJSON := jsonFlag(fs)
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(stderr, "%s version: %v\n", programName, err)
+		return 2
+	}
+	if fs.NArg() != 0 {
+		fmt.Fprintf(stderr, "usage: %s version [--json]\n", programName)
+		return 2
+	}
+	if *asJSON {
+		if err := emitJSON(
+			stdout, versionJSON{Version: version, Contract: outputContract},
+		); err != nil {
+			fmt.Fprintf(stderr, "%s version: %v\n", programName, err)
+			return 1
+		}
+		return 0
+	}
+	fmt.Fprintln(stdout, versionLine(version))
+	return 0
+}
+
 func usage(w io.Writer, version string) {
 	fmt.Fprintf(
 		w,
@@ -96,6 +131,10 @@ func usage(w io.Writer, version string) {
 	fmt.Fprint(w, "  --version    print version information and exit\n")
 	fmt.Fprint(w, "  -h, --help   show this help and exit\n\n")
 	fmt.Fprint(w, "Commands:\n")
+	fmt.Fprintf(
+		w, "  %-12s %s\n", "version",
+		"print version information (--json for machine-readable output)",
+	)
 	if len(commands) == 0 {
 		fmt.Fprint(
 			w,
