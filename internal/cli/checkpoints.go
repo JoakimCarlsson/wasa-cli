@@ -71,6 +71,7 @@ import flags:
 
 func runCheckpoints(args []string) error {
 	fs := newFlagSet("wasa checkpoints")
+	topJSON := jsonFlag(fs)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprintf(os.Stdout, checkpointsHelp, record.FetchRefspec)
@@ -87,9 +88,9 @@ func runCheckpoints(args []string) error {
 
 	switch {
 	case len(rest) == 0:
-		return listCheckpoints(repoPath)
-	case len(rest) == 2 && rest[0] == "show":
-		return showCheckpoint(repoPath, rest[1])
+		return listCheckpoints(repoPath, *topJSON)
+	case len(rest) >= 2 && rest[0] == "show":
+		return showCheckpoint(repoPath, rest[1:], *topJSON)
 	case len(rest) >= 1 && rest[0] == "explain":
 		return explainCheckpoint(repoPath, rest[1:])
 	case len(rest) >= 1 && rest[0] == "search":
@@ -103,10 +104,22 @@ func runCheckpoints(args []string) error {
 	}
 }
 
-func listCheckpoints(repoPath string) error {
+func listCheckpoints(repoPath string, jsonOut bool) error {
 	entries, err := record.List(repoPath)
 	if err != nil {
 		return err
+	}
+	if jsonOut {
+		items := make([]checkpointJSON, 0, len(entries))
+		for _, e := range entries {
+			items = append(items, checkpointJSON{
+				Meta:      e.Meta,
+				CommitSHA: e.CommitSHA,
+				When:      e.When,
+				State:     checkpointState(e.Meta),
+			})
+		}
+		return emitJSON(os.Stdout, checkpointsJSON{Checkpoints: items})
 	}
 	if len(entries) == 0 {
 		fmt.Fprintf(
@@ -142,10 +155,36 @@ func listCheckpoints(repoPath string) error {
 	return w.Flush()
 }
 
-func showCheckpoint(repoPath, query string) error {
+func showCheckpoint(repoPath string, args []string, jsonOut bool) error {
+	fs := newFlagSet("wasa checkpoints show")
+	asJSON := jsonFlag(fs)
+	flags, positional := partitionArgs(args, nil)
+	if err := fs.Parse(flags); err != nil {
+		return err
+	}
+	if len(positional) != 1 {
+		return errors.New("usage: wasa checkpoints show [--json] <id>")
+	}
+	jsonOut = jsonOut || *asJSON
+	query := positional[0]
+
 	e, intent, transcript, err := record.Find(repoPath, query)
 	if err != nil {
 		return err
+	}
+
+	if jsonOut {
+		item := checkpointJSON{
+			Meta:      e.Meta,
+			CommitSHA: e.CommitSHA,
+			When:      e.When,
+			State:     checkpointState(e.Meta),
+			Intent:    intent,
+		}
+		if len(transcript) != 0 {
+			item.Transcript = record.RenderTranscript(transcript)
+		}
+		return emitJSON(os.Stdout, item)
 	}
 
 	meta, err := json.MarshalIndent(e.Meta, "", "  ")

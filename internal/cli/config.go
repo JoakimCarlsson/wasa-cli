@@ -54,12 +54,21 @@ func configPath(args []string) error {
 // path it was resolved from. With no user file the output is the built-in
 // defaults, which doubles as a template a user can copy into config.json.
 func configShow(args []string) error {
-	if len(args) != 0 {
-		return errors.New("usage: wasa config show")
+	fs := newFlagSet("wasa config show")
+	asJSON := jsonFlag(fs)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return errors.New("usage: wasa config show [--json]")
 	}
 	cfg, err := config.Load(wasaHome())
 	if err != nil {
 		return err
+	}
+
+	if *asJSON {
+		return emitJSON(os.Stdout, cfg)
 	}
 
 	data, err := json.MarshalIndent(cfg, "", "  ")
