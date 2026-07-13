@@ -196,8 +196,12 @@ func TestReconcileMarksExited(t *testing.T) {
 		&Session{ID: "gone", WorkspaceID: ws.ID, TmuxName: "wasa_gone"},
 	)
 
-	changed := reg.Reconcile(func(name string) (bool, error) {
-		return name == "wasa_alive", nil
+	exitCode := 0
+	changed := reg.Reconcile(func(name string) (bool, *int, error) {
+		if name == "wasa_alive" {
+			return true, nil, nil
+		}
+		return false, &exitCode, nil
 	})
 	if !changed {
 		t.Fatal("Reconcile reported no change, want change")
@@ -213,6 +217,12 @@ func TestReconcileMarksExited(t *testing.T) {
 					StatusRunning,
 				)
 			}
+			if s.ExitCode != nil {
+				t.Fatalf(
+					"alive session got exit code %d, want none",
+					*s.ExitCode,
+				)
+			}
 		case "gone":
 			if s.Status != StatusExited {
 				t.Fatalf(
@@ -220,6 +230,9 @@ func TestReconcileMarksExited(t *testing.T) {
 					s.Status,
 					StatusExited,
 				)
+			}
+			if s.ExitCode == nil || *s.ExitCode != 0 {
+				t.Fatalf("gone session exit code = %v, want 0", s.ExitCode)
 			}
 		}
 	}
@@ -305,8 +318,8 @@ func TestReconcileLeavesPausedAlone(t *testing.T) {
 	reg.AddSession(&Session{ID: "p", WorkspaceID: ws.ID, TmuxName: "wasa_p"})
 	reg.MarkPaused("p")
 
-	changed := reg.Reconcile(func(string) (bool, error) {
-		return false, nil
+	changed := reg.Reconcile(func(string) (bool, *int, error) {
+		return false, nil, nil
 	})
 	if changed {
 		t.Fatal("Reconcile changed a paused session")
@@ -321,8 +334,8 @@ func TestReconcileIgnoresProbeError(t *testing.T) {
 	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
 	reg.AddSession(&Session{ID: "s", WorkspaceID: ws.ID, TmuxName: "wasa_s"})
 
-	changed := reg.Reconcile(func(string) (bool, error) {
-		return false, errTmuxMissing
+	changed := reg.Reconcile(func(string) (bool, *int, error) {
+		return false, nil, errTmuxMissing
 	})
 	if changed {
 		t.Fatal("Reconcile changed a session despite a probe error")

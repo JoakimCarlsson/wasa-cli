@@ -1312,7 +1312,7 @@ func (m *Model) sweepStatuses() {
 			wasRunning[s.ID] = true
 		}
 	}
-	if m.reg.Reconcile(m.tmux.Has) {
+	if m.reg.Reconcile(backend.ExitProbe(m.tmux)) {
 		_ = m.reg.Save()
 	}
 	m.refreshRecording()

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/backend"
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
@@ -535,7 +536,10 @@ func sessionList(args []string) error {
 	}
 
 	if *asJSON {
-		return emitJSON(os.Stdout, sessionsJSON{Sessions: reg.ListSessions()})
+		return emitJSON(
+			os.Stdout,
+			sessionsPayload(wasaHome(), reg.ListSessions(), time.Now()),
+		)
 	}
 
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -564,7 +568,7 @@ func openRegistry() (*registry.Registry, *registry.Workspace, error) {
 	}
 
 	client := backend.Default()
-	changed := reg.Reconcile(client.Has)
+	changed := reg.Reconcile(backend.ExitProbe(client))
 
 	var current *registry.Workspace
 	if repoPath, remoteURL, rerr := currentRepo(); rerr == nil {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -36,6 +37,12 @@ func (c *Client) Spawn(name, dir string, program ...string) error {
 // SpawnEnv is Spawn with environment injection: each entry of env, in KEY=VALUE
 // form, is passed as a tmux new-session -e argument so the variable lives on the
 // session and survives on the shared tmux server.
+//
+// After the session is created it is switched to remain-on-exit so the pane
+// lingers as a dead pane when its program exits, holding the exit status
+// PaneExit reads to tell a finished session from a failed one. The session
+// therefore outlives its program until it is killed explicitly (finish, pause,
+// delete); reconcile treats a dead pane as exited.
 func (c *Client) SpawnEnv(
 	name, dir string,
 	env []string,
@@ -44,7 +51,10 @@ func (c *Client) SpawnEnv(
 	if err := validateName(name); err != nil {
 		return err
 	}
-	_, err := c.run(spawnArgs(name, dir, env, program)...)
+	if _, err := c.run(spawnArgs(name, dir, env, program)...); err != nil {
+		return err
+	}
+	_, err := c.run(remainOnExitArgs(name)...)
 	return err
 }
 
@@ -130,6 +140,33 @@ func (c *Client) Has(name string) (bool, error) {
 	}
 }
 
+// PaneExit reports the liveness of the session named name and, when its program
+// has exited under remain-on-exit, that program's exit code. alive is true while
+// the program still runs; once the pane is dead alive is false and exitCode is
+// the program's status when tmux recorded one — nil for a session killed outright
+// (no pane to read) or a pane that died on a signal (no numeric status). A missing
+// session is not an error: it reports (false, nil, nil), the same as a session
+// torn down without a captured code. A missing tmux binary is an error.
+func (c *Client) PaneExit(name string) (alive bool, exitCode *int, err error) {
+	if err := validateName(name); err != nil {
+		return false, nil, err
+	}
+
+	stdout, _, runErr := c.output(paneExitArgs(name)...)
+	switch {
+	case runErr == nil:
+		alive, code := parsePaneExit(stdout)
+		return alive, code, nil
+	case errors.Is(runErr, exec.ErrNotFound):
+		return false, nil, notInstalled(runErr)
+	default:
+		if _, ok := errors.AsType[*exec.ExitError](runErr); ok {
+			return false, nil, nil
+		}
+		return false, nil, fmt.Errorf("tmux list-panes: %w", runErr)
+	}
+}
+
 // List returns the names of the sessions on the server. When no server is
 // running it returns an empty list rather than an error.
 func (c *Client) List() ([]string, error) {
@@ -205,6 +242,23 @@ func hasArgs(name string) []string {
 	return []string{"has-session", "-t", name}
 }
 
+// remainOnExitArgs keeps a session's window open after its program exits, so the
+// pane becomes dead rather than closing the session. It targets the session's
+// window (-w) rather than the server, leaving the user's other tmux sessions
+// untouched.
+func remainOnExitArgs(name string) []string {
+	return []string{"set-option", "-t", name, "-w", "remain-on-exit", "on"}
+}
+
+// paneExitArgs asks for the death state and exit status of a session's pane.
+// pane_dead is 1 for a dead pane, and pane_dead_status carries its program's
+// exit code when tmux recorded one.
+func paneExitArgs(name string) []string {
+	return []string{
+		"list-panes", "-t", name, "-F", "#{pane_dead} #{pane_dead_status}",
+	}
+}
+
 func killArgs(name string) []string {
 	return []string{"kill-session", "-t", name}
 }
@@ -236,6 +290,34 @@ func validateName(name string) error {
 		)
 	}
 	return nil
+}
+
+// parsePaneExit reads the first "#{pane_dead} #{pane_dead_status}" line
+// list-panes prints. A leading "1" marks a dead pane; a numeric second field is
+// its program's exit code. A live pane (leading "0") reports alive with no code,
+// and a dead pane with no numeric status (a signal death) reports exited with no
+// code. Empty output — a session with no readable pane — reports exited too.
+func parsePaneExit(stdout string) (alive bool, exitCode *int) {
+	var line string
+	for l := range strings.SplitSeq(stdout, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			line = l
+			break
+		}
+	}
+	if line == "" {
+		return false, nil
+	}
+	fields := strings.Fields(line)
+	if fields[0] != "1" {
+		return true, nil
+	}
+	if len(fields) >= 2 {
+		if code, err := strconv.Atoi(fields[1]); err == nil {
+			return false, &code
+		}
+	}
+	return false, nil
 }
 
 func parseSessions(stdout string) []string {

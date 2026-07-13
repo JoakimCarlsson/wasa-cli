@@ -106,6 +106,12 @@ type Session struct {
 	// "wasa session resume" and recorded into the session's checkpoints. Empty
 	// for a session that started fresh.
 	ResumedFrom string `json:"resumedFrom,omitempty"`
+	// ExitCode is the program's exit status, captured by reconcile when the
+	// session exited and tmux recorded a code. It is nil while the session runs,
+	// and stays nil for a session that was paused, killed outright, or died on a
+	// signal, so a consumer distinguishes a clean finish (0) from a failure
+	// (non-zero) only when a code is present.
+	ExitCode *int `json:"exitCode,omitempty"`
 }
 
 // DefaultProfile returns the workspace's default profile, which is its first.

@@ -492,16 +492,28 @@ func KillSession(reg *registry.Registry, s *registry.Session) error {
 }
 
 // DeleteSession removes the session's record from reg entirely, killing its tmux
-// session first when it is still running. Unlike KillSession, which keeps the
+// session first when one still exists. Unlike KillSession, which keeps the
 // exited record, this drops the record so the session no longer appears in the
 // cockpit. A tmux kill failure is returned without removing the record, so the
 // session is not orphaned from the registry while its tmux is still alive. Like
 // KillSession it does not Save reg and does not remove the worktree, which is the
 // separate finish lifecycle.
+//
+// Existence, not registry status, decides the kill: under remain-on-exit an
+// exited session's tmux lingers as a dead pane, so keying off StatusRunning would
+// leave that pane orphaned on the server. A session with no tmux name has no pane
+// to address and is dropped directly.
 func DeleteSession(reg *registry.Registry, s *registry.Session) error {
-	if s.Status == registry.StatusRunning {
-		if err := backend.Default().Kill(s.TmuxName); err != nil {
+	if s.TmuxName != "" {
+		be := backend.Default()
+		alive, err := be.Has(s.TmuxName)
+		if err != nil {
 			return err
+		}
+		if alive {
+			if err := be.Kill(s.TmuxName); err != nil {
+				return err
+			}
 		}
 	}
 	reg.RemoveSession(s.ID)
