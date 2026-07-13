@@ -58,6 +58,28 @@ type sessionsJSON struct {
 	Sessions []sessionJSON `json:"sessions"`
 }
 
+// sessionCreatedJSON is the payload of `wasa session new --json`: the created
+// session in the same shape as a list item, wrapped in an object so the shape
+// can grow without breaking consumers.
+type sessionCreatedJSON struct {
+	Session sessionJSON `json:"session"`
+}
+
+// sessionCreatedPayload builds the --json output for a freshly created session,
+// deriving its activityStatus as of now exactly as the list command does.
+func sessionCreatedPayload(
+	home string,
+	s *registry.Session,
+	now time.Time,
+) sessionCreatedJSON {
+	return sessionCreatedJSON{
+		Session: sessionJSON{
+			Session:        s,
+			ActivityStatus: activityFor(home, s, now),
+		},
+	}
+}
+
 // activityFor decodes a session into the single status a consumer renders,
 // folding lifecycle and activity into one value: a paused session is "paused"; an
 // exited one is "finished" or "failed" by its captured exit code, or plain

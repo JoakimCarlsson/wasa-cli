@@ -254,6 +254,41 @@ func TestResolvePlainDirExplicit(t *testing.T) {
 	}
 }
 
+func TestResolvePlainSessionDirUsesWorkspaceRoot(t *testing.T) {
+	ws := &registry.Workspace{ID: "w1", RepoPath: "/repos/demo"}
+	got, err := resolvePlainSessionDir(ws, "")
+	if err != nil {
+		t.Fatalf("resolvePlainSessionDir(ws, \"\"): %v", err)
+	}
+	if got != ws.RepoPath {
+		t.Fatalf("resolvePlainSessionDir(ws, \"\") = %q, want %q",
+			got, ws.RepoPath)
+	}
+}
+
+func TestResolvePlainSessionDirDefersToDir(t *testing.T) {
+	dir := t.TempDir()
+	abs, _ := filepath.Abs(dir)
+
+	ws := &registry.Workspace{ID: "w1", RepoPath: "/repos/demo"}
+	got, err := resolvePlainSessionDir(ws, dir)
+	if err != nil {
+		t.Fatalf("resolvePlainSessionDir(ws, dir): %v", err)
+	}
+	if got != abs {
+		t.Fatalf("resolvePlainSessionDir(ws, dir) = %q, want %q", got, abs)
+	}
+
+	noWorkspace, err := resolvePlainSessionDir(nil, dir)
+	if err != nil {
+		t.Fatalf("resolvePlainSessionDir(nil, dir): %v", err)
+	}
+	if noWorkspace != abs {
+		t.Fatalf("resolvePlainSessionDir(nil, dir) = %q, want %q",
+			noWorkspace, abs)
+	}
+}
+
 func TestWorkspaceForDirAttachesInsideRepoAndNilOutside(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available on PATH")

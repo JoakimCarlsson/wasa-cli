@@ -77,6 +77,43 @@ func TestEmitSessionsJSON(t *testing.T) {
 	}
 }
 
+func TestEmitSessionCreatedJSON(t *testing.T) {
+	s := &registry.Session{
+		ID:       "sess1",
+		Title:    "demo",
+		Branch:   "feat/x",
+		TmuxName: "wasa_ws_sess1",
+		Status:   registry.StatusRunning,
+	}
+	payload := sessionCreatedPayload(t.TempDir(), s, time.Now())
+
+	var buf bytes.Buffer
+	if err := emitJSON(&buf, payload); err != nil {
+		t.Fatalf("emitJSON: %v", err)
+	}
+
+	var got struct {
+		Session map[string]any `json:"session"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("output is not valid JSON: %v (%q)", err, buf.String())
+	}
+	if got.Session == nil {
+		t.Fatalf("payload has no session object: %q", buf.String())
+	}
+	if got.Session["id"] != "sess1" {
+		t.Fatalf("session.id = %v, want sess1", got.Session["id"])
+	}
+	if got.Session["tmuxName"] != "wasa_ws_sess1" {
+		t.Fatalf("session.tmuxName = %v, want wasa_ws_sess1",
+			got.Session["tmuxName"])
+	}
+	if got.Session["activityStatus"] != "running" {
+		t.Fatalf("session.activityStatus = %v, want running",
+			got.Session["activityStatus"])
+	}
+}
+
 func TestEmitWorkspacesJSON(t *testing.T) {
 	payload := workspacesJSON{Workspaces: []*registry.Workspace{
 		{ID: "ws01", Name: "afterdark", RepoPath: "/home/j/afterdark"},
