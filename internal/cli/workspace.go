@@ -360,8 +360,16 @@ func runSession(args []string) error {
 
 func sessionNew(args []string) error {
 	fs := newFlagSet("wasa session new")
-	var profileName, program, branch, title, dir, prompt string
-	var noHistory bool
+	var profileName, program, branch, title, dir, prompt, workspaceQuery string
+	var noHistory, autonomous bool
+	asJSON := jsonFlag(fs)
+	fs.StringVar(
+		&workspaceQuery,
+		"workspace",
+		"",
+		"workspace id, repo path or unique id prefix to dispatch into "+
+			"(default: the current directory's workspace)",
+	)
 	fs.StringVar(
 		&profileName,
 		"profile",
@@ -399,6 +407,14 @@ func sessionNew(args []string) error {
 		false,
 		"do not inject recorded history from prior sessions",
 	)
+	fs.BoolVar(
+		&autonomous,
+		"autonomous",
+		false,
+		"run the agent with its skip-permissions flag "+
+			"(e.g. claude --dangerously-skip-permissions); "+
+			"ignored for an agent with no such flag",
+	)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -409,10 +425,21 @@ func sessionNew(args []string) error {
 		}
 		program = resolved
 	}
+	if autonomous {
+		program = launch.WithAutonomous(program)
+	}
 
 	reg, current, err := openRegistry()
 	if err != nil {
 		return err
+	}
+
+	var target *registry.Workspace
+	if workspaceQuery != "" {
+		target, err = resolveWorkspace(reg, workspaceQuery)
+		if err != nil {
+			return err
+		}
 	}
 
 	var (
@@ -420,10 +447,16 @@ func sessionNew(args []string) error {
 		params launch.Params
 	)
 	if branch != "" {
-		if current == nil {
-			return errors.New("not a git repository")
+		ws = target
+		if ws == nil {
+			ws = current
 		}
-		ws = current
+		if ws == nil {
+			return errors.New(
+				"not a git repository; pass --workspace to dispatch into a " +
+					"registered workspace",
+			)
+		}
 		params = launch.Params{
 			Branch:  branch,
 			Title:   title,
@@ -431,11 +464,15 @@ func sessionNew(args []string) error {
 			Profile: profileName,
 		}
 	} else {
-		workdir, derr := resolvePlainDir(dir)
+		workdir, derr := resolvePlainSessionDir(target, dir)
 		if derr != nil {
 			return derr
 		}
-		ws = workspaceForDir(reg, workdir)
+		if target != nil {
+			ws = target
+		} else {
+			ws = workspaceForDir(reg, workdir)
+		}
 		params = launch.Params{
 			Title:      title,
 			Program:    program,
@@ -460,8 +497,28 @@ func sessionNew(args []string) error {
 		return err
 	}
 
+	if *asJSON {
+		return emitJSON(
+			os.Stdout, sessionCreatedPayload(wasaHome(), s, time.Now()),
+		)
+	}
+
 	fmt.Fprintln(os.Stdout, s.TmuxName)
 	return nil
+}
+
+// resolvePlainSessionDir resolves the working directory for a plain (no-branch)
+// session. With an explicit --workspace and no --dir it runs in that workspace's
+// repository root, matching the TUI's workspace-scoped plain session; otherwise
+// it defers to resolvePlainDir, which defaults to the current directory.
+func resolvePlainSessionDir(
+	target *registry.Workspace,
+	dir string,
+) (string, error) {
+	if target != nil && dir == "" {
+		return target.RepoPath, nil
+	}
+	return resolvePlainDir(dir)
 }
 
 // resolvePlainDir resolves the working directory for a plain session. An empty
