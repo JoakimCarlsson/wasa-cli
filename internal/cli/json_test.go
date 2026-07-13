@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -165,6 +166,45 @@ func TestEmitCheckpointsJSONFlattensMeta(t *testing.T) {
 	}
 	if cp["state"] != "finished" {
 		t.Fatalf("checkpoints[0].state = %v, want finished", cp["state"])
+	}
+}
+
+func TestExplainPayload(t *testing.T) {
+	matches := []record.Match{{
+		Entry: record.Entry{
+			CommitSHA: "deadbeef",
+			Meta: record.Meta{
+				SessionID: "s1", Branch: "feat/y", Imported: true,
+			},
+		},
+		Intent:     "why it exists",
+		Transcript: []byte(`{"role":"user","content":"hi"}` + "\n"),
+	}}
+
+	payload := explainPayload(matches, false)
+	if len(payload.Checkpoints) != 1 {
+		t.Fatalf("checkpoints len = %d, want 1", len(payload.Checkpoints))
+	}
+	cp := payload.Checkpoints[0]
+	if cp.SessionID != "s1" || cp.CommitSHA != "deadbeef" {
+		t.Fatalf("payload = %+v, want s1/deadbeef", cp)
+	}
+	if cp.State != "open, imported" {
+		t.Fatalf("state = %q, want %q", cp.State, "open, imported")
+	}
+	if cp.Intent != "why it exists" {
+		t.Fatalf("intent = %q", cp.Intent)
+	}
+	if !strings.Contains(cp.Transcript, "hi") {
+		t.Fatalf("transcript = %q, want rendered content", cp.Transcript)
+	}
+
+	bare := explainPayload(matches, true)
+	if bare.Checkpoints[0].Transcript != "" {
+		t.Fatalf(
+			"withoutTranscript kept transcript %q",
+			bare.Checkpoints[0].Transcript,
+		)
 	}
 }
 

@@ -150,6 +150,32 @@ type checkpointsJSON struct {
 	Checkpoints []checkpointJSON `json:"checkpoints"`
 }
 
+// explainPayload builds the --json output of `checkpoints explain`: one
+// checkpointJSON per matching checkpoint, each with its intent and — unless
+// withoutTranscript — its rendered transcript, in the same wrapper the list
+// uses. It mirrors the show command's single-checkpoint payload for every
+// match, so a consumer reads explain and show output the same way.
+func explainPayload(
+	matches []record.Match,
+	withoutTranscript bool,
+) checkpointsJSON {
+	items := make([]checkpointJSON, 0, len(matches))
+	for _, m := range matches {
+		item := checkpointJSON{
+			Meta:      m.Meta,
+			CommitSHA: m.CommitSHA,
+			When:      m.When,
+			State:     checkpointState(m.Meta),
+			Intent:    m.Intent,
+		}
+		if !withoutTranscript && len(m.Transcript) != 0 {
+			item.Transcript = record.RenderTranscript(m.Transcript)
+		}
+		items = append(items, item)
+	}
+	return checkpointsJSON{Checkpoints: items}
+}
+
 // checkpointState derives the human "state" column value from a checkpoint's
 // meta: open vs finished, annotated as imported or unmanaged. It mirrors the
 // tabwriter list so both surfaces agree.
