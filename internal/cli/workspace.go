@@ -361,7 +361,7 @@ func runSession(args []string) error {
 func sessionNew(args []string) error {
 	fs := newFlagSet("wasa session new")
 	var profileName, program, branch, title, dir, prompt, workspaceQuery string
-	var noHistory bool
+	var noHistory, autonomous bool
 	asJSON := jsonFlag(fs)
 	fs.StringVar(
 		&workspaceQuery,
@@ -407,6 +407,14 @@ func sessionNew(args []string) error {
 		false,
 		"do not inject recorded history from prior sessions",
 	)
+	fs.BoolVar(
+		&autonomous,
+		"autonomous",
+		false,
+		"run the agent with its skip-permissions flag "+
+			"(e.g. claude --dangerously-skip-permissions); "+
+			"ignored for an agent with no such flag",
+	)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -416,6 +424,9 @@ func sessionNew(args []string) error {
 			return err
 		}
 		program = resolved
+	}
+	if autonomous {
+		program = launch.WithAutonomous(program)
 	}
 
 	reg, current, err := openRegistry()
