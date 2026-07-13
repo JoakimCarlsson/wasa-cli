@@ -241,21 +241,31 @@ func (r *Registry) setStatus(sessionID, status string) bool {
 	return false
 }
 
-// Reconcile marks every running session whose tmux session no longer exists as
-// exited, using has to probe tmux. A probe error leaves that session unchanged.
-// It reports whether any session's status changed.
-func (r *Registry) Reconcile(has func(tmuxName string) (bool, error)) bool {
+// Reconcile marks every running session whose program has exited as exited,
+// using probe to check tmux. probe reports liveness and, when the program has
+// exited and tmux recorded one, its exit code, which is stored on the session so
+// a consumer can tell a clean finish from a failure. A probe error leaves that
+// session unchanged. It reports whether any session's status changed.
+//
+// Liveness comes from the pane's death, not the session's existence: sessions
+// run under remain-on-exit, so a finished session's tmux session lingers (with a
+// dead pane) until it is killed, and probing existence alone would never see it
+// exit.
+func (r *Registry) Reconcile(
+	probe func(tmuxName string) (alive bool, exitCode *int, err error),
+) bool {
 	changed := false
 	for _, s := range r.sess {
 		if s.Status != StatusRunning {
 			continue
 		}
-		ok, err := has(s.TmuxName)
+		alive, code, err := probe(s.TmuxName)
 		if err != nil {
 			continue
 		}
-		if !ok {
+		if !alive {
 			s.Status = StatusExited
+			s.ExitCode = code
 			changed = true
 		}
 	}

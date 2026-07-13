@@ -87,6 +87,19 @@ func TestTargetArgs(t *testing.T) {
 			listArgs(),
 			[]string{"list-sessions", "-F", "#{session_name}"},
 		},
+		{
+			"remain-on-exit",
+			remainOnExitArgs("s"),
+			[]string{"set-option", "-t", "s", "-w", "remain-on-exit", "on"},
+		},
+		{
+			"pane-exit",
+			paneExitArgs("s"),
+			[]string{
+				"list-panes", "-t", "s",
+				"-F", "#{pane_dead} #{pane_dead_status}",
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -188,6 +201,41 @@ func TestParseSessions(t *testing.T) {
 			got := parseSessions(tc.stdout)
 			if !slices.Equal(got, tc.want) {
 				t.Fatalf("parseSessions = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParsePaneExit(t *testing.T) {
+	ptr := func(i int) *int { return &i }
+	cases := []struct {
+		name      string
+		stdout    string
+		wantAlive bool
+		wantCode  *int
+	}{
+		{"live pane", "0 \n", true, nil},
+		{"dead clean exit", "1 0\n", false, ptr(0)},
+		{"dead failure", "1 3\n", false, ptr(3)},
+		{"dead on signal, no status", "1 \n", false, nil},
+		{"empty output", "", false, nil},
+		{"first pane wins", "1 2\n0 \n", false, ptr(2)},
+		{"blank lines skipped", "\n  \n1 5\n", false, ptr(5)},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			alive, code := parsePaneExit(tc.stdout)
+			if alive != tc.wantAlive {
+				t.Fatalf("alive = %v, want %v", alive, tc.wantAlive)
+			}
+			switch {
+			case tc.wantCode == nil && code != nil:
+				t.Fatalf("code = %d, want nil", *code)
+			case tc.wantCode != nil && code == nil:
+				t.Fatalf("code = nil, want %d", *tc.wantCode)
+			case tc.wantCode != nil && *code != *tc.wantCode:
+				t.Fatalf("code = %d, want %d", *code, *tc.wantCode)
 			}
 		})
 	}

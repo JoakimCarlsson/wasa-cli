@@ -37,6 +37,36 @@ type SessionBackend interface {
 	Kill(name string) error
 }
 
+// ExitReporter is the optional capability a SessionBackend may implement to
+// report a finished session's exit status, so the orchestration layer can tell a
+// session that finished cleanly from one that failed. A backend that does not
+// implement it still reports liveness through Has, and reconcile falls back to
+// marking such sessions exited with no captured code.
+type ExitReporter interface {
+	// PaneExit reports whether the named session's program is still running and,
+	// once it has exited, its exit code when the backend recorded one. alive is
+	// true while the program runs; when it is false, exitCode is the program's
+	// status or nil when unknown (killed outright or died on a signal). A missing
+	// session reports (false, nil, nil).
+	PaneExit(name string) (alive bool, exitCode *int, err error)
+}
+
+// ExitProbe returns the liveness-and-exit probe registry Reconcile uses to mark
+// finished sessions. When be reports exit codes it surfaces them; otherwise it
+// falls back to Has and reports no code, so every backend reconciles correctly
+// and only exit-aware ones distinguish finished from failed.
+func ExitProbe(
+	be SessionBackend,
+) func(name string) (alive bool, exitCode *int, err error) {
+	if er, ok := be.(ExitReporter); ok {
+		return er.PaneExit
+	}
+	return func(name string) (bool, *int, error) {
+		alive, err := be.Has(name)
+		return alive, nil, err
+	}
+}
+
 // StreamingBackend is the optional capability a SessionBackend may implement to
 // deliver live, event-driven preview updates over a single persistent
 // connection instead of re-capturing the pane on a fixed poll. The TUI prefers

@@ -26,4 +26,5 @@ func (u unixBackend) Watch(name string) (Watcher, error) {
 var (
 	_ SessionBackend   = unixBackend{}
 	_ StreamingBackend = unixBackend{}
+	_ ExitReporter     = unixBackend{}
 )

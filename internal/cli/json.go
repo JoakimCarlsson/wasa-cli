@@ -9,6 +9,7 @@ import (
 
 	"github.com/joakimcarlsson/wasa-cli/internal/record"
 	"github.com/joakimcarlsson/wasa-cli/internal/registry"
+	"github.com/joakimcarlsson/wasa-cli/internal/sessionstatus"
 )
 
 // outputContract is the version of the --json output contract. Consumers read
@@ -42,10 +43,66 @@ type versionJSON struct {
 	Contract int    `json:"contract"`
 }
 
+// sessionJSON is one session in list output: the registry record verbatim, plus
+// a derived activityStatus the registry never persists. Embedding the record
+// keeps every stored field at the top level with its own tag, so adding the
+// derived field stays backward compatible.
+type sessionJSON struct {
+	*registry.Session
+	ActivityStatus string `json:"activityStatus"`
+}
+
 // sessionsJSON wraps the session list so the shape can grow without breaking
 // consumers that would otherwise depend on a bare top-level array.
 type sessionsJSON struct {
-	Sessions []*registry.Session `json:"sessions"`
+	Sessions []sessionJSON `json:"sessions"`
+}
+
+// activityFor decodes a session into the single status a consumer renders,
+// folding lifecycle and activity into one value: a paused session is "paused"; an
+// exited one is "finished" or "failed" by its captured exit code, or plain
+// "exited" when no code was recorded (killed or signalled); a running one's
+// working/waiting/idle activity comes from its hook record via
+// sessionstatus.Derive, defaulting to "running".
+//
+// The list command has no live pane-capture history — that is the TUI's, built
+// from successive captures over time — so it passes Unknown as the scraped status
+// and relies on hook records alone. An agent with no hook channel therefore reads
+// "running" here even while it waits for input.
+func activityFor(home string, s *registry.Session, now time.Time) string {
+	switch s.Status {
+	case registry.StatusPaused:
+		return "paused"
+	case registry.StatusExited:
+		switch {
+		case s.ExitCode != nil && *s.ExitCode == 0:
+			return "finished"
+		case s.ExitCode != nil:
+			return "failed"
+		default:
+			return "exited"
+		}
+	default:
+		return sessionstatus.Derive(home, s.ID, sessionstatus.Unknown, now).
+			Label()
+	}
+}
+
+// sessionsPayload builds the --json session list, deriving each session's
+// activityStatus as of now.
+func sessionsPayload(
+	home string,
+	sessions []*registry.Session,
+	now time.Time,
+) sessionsJSON {
+	out := make([]sessionJSON, len(sessions))
+	for i, s := range sessions {
+		out[i] = sessionJSON{
+			Session:        s,
+			ActivityStatus: activityFor(home, s, now),
+		}
+	}
+	return sessionsJSON{Sessions: out}
 }
 
 // workspacesJSON wraps the workspace list, for the same reason as sessionsJSON.

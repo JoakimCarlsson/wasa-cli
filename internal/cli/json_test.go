@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/record"
 	"github.com/joakimcarlsson/wasa-cli/internal/registry"
@@ -16,14 +17,20 @@ func TestOutputContractIsSet(t *testing.T) {
 }
 
 func TestEmitSessionsJSON(t *testing.T) {
-	payload := sessionsJSON{Sessions: []*registry.Session{
+	clean, fail := 0, 2
+	sessions := []*registry.Session{
 		{
 			ID:     "abc123",
 			Title:  "demo",
 			Branch: "feat/x",
 			Status: registry.StatusRunning,
 		},
-	}}
+		{ID: "done", Status: registry.StatusExited, ExitCode: &clean},
+		{ID: "boom", Status: registry.StatusExited, ExitCode: &fail},
+		{ID: "killed", Status: registry.StatusExited},
+		{ID: "held", Status: registry.StatusPaused},
+	}
+	payload := sessionsPayload(t.TempDir(), sessions, time.Now())
 
 	var buf bytes.Buffer
 	if err := emitJSON(&buf, payload); err != nil {
@@ -36,8 +43,8 @@ func TestEmitSessionsJSON(t *testing.T) {
 	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
 		t.Fatalf("output is not valid JSON: %v (%q)", err, buf.String())
 	}
-	if len(got.Sessions) != 1 {
-		t.Fatalf("sessions len = %d, want 1", len(got.Sessions))
+	if len(got.Sessions) != len(sessions) {
+		t.Fatalf("sessions len = %d, want %d", len(got.Sessions), len(sessions))
 	}
 	if got.Sessions[0]["id"] != "abc123" {
 		t.Fatalf("sessions[0].id = %v, want abc123", got.Sessions[0]["id"])
@@ -45,6 +52,28 @@ func TestEmitSessionsJSON(t *testing.T) {
 	if got.Sessions[0]["status"] != registry.StatusRunning {
 		t.Fatalf("sessions[0].status = %v, want %q",
 			got.Sessions[0]["status"], registry.StatusRunning)
+	}
+	wantActivity := []string{
+		"running",
+		"finished",
+		"failed",
+		"exited",
+		"paused",
+	}
+	for i, want := range wantActivity {
+		if got.Sessions[i]["activityStatus"] != want {
+			t.Fatalf("sessions[%d].activityStatus = %v, want %q",
+				i, got.Sessions[i]["activityStatus"], want)
+		}
+	}
+	if _, ok := got.Sessions[0]["exitCode"]; ok {
+		t.Fatal("running session serialized an exitCode")
+	}
+	if got.Sessions[1]["exitCode"] != float64(0) {
+		t.Fatalf(
+			"finished session exitCode = %v, want 0",
+			got.Sessions[1]["exitCode"],
+		)
 	}
 }
 
