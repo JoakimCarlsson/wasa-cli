@@ -123,6 +123,25 @@ func TestDeleteBranch(t *testing.T) {
 	}
 }
 
+func TestDeleteBranchAlreadyGone(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available on PATH")
+	}
+
+	home := t.TempDir()
+	repo := t.TempDir()
+	initRepo(t, repo)
+
+	m := New(repo, home, "demo")
+
+	// The branch was never created (or was already deleted out from under
+	// wasa); deletion's goal already holds, so this must succeed rather than
+	// surfacing git's "branch not found" error.
+	if err := m.DeleteBranch("does-not-exist", true); err != nil {
+		t.Fatalf("DeleteBranch on missing branch: %v", err)
+	}
+}
+
 func branchPresent(t *testing.T, repo, branch string) bool {
 	t.Helper()
 	cmd := exec.Command("git", "-C", repo, "branch", "--list", branch)
