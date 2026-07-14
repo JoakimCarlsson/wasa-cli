@@ -1,0 +1,15 @@
+{
+  "sessionId": "572547983333",
+  "workspaceId": "0c1bb6a9d11f",
+  "agent": "copilot",
+  "agentSessionId": "363418e4-4b59-4625-b0a6-a3244701b392",
+  "branch": "task/138-finishdelete-aborts-when-the-branch-is-already-gone-deletebranch-should-treat-branch-not-found-as-success",
+  "baseCommit": "f1a8e9dd0a475882483a58a3f70e51743845b387",
+  "commit": "3fb52f8aa5ece43ecec7cdceaa9e549cd43d9510",
+  "commits": [
+    "3fb52f8aa5ece43ecec7cdceaa9e549cd43d9510"
+  ],
+  "startedAt": "2026-07-14T20:29:39.267681093+02:00",
+  "wasaVersion": "dev",
+  "storageVersion": "refs-1"
+}
