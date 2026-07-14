@@ -26,8 +26,22 @@ var redactions = []redaction{
 	{re: regexp.MustCompile(`\bglpat-[A-Za-z0-9_-]{20,}`)},
 	// OpenAI / Anthropic style secret keys.
 	{re: regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{20,}`)},
-	// Stripe live/test keys.
-	{re: regexp.MustCompile(`\b[pr]k_(?:live|test)_[A-Za-z0-9]{20,}`)},
+	// Stripe live/test keys (publishable, restricted, secret).
+	{re: regexp.MustCompile(`\b[prs]k_(?:live|test)_[A-Za-z0-9]{20,}`)},
+	// Supabase secret/service/personal tokens.
+	{re: regexp.MustCompile(`\bsb(?:_secret|p|s)_[A-Za-z0-9]{20,}`)},
+	// npm access tokens.
+	{re: regexp.MustCompile(`\bnpm_[A-Za-z0-9]{36}`)},
+	// PyPI upload tokens.
+	{re: regexp.MustCompile(`\bpypi-[A-Za-z0-9_-]{20,}`)},
+	// SendGrid API keys.
+	{re: regexp.MustCompile(`\bSG\.[A-Za-z0-9_-]{22,}\.[A-Za-z0-9_-]{22,}`)},
+	// Twilio API keys.
+	{re: regexp.MustCompile(`\bSK[0-9a-f]{32}\b`)},
+	// DigitalOcean tokens (personal, OAuth, refresh).
+	{re: regexp.MustCompile(`\bdo[opr]_v1_[A-Za-z0-9]{20,}`)},
+	// Hugging Face user access tokens.
+	{re: regexp.MustCompile(`\bhf_[A-Za-z0-9]{30,}`)},
 	// Slack tokens.
 	{re: regexp.MustCompile(`\bxox[baprs]-[A-Za-z0-9-]{10,}`)},
 	// AWS access key ids.
