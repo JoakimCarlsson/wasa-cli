@@ -7,6 +7,17 @@ work on different branches of the same repository without stepping on each other
 Sessions persist in the background even after you detach, via **tmux**. wasa runs
 on **Linux and macOS**; on **Windows** it runs inside **WSL2** with tmux installed.
 
+## What wasa is for
+
+AI agents now write code faster than anyone can review it, and git records *what*
+changed but never *why*. wasa's aim is to make that scale workable: one developer
+conducts many agents in parallel, and every session is recorded into the
+repository itself — the prompt that started it, the conversation that produced the
+code, the commits it made — so the intent and reasoning behind any change survive,
+on any clone, with no external service. Orchestration and an always-on record are
+what exist today; the throughline is that the record is git-native, so what wasa
+knows travels with your code and outlives wasa itself.
+
 ## Installation
 
 ### Install script (Linux / macOS)
