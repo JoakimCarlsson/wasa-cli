@@ -137,18 +137,23 @@ func (m *Manager) List() ([]Worktree, error) {
 	return parseList(out), nil
 }
 
-// Remove removes the worktree identified by target. target may be an existing
-// worktree path or a branch name, in which case its path is computed via the
-// manager's layout. When force is false a worktree with uncommitted or
-// untracked changes blocks the removal and git's error is surfaced; force passes
-// --force so the dirty worktree is removed and its changes discarded.
+// Remove removes the worktree identified by target. An absolute target is used
+// as the worktree path verbatim; any other target is treated as a branch name
+// and its path is computed via the manager's layout. Routing on filepath.IsAbs
+// rather than os.Stat means an absolute path whose directory has already been
+// deleted is never re-sanitized into a bogus branch segment. When force is false
+// a worktree with uncommitted or untracked changes blocks the removal and git's
+// error is surfaced; force passes --force so the dirty worktree is removed and
+// its changes discarded. Removing an already-deleted worktree is a successful
+// no-op: git's failure is swallowed and stale metadata pruned, so a teardown
+// whose worktree vanished from disk still completes.
 func (m *Manager) Remove(target string, force bool) error {
 	if target == "" {
 		return errors.New("target must not be empty")
 	}
 
 	path := target
-	if _, err := os.Stat(target); err != nil {
+	if !filepath.IsAbs(target) {
 		path = m.Path(target)
 	}
 
@@ -156,8 +161,14 @@ func (m *Manager) Remove(target string, force bool) error {
 	if force {
 		args = append(args, "--force")
 	}
-	_, err := m.git(append(args, path)...)
-	return err
+	if _, err := m.git(append(args, path)...); err != nil {
+		if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+			_, _ = m.git("worktree", "prune") // already gone; drop stale metadata
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // Branches lists the repository's local branch names, most-recently-committed
