@@ -54,6 +54,7 @@ Flags:
   -h, --help   show this help and exit
 
 explain flags:
+      --json            emit machine-readable JSON to stdout
       --all             print every checkpoint referencing the commit, not just the newest
       --no-transcript   print intent and meta only, skip the transcript
 
@@ -92,7 +93,7 @@ func runCheckpoints(args []string) error {
 	case len(rest) >= 2 && rest[0] == "show":
 		return showCheckpoint(repoPath, rest[1:], *topJSON)
 	case len(rest) >= 1 && rest[0] == "explain":
-		return explainCheckpoint(repoPath, rest[1:])
+		return explainCheckpoint(repoPath, rest[1:], *topJSON)
 	case len(rest) >= 1 && rest[0] == "search":
 		return searchCheckpoints(repoPath, rest[1:])
 	case len(rest) >= 1 && rest[0] == "prune":
@@ -203,8 +204,9 @@ func showCheckpoint(repoPath string, args []string, jsonOut bool) error {
 	return page([]byte(record.RenderTranscript(transcript)))
 }
 
-func explainCheckpoint(repoPath string, args []string) error {
+func explainCheckpoint(repoPath string, args []string, jsonOut bool) error {
 	fs := newFlagSet("wasa checkpoints explain")
+	asJSON := jsonFlag(fs)
 	all := fs.Bool(
 		"all", false,
 		"print every checkpoint referencing the commit, not just the newest",
@@ -219,9 +221,11 @@ func explainCheckpoint(repoPath string, args []string) error {
 	}
 	if len(positional) != 1 {
 		return errors.New(
-			"usage: wasa checkpoints explain [--all] [--no-transcript] <commit-ish>",
+			"usage: wasa checkpoints explain [--json] [--all] " +
+				"[--no-transcript] <commit-ish>",
 		)
 	}
+	jsonOut = jsonOut || *asJSON
 	commitish := positional[0]
 
 	matches, searched, err := record.Explain(repoPath, commitish, *all)
@@ -240,6 +244,10 @@ func explainCheckpoint(repoPath string, args []string) error {
 			"no checkpoint references %s (searched %d checkpoint(s) on %s)",
 			commitish, searched, record.RefPrefix,
 		)
+	}
+
+	if jsonOut {
+		return emitJSON(os.Stdout, explainPayload(matches, *noTranscript))
 	}
 
 	for i, m := range matches {
