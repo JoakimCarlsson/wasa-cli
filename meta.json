@@ -1,0 +1,15 @@
+{
+  "sessionId": "428d397146c9",
+  "workspaceId": "0c1bb6a9d11f",
+  "agent": "claude",
+  "agentSessionId": "c90e29b1-3181-4eeb-a39b-1f60dd23b5be",
+  "branch": "task/122-wasa-session-resume-forks-a-new-session-but-leaves-the-source-paused",
+  "baseCommit": "0172037308a21742a6b949c5dbbbfe2c31ea3195",
+  "commit": "03d450e9fda14a28cf921f6f082c3f5991537bec",
+  "commits": [
+    "03d450e9fda14a28cf921f6f082c3f5991537bec"
+  ],
+  "startedAt": "2026-07-14T19:54:58.40101501+02:00",
+  "wasaVersion": "dev",
+  "storageVersion": "refs-1"
+}

@@ -1,0 +1,1 @@
+enter plan mode to implement https://github.com/JoakimCarlsson/wasa-cli/issues/122
