@@ -48,6 +48,56 @@ func TestManagerAddListRemove(t *testing.T) {
 	}
 }
 
+func TestRemoveMissingWorktreeDir(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available on PATH")
+	}
+
+	home := t.TempDir()
+	repo := t.TempDir()
+	initRepo(t, repo)
+
+	m := New(repo, home, "demo")
+
+	path, err := m.Add("task/pink")
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	// Simulate a worktree directory that has already been deleted from disk
+	// before teardown runs.
+	if err := os.RemoveAll(path); err != nil {
+		t.Fatalf("RemoveAll: %v", err)
+	}
+
+	// Removing the now-missing worktree by its absolute path must succeed
+	// rather than mangling the path into a bogus branch segment.
+	if err := m.Remove(path, true); err != nil {
+		t.Fatalf("Remove missing worktree: %v", err)
+	}
+
+	list, err := m.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if containsBranch(list, "task/pink") {
+		t.Fatalf("worktree still registered after remove: %+v", list)
+	}
+
+	// The absolute path must not be re-sanitized into a sibling directory
+	// under the workspace's worktree root.
+	root := filepath.Join(home, "worktrees", "demo")
+	entries, err := os.ReadDir(root)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("ReadDir %q: %v", root, err)
+	}
+	for _, e := range entries {
+		if strings.Contains(e.Name(), "worktrees") {
+			t.Fatalf("mangled worktree dir created: %q", e.Name())
+		}
+	}
+}
+
 func TestDeleteBranch(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available on PATH")
