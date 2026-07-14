@@ -29,6 +29,8 @@ happened.
 
 The resumed session is a normal wasa session — registered, visible in the
 cockpit and recorded again, with resumedFrom set to the original session id. The
+source session is retired (marked exited) once the resume succeeds, so it no
+longer appears as resumable and only one running session exists per branch. The
 recorded branch must still exist; a deleted branch is a clear error and nothing
 is created.
 `
@@ -128,6 +130,7 @@ func sessionResume(args []string) error {
 	if err != nil {
 		return err
 	}
+	reg.MarkExited(src.ID) // retire the source; it leaves the resumable pool
 	if err := reg.Save(); err != nil {
 		return err
 	}
