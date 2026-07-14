@@ -1,0 +1,15 @@
+{
+  "sessionId": "113862f2c9f2",
+  "workspaceId": "0c1bb6a9d11f",
+  "agent": "claude",
+  "agentSessionId": "2dfba61b-63f9-4b96-a138-63c1f5932857",
+  "branch": "task/134-worktree-remove-mangles-an-already-deleted-worktree-path-into-a-branch-wedging-workspace-delete",
+  "baseCommit": "0172037308a21742a6b949c5dbbbfe2c31ea3195",
+  "commit": "a26858e11927aaf08a7231cb6e42bae52211bb64",
+  "commits": [
+    "a26858e11927aaf08a7231cb6e42bae52211bb64"
+  ],
+  "startedAt": "2026-07-14T19:53:54.962362901+02:00",
+  "wasaVersion": "dev",
+  "storageVersion": "refs-1"
+}
