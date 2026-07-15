@@ -265,11 +265,13 @@ func killArgs(name string) []string {
 
 // captureArgs builds the capture-pane invocation. -e preserves the pane's
 // escape sequences so the preview keeps the agent's colors; without it tmux
-// strips all SGR and the capture is flat monochrome. -p writes to stdout. The
-// render path (internal/tui) is ANSI-aware and truncates by visible width
-// without slicing these sequences.
+// strips all SGR and the capture is flat monochrome. -p writes to stdout. -J
+// joins a line tmux soft-wrapped at the pane's own width back into one logical
+// line; without it a source line wider than the pane comes back as several
+// physical rows, which the render path (internal/tui) would then treat as
+// that many separate lines instead of one it can truncate by visible width.
 func captureArgs(name string) []string {
-	return []string{"capture-pane", "-e", "-p", "-t", name}
+	return []string{"capture-pane", "-e", "-J", "-p", "-t", name}
 }
 
 func listArgs() []string {

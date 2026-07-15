@@ -36,7 +36,12 @@ func TabStrip(t theme.Theme, labels []string, active, totalWidth int) string {
 			border.BottomRight = squareCorner(active == n-1, "│", "┤")
 		}
 		style = style.Border(border)
-		tabs[i] = style.Width(w - style.GetHorizontalFrameSize()).Render(name)
+		// Width sets the tab box's outer, border-inclusive size in Lip Gloss
+		// v2 — it already subtracts the frame before wrapping the label — so
+		// w is passed straight through rather than pre-shrunk by the frame
+		// size, which would double-count the border and leave the strip
+		// narrower than the window it sits on.
+		tabs[i] = style.Width(w).Render(name)
 	}
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, tabs...)

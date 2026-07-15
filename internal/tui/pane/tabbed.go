@@ -73,6 +73,17 @@ func (t Tabbed) Active() Tab { return t.active }
 // and Terminal bodies need. The no-session gating for the Preview tab stays in
 // the root, which passes a zero-value diffSess/termSess (Selected false) when
 // nothing is selected.
+//
+// The window is framed by PaneWindowStyle, which — in Lip Gloss v2 — treats the
+// width/height it is given as the frame's outer, border-inclusive size and
+// subtracts the border before wrapping or padding content. Getting that wrong
+// in either dimension is exactly how the right pane grows past bodyH: an inner
+// width fed to the body renderers wider than the frame's true interior soft-wraps
+// full lines into two visual rows, and Height() only pads short content up to
+// its target — it never truncates — so any surplus row stands. body is therefore
+// rendered at the frame's true interior width and height (border sizes
+// subtracted), and the frame itself is asked for the outer size that leaves
+// exactly bodyH rows once the tab strip above it is added back in.
 func (t Tabbed) Body(
 	th theme.Theme,
 	contentW, bodyH int,
@@ -80,12 +91,18 @@ func (t Tabbed) Body(
 	diffSess DiffSession,
 	termSess TermSession,
 ) string {
-	contentH := max(bodyH-(tabRowRows-1), 1)
+	borderW := th.PaneWindowStyle.GetHorizontalBorderSize()
+	borderH := th.PaneWindowStyle.GetVerticalBorderSize()
 
-	row := component.TabStrip(th, tabNames[:], int(t.active), contentW+2)
-	window := th.PaneWindowStyle.Width(contentW).Height(contentH).Render(
-		t.body(th, contentW, contentH, previewRunning, diffSess, termSess),
-	)
+	windowH := max(bodyH-tabRowRows, 1)
+	innerH := max(windowH-borderH, 1)
+
+	row := component.TabStrip(th, tabNames[:], int(t.active), contentW+borderW)
+	window := th.PaneWindowStyle.Width(contentW + borderW).
+		Height(windowH).
+		Render(
+			t.body(th, contentW, innerH, previewRunning, diffSess, termSess),
+		)
 	return lipgloss.JoinVertical(lipgloss.Left, row, window)
 }
 

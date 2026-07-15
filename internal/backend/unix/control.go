@@ -208,10 +208,11 @@ func (cc *ControlConn) signal() {
 }
 
 // capture issues a capture-pane over the persistent connection. -e preserves the
-// pane's escape sequences (colors) and -p writes the block to the reply stream,
-// matching the one-shot Capture path.
+// pane's escape sequences (colors), -J joins soft-wrapped lines back into one
+// logical line, and -p writes the block to the reply stream, matching the
+// one-shot Capture path.
 func (cc *ControlConn) capture() {
-	_, _ = io.WriteString(cc.stdin, "capture-pane -p -e -t "+cc.name+"\n")
+	_, _ = io.WriteString(cc.stdin, "capture-pane -p -e -J -t "+cc.name+"\n")
 }
 
 // deliver hands content to the consumer, replacing any value it has not yet
