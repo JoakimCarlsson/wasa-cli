@@ -802,6 +802,67 @@ func TestConfirmDeleteRemovesExitedSession(t *testing.T) {
 	}
 }
 
+// TestConfirmAcceptShowsPendingStatusUntilResult checks that accepting a
+// delete confirmation shows an in-progress status immediately, before the
+// async delete command's result lands, and that the terminal status from the
+// result message replaces it.
+func TestConfirmAcceptShowsPendingStatusUntilResult(t *testing.T) {
+	m, _, _ := testModel(t)
+	m.cursor = 1 // select a2; a1 stays so the cursor has a neighbour to land on
+
+	a2, _ := m.reg.Session("a2")
+	a2.Status = registry.StatusExited // exited path runs no backend
+
+	next, _ := m.enterConfirmDelete()
+	m = next.(Model)
+	if m.confirmPending != "deleting session…" {
+		t.Fatalf("confirmPending = %q, want %q", m.confirmPending, "deleting session…")
+	}
+
+	next, cmd := m.updateConfirm(
+		tea.KeyPressMsg{Text: "y", Code: 'y'},
+	)
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("confirm produced no accept command")
+	}
+
+	// The accept message sets the pending status and runs the delete command.
+	next, cmd = m.Update(cmd())
+	m = next.(Model)
+	if m.status != "deleting session…" {
+		t.Fatalf("status = %q, want %q", m.status, "deleting session…")
+	}
+	if m.confirmPending != "" {
+		t.Fatal("confirmPending was not cleared after being applied")
+	}
+	if cmd == nil {
+		t.Fatal("accept did not run the stored delete command")
+	}
+
+	// Feeding the delete command's result back replaces the pending status
+	// with the terminal one.
+	next, _ = m.Update(cmd())
+	m = next.(Model)
+	if m.status == "deleting session…" {
+		t.Fatal("pending status was not replaced once the delete finished")
+	}
+}
+
+// TestEnterWorkspaceDeletePendingNamesWorkspace checks that the pending
+// status for a workspace delete names the workspace being deleted.
+func TestEnterWorkspaceDeletePendingNamesWorkspace(t *testing.T) {
+	m, _, _ := testModel(t)
+
+	next, _ := m.enterWorkspaceDelete()
+	m = next.(Model)
+	ws := m.currentWorkspace()
+	want := `deleting workspace "` + ws.Name + `"…`
+	if m.confirmPending != want {
+		t.Fatalf("confirmPending = %q, want %q", m.confirmPending, want)
+	}
+}
+
 func TestConfirmEnterDefaultsToCancel(t *testing.T) {
 	m, _, _ := testModel(t)
 	next, _ := m.enterConfirmDelete()
