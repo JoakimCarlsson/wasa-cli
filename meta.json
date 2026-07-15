@@ -1,0 +1,15 @@
+{
+  "sessionId": "8ad053121dee",
+  "workspaceId": "0c1bb6a9d11f",
+  "agent": "copilot",
+  "agentSessionId": "5af600c9-5c01-40bf-bb83-7642524a8bef",
+  "branch": "task/148-new-session-on-an-existing-branch-dies-with-raw-git-worktree-already-exists-instead-of-offering-to-clear-the-old-one",
+  "baseCommit": "bf8b97e6a31f7a49f24bc046479c987462b6220c",
+  "commit": "b314cb6b3bacdfc41fbdde7e7536a0992b6e382b",
+  "commits": [
+    "b314cb6b3bacdfc41fbdde7e7536a0992b6e382b"
+  ],
+  "startedAt": "2026-07-15T06:40:27.138891383+02:00",
+  "wasaVersion": "dev",
+  "storageVersion": "refs-1"
+}
