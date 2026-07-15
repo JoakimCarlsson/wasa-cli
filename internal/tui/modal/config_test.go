@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
 )
@@ -54,13 +54,13 @@ func TestEditorRecordKeyCommitsOnApply(t *testing.T) {
 		t.Fatal("new key field not found")
 	}
 
-	e, _ = e.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	e, _ = e.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if e.phase != editKeys {
 		t.Fatal("enter did not open the key recorder")
 	}
-	e, _ = e.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	e, _ = e.Update(tea.KeyPressMsg{Text: "x", Code: 'x'})
 
-	e, cmd := e.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	e, cmd := e.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !emits[ConfigApplyMsg](cmd) {
 		t.Fatal("commit did not emit ConfigApplyMsg")
 	}
@@ -77,17 +77,17 @@ func TestEditorColorSliderAdjustsAndCommits(t *testing.T) {
 	e := NewConfigEditor(testTheme(), config.Default(), 60, 20)
 	e.cursor = fieldIndex(e, "Theme", "accent")
 
-	e, _ = e.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	e, _ = e.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if e.phase != editColor {
 		t.Fatal("enter did not open the colour picker")
 	}
 	before := e.color.value()
-	e, _ = e.Update(tea.KeyMsg{Type: tea.KeyRight})
+	e, _ = e.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	if e.color.value() == before {
 		t.Fatal("right arrow did not adjust the channel")
 	}
 
-	e, _ = e.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	e, _ = e.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if e.phase != editNone {
 		t.Fatal("commit did not leave the colour picker")
 	}
@@ -100,9 +100,9 @@ func TestEditorInvalidLayoutKeepsEditing(t *testing.T) {
 	e := NewConfigEditor(testTheme(), config.Default(), 60, 20)
 	e.cursor = fieldIndex(e, "Layout", "listColFrac")
 
-	e, _ = e.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	e, _ = e.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	e.input.SetValue("not-a-number")
-	e, _ = e.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	e, _ = e.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if e.phase != editText {
 		t.Fatal("invalid commit should keep editing")
@@ -125,7 +125,7 @@ func TestColorEditorAcceleratesOnHeldKey(t *testing.T) {
 		testTheme(),
 		config.Color{Light: "#000000", Dark: "#000000"},
 	)
-	right := tea.KeyMsg{Type: tea.KeyRight}
+	right := tea.KeyPressMsg{Code: tea.KeyRight}
 
 	e = e.update(right)
 	if e.light[0] != 1 {
@@ -150,9 +150,9 @@ func TestColorEditorResetsAccelOnDirectionChange(t *testing.T) {
 		config.Color{Light: "#808080", Dark: "#808080"},
 	)
 	for range 10 {
-		e = e.update(tea.KeyMsg{Type: tea.KeyRight})
+		e = e.update(tea.KeyPressMsg{Code: tea.KeyRight})
 	}
-	e = e.update(tea.KeyMsg{Type: tea.KeyLeft})
+	e = e.update(tea.KeyPressMsg{Code: tea.KeyLeft})
 	if e.repeat != 0 {
 		t.Fatalf("streak not reset on direction change: %d", e.repeat)
 	}

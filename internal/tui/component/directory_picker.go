@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/tui/theme"
@@ -171,7 +171,7 @@ func NewDirectoryPicker(
 	q.CharLimit = 200
 	q.Focus()
 	if width > 6 {
-		q.Width = width - 4
+		q.SetWidth(width - 4)
 	}
 
 	name := textinput.New()
@@ -179,7 +179,7 @@ func NewDirectoryPicker(
 	name.Placeholder = "new folder name"
 	name.CharLimit = 200
 	if width > 6 {
-		name.Width = width - 4
+		name.SetWidth(width - 4)
 	}
 
 	root := &treeNode{
@@ -242,7 +242,7 @@ func (p *DirectoryPicker) revealToFilesystemRoot() {
 // when the picker is dismissed; on a query keystroke it carries the debounced
 // filter tick, and otherwise it is nil.
 func (p DirectoryPicker) Update(msg tea.Msg) (DirectoryPicker, tea.Cmd) {
-	key, ok := msg.(tea.KeyMsg)
+	key, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return p, nil
 	}
@@ -331,7 +331,7 @@ func (p DirectoryPicker) beginCreate() DirectoryPicker {
 // the name. A mkdir failure is surfaced on the prompt rather than dismissing it,
 // so a bad name can be corrected in place.
 func (p DirectoryPicker) updateCreating(
-	key tea.KeyMsg,
+	key tea.KeyPressMsg,
 ) (DirectoryPicker, tea.Cmd) {
 	switch key.String() {
 	case "esc":

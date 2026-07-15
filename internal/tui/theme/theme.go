@@ -1,7 +1,10 @@
 package theme
 
 import (
-	"github.com/charmbracelet/lipgloss"
+	"image/color"
+
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/compat"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
 )
@@ -71,13 +74,16 @@ type Theme struct {
 
 // themeColor converts a config.Color to a lipgloss colour. A colour whose light
 // and dark variants are equal becomes a plain lipgloss.Color (identical to a
-// fixed colour); one with distinct variants becomes an AdaptiveColor that lipgloss
-// resolves against the terminal background.
-func themeColor(c config.Color) lipgloss.TerminalColor {
+// fixed colour); one with distinct variants becomes a compat.AdaptiveColor that
+// lipgloss resolves against the terminal background.
+func themeColor(c config.Color) color.Color {
 	if c.Light == c.Dark {
 		return lipgloss.Color(c.Light)
 	}
-	return lipgloss.AdaptiveColor{Light: c.Light, Dark: c.Dark}
+	return compat.AdaptiveColor{
+		Light: lipgloss.Color(c.Light),
+		Dark:  lipgloss.Color(c.Dark),
+	}
 }
 
 // NewTheme builds the cockpit's styles from t. New calls it with the resolved

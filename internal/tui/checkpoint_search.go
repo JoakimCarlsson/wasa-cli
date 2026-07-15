@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/record"
 	"github.com/joakimcarlsson/wasa-cli/internal/tui/component"
@@ -81,7 +81,7 @@ func (m Model) enterCheckpointSearch() (tea.Model, tea.Cmd) {
 	in.Prompt = "> "
 	in.Placeholder = "search intent & transcripts"
 	in.CharLimit = 200
-	in.Width = max(m.checkpointSearchWidth()-4, 10)
+	in.SetWidth(max(m.checkpointSearchWidth()-4, 10))
 	in.Focus()
 
 	m.checkpointSearch = checkpointSearchState{
@@ -103,7 +103,7 @@ func (m Model) enterCheckpointSearch() (tea.Model, tea.Cmd) {
 // search is (re)scheduled. A non-key message (the cursor blink) is forwarded to
 // the input.
 func (m Model) updateCheckpointSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
-	key, ok := msg.(tea.KeyMsg)
+	key, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		var cmd tea.Cmd
 		m.checkpointSearch.input, cmd = m.checkpointSearch.input.Update(msg)

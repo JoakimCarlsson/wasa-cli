@@ -1,7 +1,7 @@
 package pane
 
 import (
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/backend"
 	"github.com/joakimcarlsson/wasa-cli/internal/tui/component"

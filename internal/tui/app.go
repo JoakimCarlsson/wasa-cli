@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/backend"
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
@@ -171,9 +171,7 @@ func Run(
 	currentID string,
 	cfg config.Config,
 ) error {
-	_, err := tea.NewProgram(
-		New(home, reg, currentID, cfg), tea.WithAltScreen(),
-	).Run()
+	_, err := tea.NewProgram(New(home, reg, currentID, cfg)).Run()
 	return err
 }
 
@@ -523,7 +521,7 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateFilter(msg)
 	}
 
-	key, ok := msg.(tea.KeyMsg)
+	key, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return m, nil
 	}

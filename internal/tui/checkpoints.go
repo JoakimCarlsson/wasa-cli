@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
@@ -51,7 +51,7 @@ type checkpointsState struct {
 // leaves the bare arrow keys to the checkpoint list, so up/down keep moving the
 // list cursor (which re-targets the detail) rather than scrolling the transcript.
 func newTranscriptViewport() viewport.Model {
-	vp := viewport.New(0, 0)
+	vp := viewport.New(viewport.WithWidth(0), viewport.WithHeight(0))
 	vp.KeyMap = viewport.KeyMap{
 		PageDown:     key.NewBinding(key.WithKeys("pgdown", "ctrl+f")),
 		PageUp:       key.NewBinding(key.WithKeys("pgup", "ctrl+b")),
@@ -121,7 +121,7 @@ func (m Model) openCheckpoints(focusSessionID string) (tea.Model, tea.Cmd) {
 // the transcript. Closing re-runs afterListChange so the preview/diff panes
 // re-target the selection the cockpit returns to.
 func (m Model) updateCheckpoints(msg tea.Msg) (tea.Model, tea.Cmd) {
-	k, ok := msg.(tea.KeyMsg)
+	k, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return m, nil
 	}
@@ -189,7 +189,7 @@ func (m *Model) refreshCheckpointsContent() {
 		cs.vp.SetContent("")
 		return
 	}
-	cs.vp.SetContent(m.checkpointDetailBody(cs.vp.Width))
+	cs.vp.SetContent(m.checkpointDetailBody(cs.vp.Width()))
 }
 
 // sizeCheckpoints sizes the detail viewport to the pane the current layout gives
@@ -211,8 +211,8 @@ func (m *Model) sizeCheckpoints() {
 		w = max(detailW-2, 1)
 		h = max(bodyH-2, 1)
 	}
-	m.checkpoints.vp.Width = w
-	m.checkpoints.vp.Height = h
+	m.checkpoints.vp.SetWidth(w)
+	m.checkpoints.vp.SetHeight(h)
 	m.refreshCheckpointsContent()
 }
 

@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
 	"github.com/joakimcarlsson/wasa-cli/internal/tui/theme"
@@ -295,7 +295,7 @@ func TestFormCtrlFRoutesByField(t *testing.T) {
 	initRepo(t, repo)
 
 	f := NewCreateForm(testTheme(), nil, "")
-	ctrlF := tea.KeyMsg{Type: tea.KeyCtrlF}
+	ctrlF := tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl}
 
 	if _, cmd := f.Update(ctrlF); !emits[FormPickDirMsg](cmd) {
 		t.Errorf("on Directory, ctrl+f did not emit FormPickDirMsg")

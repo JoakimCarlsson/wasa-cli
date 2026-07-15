@@ -3,7 +3,7 @@ package component
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestBranchPickerEmptyQueryKeepsOrder(t *testing.T) {
@@ -82,7 +82,7 @@ func TestBranchPickerCreatesTypedBranch(t *testing.T) {
 
 func TestBranchPickerEscCancels(t *testing.T) {
 	p := NewBranchPicker(testTheme(), []string{"main"}, 60, 14)
-	_, cmd := p.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if _, ok := runCmd(cmd).(BranchCancelledMsg); !ok {
 		t.Errorf("esc emitted %T, want BranchCancelledMsg", runCmd(cmd))
 	}

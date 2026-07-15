@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/tui/theme"
@@ -58,7 +58,7 @@ func NewBranchPicker(
 	q.CharLimit = 200
 	q.Focus()
 	if width > 6 {
-		q.Width = width - 4
+		q.SetWidth(width - 4)
 	}
 
 	p := BranchPicker{
@@ -79,7 +79,7 @@ func NewBranchPicker(
 func (p BranchPicker) Update(
 	msg tea.Msg,
 ) (BranchPicker, tea.Cmd) {
-	key, ok := msg.(tea.KeyMsg)
+	key, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return p, nil
 	}

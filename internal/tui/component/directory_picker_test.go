@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
 	"github.com/joakimcarlsson/wasa-cli/internal/tui/theme"
@@ -43,8 +43,8 @@ func pickerTree(t *testing.T) string {
 	return root
 }
 
-func keyRunes(s string) tea.KeyMsg {
-	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+func keyRunes(s string) tea.KeyPressMsg {
+	return tea.KeyPressMsg{Text: s, Code: []rune(s)[0]}
 }
 
 // visiblePaths is the on-screen node paths in display order.
@@ -152,9 +152,9 @@ func TestNewDirPickerSelectsPath(t *testing.T) {
 	}
 }
 
-func keyDown() tea.KeyMsg  { return tea.KeyMsg{Type: tea.KeyDown} }
-func keyRight() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRight} }
-func keyEnter() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyEnter} }
+func keyDown() tea.KeyPressMsg  { return tea.KeyPressMsg{Code: tea.KeyDown} }
+func keyRight() tea.KeyPressMsg { return tea.KeyPressMsg{Code: tea.KeyRight} }
+func keyEnter() tea.KeyPressMsg { return tea.KeyPressMsg{Code: tea.KeyEnter} }
 
 // runCmd runs cmd and returns its message, or nil when cmd is nil.
 func runCmd(cmd tea.Cmd) tea.Msg {
@@ -286,7 +286,7 @@ func TestDirPickerNewFolderEscCancels(t *testing.T) {
 	for _, r := range "ghost" {
 		p, _ = p.Update(keyRunes(string(r)))
 	}
-	p, cmd := p.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	p, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	if p.creating {
 		t.Fatal("esc did not leave the new-folder sub-mode")
@@ -361,7 +361,7 @@ func TestDirPickerFilterEscClears(t *testing.T) {
 	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
 
 	p, _ = p.Update(keyRunes("beta"))
-	p, cmd := p.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	p, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	if _, ok := runCmd(cmd).(DirCancelledMsg); ok {
 		t.Fatal("first esc cancelled instead of clearing the filter")
@@ -374,7 +374,7 @@ func TestDirPickerFilterEscClears(t *testing.T) {
 func TestDirPickerEscCancels(t *testing.T) {
 	root := pickerTree(t)
 	p := NewDirectoryPicker(testTheme(), root, "", root, nil, 60, 14)
-	_, cmd := p.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if _, ok := runCmd(cmd).(DirCancelledMsg); !ok {
 		t.Errorf("esc emitted %T, want DirCancelledMsg", runCmd(cmd))
 	}

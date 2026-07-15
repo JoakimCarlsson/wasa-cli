@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/launch"
 	"github.com/joakimcarlsson/wasa-cli/internal/tui/theme"
@@ -188,7 +188,7 @@ func branchRepoFor(dir string) string {
 // command that emits a FormSubmitMsg, FormCancelMsg, FormPickDirMsg or
 // FormPickBranchMsg on the key that triggers it, or nil otherwise.
 func (f CreateForm) Update(msg tea.Msg) (CreateForm, tea.Cmd) {
-	if key, ok := msg.(tea.KeyMsg); ok {
+	if key, ok := msg.(tea.KeyPressMsg); ok {
 		switch key.String() {
 		case "esc":
 			return f, formCancel
@@ -222,7 +222,7 @@ func (f CreateForm) Update(msg tea.Msg) (CreateForm, tea.Cmd) {
 				f.toggleAutonomous()
 				return f, nil
 			}
-		case " ":
+		case "space":
 			if f.focus == fieldAutonomous {
 				f.toggleAutonomous()
 				return f, nil

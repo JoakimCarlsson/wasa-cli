@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
 	"github.com/joakimcarlsson/wasa-cli/internal/registry"
@@ -261,7 +261,7 @@ func TestSubmitEmptyDefaultsToWorkingDir(t *testing.T) {
 	next, _ := m.enterCreate()
 	m = next.(Model)
 
-	next, cmd := m.updateCreate(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.updateCreate(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("enter emitted no form-submit command")
 	}
@@ -586,7 +586,7 @@ func TestOrphanSessionRendersInList(t *testing.T) {
 	}
 
 	m.width, m.height = 100, 30
-	view := m.View()
+	view := plainViewContent(m)
 	if strings.Contains(view, "No workspaces yet.") {
 		t.Fatalf(
 			"orphan session hidden behind the no-workspace banner:\n%s",
@@ -675,7 +675,7 @@ func TestNoOrphanTabAtColdStart(t *testing.T) {
 func TestListCursorNavigation(t *testing.T) {
 	m, _, _ := testModel(t)
 
-	down := tea.KeyMsg{Type: tea.KeyDown}
+	down := tea.KeyPressMsg{Code: tea.KeyDown}
 	next, _ := m.updateList(down)
 	m = next.(Model)
 	if m.cursor != 1 {
@@ -688,7 +688,7 @@ func TestListCursorNavigation(t *testing.T) {
 		t.Fatalf("cursor clamped at last = %d, want 1", m.cursor)
 	}
 
-	up := tea.KeyMsg{Type: tea.KeyUp}
+	up := tea.KeyPressMsg{Code: tea.KeyUp}
 	next, _ = m.updateList(up)
 	m = next.(Model)
 	if m.cursor != 0 {
@@ -699,7 +699,7 @@ func TestListCursorNavigation(t *testing.T) {
 func TestEnterConfirmDeleteOpensModal(t *testing.T) {
 	m, _, _ := testModel(t)
 
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	next, _ := m.updateList(tea.KeyPressMsg{Text: "d", Code: 'd'})
 	got := next.(Model)
 	if got.mode != modeConfirm {
 		t.Fatal("d did not open the confirm modal")
@@ -717,7 +717,7 @@ func TestEnterConfirmDeleteNoSelectionIsNoop(t *testing.T) {
 	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
 	m := New(t.TempDir(), reg, ws.ID, config.Default())
 
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	next, _ := m.updateList(tea.KeyPressMsg{Text: "d", Code: 'd'})
 	got := next.(Model)
 	if got.mode != modeList {
 		t.Fatal("d opened a modal with no session selected")
@@ -732,10 +732,10 @@ func TestConfirmCancelLeavesSessionUnchanged(t *testing.T) {
 	next, _ := m.enterConfirmDelete()
 	m = next.(Model)
 
-	for _, key := range []tea.KeyMsg{
-		{Type: tea.KeyEsc},
-		{Type: tea.KeyRunes, Runes: []rune("n")},
-		{Type: tea.KeyRunes, Runes: []rune("q")},
+	for _, key := range []tea.KeyPressMsg{
+		{Code: tea.KeyEsc},
+		{Text: "n", Code: 'n'},
+		{Text: "q", Code: 'q'},
 	} {
 		next, cmd := m.updateConfirm(key)
 		if cmd == nil {
@@ -767,7 +767,7 @@ func TestConfirmDeleteRemovesExitedSession(t *testing.T) {
 
 	// y confirms directly regardless of which button is focused.
 	next, cmd := m.updateConfirm(
-		tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")},
+		tea.KeyPressMsg{Text: "y", Code: 'y'},
 	)
 	m = next.(Model)
 	if cmd == nil {
@@ -808,7 +808,7 @@ func TestConfirmEnterDefaultsToCancel(t *testing.T) {
 	m = next.(Model)
 
 	// The cancel button starts focused, so a stray enter must not delete.
-	next, cmd := m.updateConfirm(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("enter emitted no result command")
 	}
@@ -834,9 +834,9 @@ func TestConfirmFocusConfirmThenEnter(t *testing.T) {
 	m = next.(Model)
 
 	// Move focus onto the confirm button, then enter deletes.
-	next, _ = m.updateConfirm(tea.KeyMsg{Type: tea.KeyTab})
+	next, _ = m.updateConfirm(tea.KeyPressMsg{Code: tea.KeyTab})
 	m = next.(Model)
-	next, cmd := m.updateConfirm(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("enter on the confirm button emitted no result command")
 	}
@@ -858,7 +858,7 @@ func TestKillOpensConfirmForRunningSession(t *testing.T) {
 		t.Fatal("precondition: selected session should be running")
 	}
 
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	next, _ := m.updateList(tea.KeyPressMsg{Text: "k", Code: 'k'})
 	got := next.(Model)
 	if got.mode != modeConfirm {
 		t.Fatal("k did not open the confirm modal for a running session")
@@ -873,7 +873,7 @@ func TestKillExitedSessionIsNoop(t *testing.T) {
 	a1, _ := m.reg.Session("a1")
 	a1.Status = registry.StatusExited
 
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	next, _ := m.updateList(tea.KeyPressMsg{Text: "k", Code: 'k'})
 	got := next.(Model)
 	if got.mode != modeList {
 		t.Fatal("k opened a confirm modal for an already-exited session")
@@ -892,7 +892,7 @@ func TestEmptyRegistryShowsBanner(t *testing.T) {
 	}
 
 	m.width, m.height = 80, 24
-	view := m.View()
+	view := plainViewContent(m)
 	if !strings.Contains(view, "No workspaces yet.") {
 		t.Fatalf("view missing empty-state banner:\n%s", view)
 	}
@@ -928,7 +928,7 @@ func TestPreviewPreservesColor(t *testing.T) {
 	m.tabbed.Preview = pane.NewPreview(nil, be)
 	m.tabbed.Preview.PollOrReconnect(m.previewTarget())
 
-	out := m.View()
+	out := viewContent(m)
 	if !strings.Contains(out, "\x1b[38;2;255;0;0m") {
 		t.Fatalf("preview dropped the truecolor escape; "+
 			"colors are stripped or corrupted.\n%q", out)
@@ -946,7 +946,7 @@ func TestSelectedSessionEmpty(t *testing.T) {
 	if m.selectedSession() != nil {
 		t.Fatal("selectedSession non-nil with no sessions")
 	}
-	if m.View() == "" {
+	if plainViewContent(m) == "" {
 		t.Fatal("empty workspace rendered nothing; want an empty-state banner")
 	}
 }
