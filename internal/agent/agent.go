@@ -54,7 +54,11 @@ var Agents = []Agent{
 		RecorderTool: "claude",
 	},
 	{
-		Exe: "codex",
+		// CODEX_HOME is the env var Codex's own CLI reads for its config/data
+		// directory (default ~/.codex); record/codex.go already resolves a
+		// session's transcript through it via agentHome.
+		Exe:          "codex",
+		ConfigDirVar: "CODEX_HOME",
 		Autonomy: &Autonomy{
 			Flag:    "--dangerously-bypass-approvals-and-sandbox",
 			Aliases: []string{"--yolo", "--full-auto"},
@@ -72,20 +76,37 @@ var Agents = []Agent{
 		RecorderTool: "copilot",
 	},
 	{
+		// GEMINI_CONFIG_DIR is the env var Gemini CLI reads for its config
+		// directory (default ~/.gemini); record/gemini.go already resolves a
+		// session's transcript store through it via agentHome.
 		Exe:          "gemini",
-		Autonomy:     &Autonomy{Flag: "--yolo", Aliases: []string{"--approval-mode"}},
+		ConfigDirVar: "GEMINI_CONFIG_DIR",
+		Autonomy: &Autonomy{
+			Flag:    "--yolo",
+			Aliases: []string{"--approval-mode"},
+		},
 		RecorderTool: "gemini",
 	},
 	{
+		// cursor-agent has no documented config-dir override: its CLI
+		// reference (cursor.com/docs/cli/reference/parameters) lists only
+		// CURSOR_API_KEY, and its config always lives under ~/.cursor. So
+		// ConfigDirVar stays "" — a declared absence, not an omission — and
+		// two cursor-agent sessions against different accounts share global
+		// config until Cursor documents an override.
 		Exe:          "cursor-agent",
 		Autonomy:     &Autonomy{Flag: "--force"},
 		RecorderTool: "cursor",
 	},
 	{
-		// Aider has no recorder, autonomy flag or config-dir convention yet;
-		// it is still declared so its absence of those capabilities is
-		// explicit rather than a silent gap in three other maps.
-		Exe: "aider",
+		// Aider has --yes-always (skip-permissions) and a recorder built on
+		// its default chat log, .aider.chat.history.md, but no config-dir
+		// convention: its own docs (aider.chat/docs/config, aider/args.py)
+		// resolve .aider.conf.yml from git root/cwd/home with no directory
+		// override env var, so ConfigDirVar stays "" — a declared absence.
+		Exe:          "aider",
+		Autonomy:     &Autonomy{Flag: "--yes-always"},
+		RecorderTool: "aider",
 	},
 }
 

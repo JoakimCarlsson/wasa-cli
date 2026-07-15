@@ -316,6 +316,19 @@ func Finish(home string, info FinishInfo) error {
 		native, _ = os.ReadFile(st.TranscriptPath)
 	}
 	if len(native) == 0 {
+		// No hook ever reported a transcript path (a hookless agent like
+		// Aider, or a managed session that finished before its first hook
+		// event). Fall back to the agent's own best-effort locator directly
+		// — unlike fallbackTranscript, this has no session id to key on, so
+		// it only helps an agent whose transcript is deterministic without
+		// one (Aider's chat log is one file per directory).
+		if r, ok := recorderFor(m.Agent); ok {
+			if path := r.LocateTranscript("", repoDir); path != "" {
+				native, _ = os.ReadFile(path)
+			}
+		}
+	}
+	if len(native) == 0 {
 		m.Gaps = append(m.Gaps, "transcript unavailable")
 	}
 	intent := st.Intent

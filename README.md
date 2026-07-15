@@ -194,6 +194,13 @@ own native hook configuration:
 (Codex exposes no session-end hook, so an unmanaged Codex session gets
 commit-linked checkpoints but closes only through `wasa finish`.)
 
+Aider has no hook mechanism at all — its only lifecycle callback fires on
+every response with no session payload — so it gets no per-commit or
+live-intent capture. What is achievable is picked up passively: `wasa finish`
+reads Aider's own default chat log, `.aider.chat.history.md`, for the closing
+checkpoint's transcript and intent, so a session still ends up recorded, just
+without the detail hook-driven agents get in between.
+
 To also record agent sessions run **directly** in a repository — no wasa
 session around them — enable repo-level recording once; it installs hooks
 for every supported agent found on your PATH:
@@ -214,6 +221,40 @@ tokens, credentials — best-effort, on by default) before they enter the repo;
 after each write the ref is pushed to `origin` when possible, and silently
 skipped offline. Recording is best-effort throughout: a recorder failure logs
 one warning and never fails or slows the session.
+
+### Per-agent capabilities
+
+Every agent wasa detects on PATH is declared once, in
+`internal/agent/agent.go`, across three capabilities: config-dir isolation
+(the env var a per-repo profile sets to keep one agent's account/config
+separate from another repo's), an autonomy flag (the skip-permissions toggle
+the create form's autonomous switch appends), and a recorder (the hook and
+transcript integration above). A capability an agent genuinely lacks is a
+declared absence — an empty field with a one-line rationale — rather than a
+silent gap:
+
+| Agent        | Config-dir var       | Autonomy flag                              | Recorder |
+| ------------ | --------------------- | ------------------------------------------- | -------- |
+| claude       | `CLAUDE_CONFIG_DIR`   | `--dangerously-skip-permissions`            | yes      |
+| codex        | `CODEX_HOME`          | `--dangerously-bypass-approvals-and-sandbox`| yes      |
+| copilot      | `GH_CONFIG_DIR`       | `--allow-all-tools`                         | yes      |
+| gemini       | `GEMINI_CONFIG_DIR`   | `--yolo`                                    | yes      |
+| cursor-agent | *none documented*     | `--force`                                   | yes      |
+| aider        | *none documented*     | `--yes-always`                              | yes (finish-time only, see above) |
+
+cursor-agent and aider have no config-dir isolation because neither
+documents a directory-override env var (cursor-agent's CLI reference lists
+only `CURSOR_API_KEY`; aider resolves `.aider.conf.yml` from git root/cwd/home
+with no override). Two sessions for either agent against different accounts
+share global config until that changes upstream.
+
+Aider also has no CLI seeding mechanism, so a new or resumed wasa session
+never hands it an initial prompt or a resume preamble the way it does for the
+other five agents: `--message`/`-m` sends one message and exits chat mode
+entirely, and a positional argument means "add this file", not "say this".
+An Aider session always starts (or resumes) with an empty chat; type the
+first prompt once it's running.
+
 
 ## Requirements
 
