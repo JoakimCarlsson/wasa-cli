@@ -87,7 +87,7 @@ func HandleEvent(home string, ev Event) {
 	}
 
 	if head := headSHA(repoDir); head != "" && head != st.LastHead {
-		st = checkpointNewCommits(repoDir, st, head)
+		st = checkpointNewCommits(repoDir, st, head, signPolicyFor(home))
 	}
 
 	_ = saveState(home, st)
@@ -130,8 +130,9 @@ func Finalize(home, sid string) error {
 	if !ok || st.RepoDir == "" {
 		return nil
 	}
+	sign := signPolicyFor(home)
 	if head := headSHA(st.RepoDir); head != "" && head != st.LastHead {
-		st = checkpointNewCommits(st.RepoDir, st, head)
+		st = checkpointNewCommits(st.RepoDir, st, head, sign)
 	}
 	native, _ := os.ReadFile(st.TranscriptPath)
 	m := st.meta()
@@ -141,6 +142,7 @@ func Finalize(home, sid string) error {
 	}
 	ref, err := Write(st.RepoDir, Checkpoint{
 		Meta: m, Intent: st.Intent, Transcript: normalize(st.Agent, native),
+		Sign: sign,
 	})
 	if err != nil {
 		return err
@@ -196,7 +198,9 @@ func newState(home, sid, repoDir string, ev Event) state {
 // the ref. Checkpoint failures are skipped silently per the degradation
 // contract; the head is still advanced so the same commits are not retried
 // on every subsequent event.
-func checkpointNewCommits(repoDir string, st state, head string) state {
+func checkpointNewCommits(
+	repoDir string, st state, head string, sign SignPolicy,
+) state {
 	newCommits := commitsBetween(repoDir, st.LastHead, head)
 	if len(newCommits) == 0 {
 		st.LastHead = head
@@ -226,7 +230,7 @@ func checkpointNewCommits(repoDir string, st state, head string) state {
 			m.Gaps = append(m.Gaps, "transcript unavailable")
 		}
 		if ref, err := Write(repoDir, Checkpoint{
-			Meta: m, Intent: st.Intent, Transcript: transcript,
+			Meta: m, Intent: st.Intent, Transcript: transcript, Sign: sign,
 		}); err == nil {
 			refs = append(refs, ref)
 		}
@@ -338,6 +342,7 @@ func Finish(home string, info FinishInfo) error {
 
 	ref, err := Write(repoDir, Checkpoint{
 		Meta: m, Intent: intent, Transcript: normalize(m.Agent, native),
+		Sign: signPolicyFor(home),
 	})
 	if err != nil {
 		return err
