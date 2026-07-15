@@ -296,6 +296,75 @@ func TestCreateSessionSeedsAgentPrompt(t *testing.T) {
 	}
 }
 
+// TestCreateSessionSeedsCollisionNoteWhenEnabled checks the opt-in launch
+// injection: with a peer worktree session in the same workspace already
+// editing foo.go, a new session created with CollisionMaxPaths > 0 has that
+// path named in its seeded prompt, while a session created with
+// CollisionMaxPaths == 0 (its default, off) sees no such note — launch
+// behaves exactly as before this feature existed.
+func TestCreateSessionSeedsCollisionNoteWhenEnabled(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available on PATH")
+	}
+
+	home := t.TempDir()
+	repoDir := t.TempDir()
+	initGitRepo(t, repoDir)
+
+	reg := testRegistry(t)
+	ws, _ := reg.EnsureWorkspace(repoDir, "", "demo")
+	wt := worktree.New(repoDir, home, ws.ID)
+
+	base, err := wt.HeadSHA()
+	if err != nil {
+		t.Fatalf("HeadSHA: %v", err)
+	}
+	peerPath, err := wt.Add("task/peer")
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := os.WriteFile(
+		peerPath+"/foo.go", []byte("package peer\n"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	reg.AddSession(&registry.Session{
+		ID: "peer", WorkspaceID: ws.ID, Branch: "task/peer",
+		WorktreePath: peerPath, BaseCommit: base, TmuxName: "wasa_peer",
+		Status: registry.StatusRunning,
+	})
+
+	o := &recordingOps{}
+	if _, err := createSession(o.ops(), home, reg, ws, Params{
+		Program:           "claude",
+		Branch:            "task/mine",
+		InitialPrompt:     "fix the bug",
+		CollisionMaxPaths: 20,
+	}); err != nil {
+		t.Fatalf("createSession: %v", err)
+	}
+	if !strings.Contains(o.spawnProgram, "foo.go") {
+		t.Fatalf(
+			"collision note not seeded: spawned %q", o.spawnProgram,
+		)
+	}
+
+	off := &recordingOps{}
+	if _, err := createSession(off.ops(), home, reg, ws, Params{
+		Program:       "claude",
+		Branch:        "task/mine-off",
+		InitialPrompt: "fix the bug",
+	}); err != nil {
+		t.Fatalf("createSession (disabled): %v", err)
+	}
+	if strings.Contains(off.spawnProgram, "foo.go") {
+		t.Fatalf(
+			"collision note seeded despite CollisionMaxPaths=0: spawned %q",
+			off.spawnProgram,
+		)
+	}
+}
+
 func TestCreateSessionPlainInWorkspaceCarriesProfileEnv(t *testing.T) {
 	reg := testRegistry(t)
 	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")

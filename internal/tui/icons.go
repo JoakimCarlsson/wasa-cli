@@ -5,12 +5,13 @@ package tui
 // live with the app render code (statusDot, sessionRow, menuBar) that draws
 // them rather than with the theme, which only colours them.
 const (
-	branchIcon  = "Ꮧ"
-	runningIcon = "●"
-	waitingIcon = "◆"
-	idleIcon    = "○"
-	exitedIcon  = "●"
-	pausedIcon  = "◫"
-	recordIcon  = "⏺"
-	menuSep     = " • "
+	branchIcon    = "Ꮧ"
+	runningIcon   = "●"
+	waitingIcon   = "◆"
+	idleIcon      = "○"
+	exitedIcon    = "●"
+	pausedIcon    = "◫"
+	recordIcon    = "⏺"
+	collisionIcon = "⚠"
+	menuSep       = " • "
 )

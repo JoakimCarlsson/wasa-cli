@@ -18,11 +18,12 @@ const fileName = "config.json"
 // obtain one from Default or Load. Path records where the file was looked for,
 // for the `wasa config` affordance, and is never serialised.
 type Config struct {
-	Theme   Theme   `json:"theme"`
-	Keys    Keys    `json:"keys"`
-	Layout  Layout  `json:"layout"`
-	Notify  Notify  `json:"notify"`
-	History History `json:"history"`
+	Theme     Theme     `json:"theme"`
+	Keys      Keys      `json:"keys"`
+	Layout    Layout    `json:"layout"`
+	Notify    Notify    `json:"notify"`
+	History   History   `json:"history"`
+	Collision Collision `json:"collision"`
 
 	Path string `json:"-"`
 }
@@ -33,6 +34,17 @@ type Config struct {
 type History struct {
 	Enabled  bool `json:"enabled"`
 	MaxBytes int  `json:"maxBytes"`
+}
+
+// Collision controls injecting a bounded, best-effort note into a new
+// session's starting context listing paths currently being edited by other
+// live worktree sessions in the same workspace — see internal/collision.
+// Disabled by default, since it changes what the agent sees; MaxPaths caps
+// the total number of paths named so a busy workspace still yields a short
+// note.
+type Collision struct {
+	Enabled  bool `json:"enabled"`
+	MaxPaths int  `json:"maxPaths"`
 }
 
 // Notify selects how the cockpit announces a session that transitions into
@@ -227,9 +239,10 @@ func Default() Config {
 			CompactWidth:  40,
 			CompactHeight: 8,
 		},
-		Keys:    defaultKeys(),
-		Notify:  NotifyBell,
-		History: History{Enabled: true, MaxBytes: 6000},
+		Keys:      defaultKeys(),
+		Notify:    NotifyBell,
+		History:   History{Enabled: true, MaxBytes: 6000},
+		Collision: Collision{Enabled: false, MaxPaths: 20},
 	}
 }
 
@@ -309,6 +322,9 @@ func (c Config) validate() error {
 	}
 	if c.History.MaxBytes < 0 {
 		return fmt.Errorf("history.maxBytes must not be negative")
+	}
+	if c.Collision.MaxPaths < 0 {
+		return fmt.Errorf("collision.maxPaths must not be negative")
 	}
 	return c.Layout.validate()
 }
