@@ -231,6 +231,11 @@ func churnTick() tea.Cmd {
 type createdMsg struct {
 	session *registry.Session
 	err     error
+	// collision is set when err is a worktree-already-exists collision,
+	// carrying enough to offer clearing the stale worktree and retrying.
+	collision  launch.WorktreeCollision
+	collidesWs *registry.Workspace
+	retry      launch.Params
 }
 
 type killedMsg struct{ err error }
@@ -313,6 +318,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case createdMsg:
 		if msg.err != nil {
+			if msg.collision.Path != "" {
+				return m.enterConfirmClearWorktree(msg)
+			}
 			m.err = msg.err
 			return m, nil
 		}
@@ -1006,6 +1014,41 @@ func (m Model) enterConfirmForcePause(
 	)
 }
 
+// enterConfirmClearWorktree opens the confirm dialog offering to clear the
+// worktree that collided with a session create, then retry it, after
+// createCmd's Add reported *worktree.ErrWorktreeExists. It names the existing
+// session when one still owns the worktree — the common case, a session from an
+// earlier run of the same branch left behind by a crash or a skipped teardown —
+// and otherwise just names the stale path. A collision whose session is still
+// tmux-alive is called out explicitly in the body so accepting is an informed
+// choice, not a surprise kill of a running session; cancelling always leaves
+// the existing worktree and session untouched.
+func (m Model) enterConfirmClearWorktree(msg createdMsg) (tea.Model, tea.Cmd) {
+	col := msg.collision
+	what := fmt.Sprintf("the worktree at %s", col.Path)
+	if col.Session != nil {
+		title, _ := sessionLabel(col.Session)
+		what = fmt.Sprintf("session %q (worktree at %s)", title, col.Path)
+		if col.Alive {
+			what += " — currently running"
+		}
+	}
+	body := fmt.Sprintf(
+		"A worktree for branch %q already exists:\n%s.\n\n"+
+			"Clear it and create the new session, or cancel and leave it "+
+			"in place?",
+		col.Branch, what,
+	)
+	return m.enterConfirm(
+		modal.NewConfirmDialog(
+			m.theme, "Worktree already exists", body,
+			"Clear and create", "Cancel", true,
+		),
+		m.clearWorktreeCollisionCmd(msg),
+		"clearing worktree…",
+	)
+}
+
 // resume re-spawns the selected paused session. It is deliberately confirm-less:
 // resuming is additive and destroys nothing. On a session that is not paused it
 // is a no-op with a clear message rather than an error.
@@ -1178,6 +1221,39 @@ func (m Model) attachTerm(s *registry.Session) (tea.Model, tea.Cmd) {
 func (m Model) createCmd(ws *registry.Workspace, params launch.Params) tea.Cmd {
 	home, reg := m.home, m.reg
 	return func() tea.Msg {
+		s, err := launch.CreateSession(home, reg, ws, params)
+		if err != nil {
+			if col, ok := launch.DetectWorktreeCollision(reg, ws, err); ok {
+				return createdMsg{
+					err: err, collision: col, collidesWs: ws, retry: params,
+				}
+			}
+			return createdMsg{err: err}
+		}
+		if err := reg.Save(); err != nil {
+			return createdMsg{err: err}
+		}
+		return createdMsg{session: s}
+	}
+}
+
+// clearWorktreeCollisionCmd tears down whatever occupies msg.collision's path
+// — a stale worktree, or a recorded session's tmux, worktree and record
+// together — and then retries the create with the same params, so accepting
+// the confirm dialog both fixes the collision and finishes the original
+// request in one step.
+func (m Model) clearWorktreeCollisionCmd(msg createdMsg) tea.Cmd {
+	home, reg, ws := m.home, m.reg, msg.collidesWs
+	col, params := msg.collision, msg.retry
+	return func() tea.Msg {
+		if err := launch.ClearWorktreeCollision(
+			reg,
+			home,
+			ws,
+			col,
+		); err != nil {
+			return createdMsg{err: err}
+		}
 		s, err := launch.CreateSession(home, reg, ws, params)
 		if err != nil {
 			return createdMsg{err: err}
