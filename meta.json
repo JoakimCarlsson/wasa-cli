@@ -1,0 +1,15 @@
+{
+  "sessionId": "a1d87cf4f142",
+  "workspaceId": "0c1bb6a9d11f",
+  "agent": "copilot",
+  "agentSessionId": "ff280641-cf09-4ce1-a983-127e6e9e08bd",
+  "branch": "task/146-first-class-wasa-pushpull-for-refswasa-with-multi-runner-union-semantics",
+  "baseCommit": "666b39745e13147c7b78c43502efe9363a600154",
+  "commits": [
+    "f7432cc4c22e1884647b17cc20d8a926ed7fa88d"
+  ],
+  "startedAt": "2026-07-15T20:56:07.38876289+02:00",
+  "finishedAt": "2026-07-15T21:29:00.422946783+02:00",
+  "wasaVersion": "dev",
+  "storageVersion": "refs-1"
+}
