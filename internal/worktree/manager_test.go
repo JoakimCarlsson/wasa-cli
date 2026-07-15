@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -342,6 +344,57 @@ func TestDiffNumstat(t *testing.T) {
 	}
 	if added != 0 || removed != 0 {
 		t.Fatalf("binary-only churn = +%d/-%d, want +0/-0", added, removed)
+	}
+}
+
+func TestChangedPaths(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available on PATH")
+	}
+	home := t.TempDir()
+	repo := t.TempDir()
+	initRepo(t, repo)
+
+	m := New(repo, home, "demo")
+	base, err := m.HeadSHA()
+	if err != nil {
+		t.Fatalf("HeadSHA: %v", err)
+	}
+	wt, err := m.Add("feature/changed-paths")
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	paths, err := m.ChangedPaths(wt, base)
+	if err != nil {
+		t.Fatalf("ChangedPaths (clean): %v", err)
+	}
+	if len(paths) != 0 {
+		t.Fatalf("clean worktree paths = %v, want empty", paths)
+	}
+
+	if err := os.WriteFile(
+		filepath.Join(wt, "new.txt"), []byte("alpha\n"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(wt, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(wt, "sub", "other.txt"), []byte("beta\n"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	paths, err = m.ChangedPaths(wt, base)
+	if err != nil {
+		t.Fatalf("ChangedPaths (changed): %v", err)
+	}
+	want := []string{"new.txt", "sub/other.txt"}
+	sort.Strings(paths)
+	if !reflect.DeepEqual(paths, want) {
+		t.Fatalf("ChangedPaths (changed) = %v, want %v", paths, want)
 	}
 }
 

@@ -296,19 +296,27 @@ func (m *Manager) Diff(worktreePath, baseCommit string) (DiffResult, error) {
 	return DiffResult{Text: string(text), Added: added, Removed: removed}, nil
 }
 
-// DiffNumstat returns only the added and removed line totals of the worktree at
-// worktreePath against baseCommit, without the full content diff. Like Diff it
-// first runs `git add -N .` so newly created untracked files are counted, then
-// sums `git diff --numstat <baseCommit>`. It is the cheap per-tick churn stat
-// the cockpit computes for every worktree session row, where the full Diff is
-// reserved for the one selected session. A clean worktree and a binary-only
-// change both return 0, 0 (binary files report "-" in both columns and are
-// skipped by parseNumstat).
-func (m *Manager) DiffNumstat(
+// NumstatEntry is one line of `git diff --numstat` output: the path changed
+// and its added/removed line counts. Added and Removed are both 0 for a
+// binary-only change, matching parseNumstat's "-"-column handling.
+type NumstatEntry struct {
+	Path    string
+	Added   int
+	Removed int
+}
+
+// Numstat returns the per-path added/removed line counts of the worktree at
+// worktreePath against baseCommit, both committed and still-uncommitted. It
+// first runs `git add -N .` so untracked files are counted, then reads a
+// single `git diff --numstat <baseCommit>`. It is the one git call behind both
+// DiffNumstat (the cockpit's per-row +N/−M) and ChangedPaths (collision
+// detection's per-session path set), so a caller needing both reads git once
+// rather than twice.
+func (m *Manager) Numstat(
 	worktreePath, baseCommit string,
-) (added, removed int, err error) {
+) ([]NumstatEntry, error) {
 	if worktreePath == "" || baseCommit == "" {
-		return 0, 0, errors.New("worktree path and base commit required")
+		return nil, errors.New("worktree path and base commit required")
 	}
 
 	lock := indexLock(worktreePath)
@@ -316,16 +324,33 @@ func (m *Manager) DiffNumstat(
 	defer lock.Unlock()
 
 	if _, err := m.gitAt(worktreePath, "add", "-N", "."); err != nil {
-		return 0, 0, err
+		return nil, err
 	}
 	stat, err := m.gitAt(
 		worktreePath, "--no-pager", "diff", "--numstat", baseCommit,
 	)
 	if err != nil {
+		return nil, err
+	}
+	return parseNumstatEntries(stat), nil
+}
+
+// DiffNumstat returns only the added and removed line totals of the worktree at
+// worktreePath against baseCommit, without the full content diff or per-path
+// breakdown. It is a thin sum over Numstat, kept as its own method since most
+// callers (the cockpit's per-row churn stat) want only the totals. A clean
+// worktree and a binary-only change both return 0, 0.
+func (m *Manager) DiffNumstat(
+	worktreePath, baseCommit string,
+) (added, removed int, err error) {
+	entries, err := m.Numstat(worktreePath, baseCommit)
+	if err != nil {
 		return 0, 0, err
 	}
-
-	added, removed = parseNumstat(stat)
+	for _, e := range entries {
+		added += e.Added
+		removed += e.Removed
+	}
 	return added, removed, nil
 }
 
@@ -346,6 +371,68 @@ func parseNumstat(out []byte) (added, removed int) {
 		}
 	}
 	return added, removed
+}
+
+// ChangedPaths returns the repository-relative paths changed in the worktree
+// at worktreePath against baseCommit, both committed and still-uncommitted
+// (staged, unstaged and untracked). It is a thin projection over Numstat that
+// drops the added/removed counts, kept as its own method for collision
+// detection and its tests. A clean worktree returns an empty, non-nil slice.
+func (m *Manager) ChangedPaths(
+	worktreePath, baseCommit string,
+) ([]string, error) {
+	entries, err := m.Numstat(worktreePath, baseCommit)
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(entries))
+	for _, e := range entries {
+		paths = append(paths, e.Path)
+	}
+	return paths, nil
+}
+
+// parseNumstatEntries parses `git diff --numstat` output into one NumstatEntry
+// per line. Each line is "added\tremoved\tpath", except a rename, which
+// numstat renders as "added\tremoved\told => new" (or
+// "added\tremoved\t{old => new}/rest" when only part of the path changed); in
+// both cases the path after "=> " is taken, matching the working tree's
+// current name. Binary files report "-" in both count columns, parsed as 0.
+func parseNumstatEntries(out []byte) []NumstatEntry {
+	entries := make([]NumstatEntry, 0)
+	for line := range strings.SplitSeq(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.SplitN(line, "\t", 3)
+		if len(fields) < 3 {
+			continue
+		}
+		added, _ := strconv.Atoi(fields[0])
+		removed, _ := strconv.Atoi(fields[1])
+		entries = append(entries, NumstatEntry{
+			Path:    renamedPath(fields[2]),
+			Added:   added,
+			Removed: removed,
+		})
+	}
+	return entries
+}
+
+// renamedPath resolves a numstat path field to the file's current name,
+// unwrapping git's "old => new" and "{old => new}" rename notations.
+func renamedPath(field string) string {
+	if idx := strings.Index(field, "=>"); idx != -1 {
+		newPart := strings.TrimSpace(field[idx+len("=>"):])
+		newPart = strings.TrimSuffix(newPart, "}")
+		if braceIdx := strings.Index(field, "{"); braceIdx != -1 {
+			prefix := field[:braceIdx]
+			return prefix + newPart
+		}
+		return newPart
+	}
+	return field
 }
 
 // DeleteBranch deletes the local branch. When force is false git refuses to

@@ -482,10 +482,12 @@ func sessionNew(args []string) error {
 	}
 
 	params.InitialPrompt = prompt
-	if !noHistory {
-		if cfg, cerr := config.Load(wasaHome()); cerr == nil &&
-			cfg.History.Enabled {
+	if cfg, cerr := config.Load(wasaHome()); cerr == nil {
+		if !noHistory && cfg.History.Enabled {
 			params.HistoryMaxBytes = cfg.History.MaxBytes
+		}
+		if cfg.Collision.Enabled {
+			params.CollisionMaxPaths = cfg.Collision.MaxPaths
 		}
 	}
 

@@ -44,6 +44,12 @@ type Params struct {
 	// from this repo's checkpoints to InitialPrompt, capped at that many bytes.
 	// Callers set it from config unless history is disabled; 0 injects nothing.
 	HistoryMaxBytes int
+	// CollisionMaxPaths, when > 0, prepends a bounded note listing paths other
+	// live worktree sessions in the same workspace are currently editing.
+	// Callers set it from config only when the opt-in feature is enabled; 0
+	// (the default) injects nothing, so launch behaves exactly as before this
+	// existed.
+	CollisionMaxPaths int
 }
 
 // ops are the side-effecting operations the create flow performs, injected so
@@ -178,16 +184,24 @@ func CreateSession(
 }
 
 // seedPrompt returns the prompt a session's agent is seeded with as its first
-// message: the caller's InitialPrompt, prefixed with a recorded-history preamble
-// when p.HistoryMaxBytes > 0 and the workspace has a repository to read from. A
-// program with no recording integration — a shell, an unknown agent — cannot be
-// handed a positional prompt safely (it would run as a command), so it is seeded
-// nothing regardless of what the caller passed. Aider is excluded the same way
-// for a different reason: it has a recorder, but no CLI seeding mechanism —
-// --message/-m sends one message and exits chat mode entirely, and a positional
-// argument means "add this file", not "say this" — so it always starts with an
-// empty chat and the user types their first prompt once it's running.
-func seedPrompt(ws *registry.Workspace, program string, p Params) string {
+// message: the caller's InitialPrompt, prefixed with each enabled context
+// preamble in order — recorded history, then the cross-session collision note
+// — so the seam stays open for a future source without touching this
+// composition. A program with no recording integration — a shell, an unknown
+// agent — cannot be handed a positional prompt safely (it would run as a
+// command), so it is seeded nothing regardless of what the caller passed.
+// Aider is excluded the same way for a different reason: it has a recorder,
+// but no CLI seeding mechanism — --message/-m sends one message and exits
+// chat mode entirely, and a positional argument means "add this file", not
+// "say this" — so it always starts with an empty chat and the user types
+// their first prompt once it's running.
+func seedPrompt(
+	home string,
+	ws *registry.Workspace,
+	reg *registry.Registry,
+	program string,
+	p Params,
+) string {
 	if _, ok := record.AgentForProgram(program); !ok {
 		return ""
 	}
@@ -195,14 +209,35 @@ func seedPrompt(ws *registry.Workspace, program string, p Params) string {
 		return ""
 	}
 	prompt := p.InitialPrompt
-	if p.HistoryMaxBytes > 0 && ws != nil {
-		if h := record.HistoryPreamble(
-			ws.RepoPath, p.Branch, prompt, p.HistoryMaxBytes,
-		); h != "" {
-			prompt = strings.TrimSpace(h + "\n\n" + prompt)
-		}
+	for _, block := range contextPreambles(home, ws, reg, p) {
+		prompt = strings.TrimSpace(block + "\n\n" + prompt)
 	}
 	return prompt
+}
+
+// contextPreambles returns the ordered, independent preamble blocks a new
+// session's seeded prompt is prefixed with — at most one recorded-history
+// block and at most one cross-session collision block, each contributed only
+// when its config enables it and it has something to say. This is the one
+// "context to seed into a new session" seam: a future context source adds one
+// more entry here rather than a new prepend call at the seedPrompt level.
+func contextPreambles(
+	home string, ws *registry.Workspace, reg *registry.Registry, p Params,
+) []string {
+	var blocks []string
+	if p.HistoryMaxBytes > 0 && ws != nil {
+		if h := record.HistoryPreamble(
+			ws.RepoPath, p.Branch, p.InitialPrompt, p.HistoryMaxBytes,
+		); h != "" {
+			blocks = append(blocks, h)
+		}
+	}
+	if p.CollisionMaxPaths > 0 {
+		if c := collisionPreamble(home, ws, reg, p.CollisionMaxPaths); c != "" {
+			blocks = append(blocks, c)
+		}
+	}
+	return blocks
 }
 
 func createSession(
@@ -213,7 +248,7 @@ func createSession(
 	p Params,
 ) (*registry.Session, error) {
 	program := p.Program
-	p.InitialPrompt = seedPrompt(ws, program, p)
+	p.InitialPrompt = seedPrompt(home, ws, reg, program, p)
 
 	var (
 		prof registry.Profile
