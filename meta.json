@@ -1,0 +1,18 @@
+{
+  "sessionId": "3000b5694cd4",
+  "workspaceId": "0c1bb6a9d11f",
+  "agent": "copilot",
+  "branch": "task/147-sign-wasa-records-on-refswasa-for-verifiable-provenance-teams-opt-in",
+  "baseCommit": "32c45d87e3862989dc90be4f94278a204d00b32c",
+  "commits": [
+    "42bc2ee96b03417913171ab70f2e81ebf839a617"
+  ],
+  "startedAt": "2026-07-15T21:31:18.589423995+02:00",
+  "finishedAt": "2026-07-15T21:44:55.83377787+02:00",
+  "wasaVersion": "dev",
+  "storageVersion": "refs-1",
+  "gaps": [
+    "no hook data received",
+    "transcript unavailable"
+  ]
+}
