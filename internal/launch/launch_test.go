@@ -172,6 +172,9 @@ func TestDetectWorktreeCollisionResolvesOwningSession(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available on PATH")
 	}
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available on PATH")
+	}
 
 	home := t.TempDir()
 	repoDir := t.TempDir()

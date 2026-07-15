@@ -69,15 +69,13 @@ func TestAddCollisionReturnsErrWorktreeExists(t *testing.T) {
 	if !errors.As(err, &exists) {
 		t.Fatalf("Add second time = %v, want *ErrWorktreeExists", err)
 	}
-	if exists.Branch != "task/again" || exists.Path != path {
+	if exists.Branch != "task/again" || !samePath(t, exists.Path, path) {
 		t.Fatalf(
 			"ErrWorktreeExists = %+v, want branch %q path %q",
 			exists, "task/again", path,
 		)
 	}
 
-	// The collision must be resolvable: clearing the existing worktree lets
-	// a retried Add succeed at the same path.
 	if err := m.Remove(path, true); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
@@ -102,14 +100,10 @@ func TestRemoveMissingWorktreeDir(t *testing.T) {
 		t.Fatalf("Add: %v", err)
 	}
 
-	// Simulate a worktree directory that has already been deleted from disk
-	// before teardown runs.
 	if err := os.RemoveAll(path); err != nil {
 		t.Fatalf("RemoveAll: %v", err)
 	}
 
-	// Removing the now-missing worktree by its absolute path must succeed
-	// rather than mangling the path into a bogus branch segment.
 	if err := m.Remove(path, true); err != nil {
 		t.Fatalf("Remove missing worktree: %v", err)
 	}
@@ -122,8 +116,6 @@ func TestRemoveMissingWorktreeDir(t *testing.T) {
 		t.Fatalf("worktree still registered after remove: %+v", list)
 	}
 
-	// The absolute path must not be re-sanitized into a sibling directory
-	// under the workspace's worktree root.
 	root := filepath.Join(home, "worktrees", "demo")
 	entries, err := os.ReadDir(root)
 	if err != nil && !os.IsNotExist(err) {
@@ -249,7 +241,6 @@ func TestDiff(t *testing.T) {
 		t.Fatalf("Add: %v", err)
 	}
 
-	// A fresh worktree against its base commit has nothing to show.
 	res, err := m.Diff(wt, base)
 	if err != nil {
 		t.Fatalf("Diff (clean): %v", err)
@@ -258,7 +249,6 @@ func TestDiff(t *testing.T) {
 		t.Fatalf("clean worktree diff = %+v, want empty", res)
 	}
 
-	// An untracked file must appear (git add -N .) and count as additions.
 	if err := os.WriteFile(
 		filepath.Join(wt, "new.txt"), []byte("alpha\nbeta\n"), 0o644,
 	); err != nil {
@@ -297,7 +287,6 @@ func TestDiffNumstat(t *testing.T) {
 		t.Fatalf("Add: %v", err)
 	}
 
-	// A clean worktree against its base commit churns nothing.
 	added, removed, err := m.DiffNumstat(wt, base)
 	if err != nil {
 		t.Fatalf("DiffNumstat (clean): %v", err)
@@ -306,7 +295,6 @@ func TestDiffNumstat(t *testing.T) {
 		t.Fatalf("clean worktree churn = +%d/-%d, want +0/-0", added, removed)
 	}
 
-	// An untracked file is counted via git add -N .
 	if err := os.WriteFile(
 		filepath.Join(wt, "new.txt"), []byte("alpha\nbeta\ngamma\n"), 0o644,
 	); err != nil {
@@ -320,9 +308,6 @@ func TestDiffNumstat(t *testing.T) {
 		t.Fatalf("changed worktree churn = +%d/-%d, want +3/-0", added, removed)
 	}
 
-	// A binary-only change reports "-" in both numstat columns and counts zero.
-	// It runs in its own worktree so the earlier intent-to-add of new.txt does
-	// not bleed into the count.
 	binWt, err := m.Add("feature/binary")
 	if err != nil {
 		t.Fatalf("Add (binary): %v", err)
@@ -348,6 +333,25 @@ func containsAll(s string, subs ...string) bool {
 		}
 	}
 	return true
+}
+
+// samePath reports whether a and b denote the same filesystem location once
+// symlinks and separators are normalized. git's `worktree list` output differs
+// from the manager's computed paths in ways that vary by OS — macOS reports the
+// symlink-resolved /private/var/folders form of a /var/folders temp dir, and git
+// on Windows emits forward slashes where filepath uses backslashes — so a raw
+// string comparison would spuriously fail off Linux.
+func samePath(t *testing.T, a, b string) bool {
+	t.Helper()
+	ra, err := filepath.EvalSymlinks(a)
+	if err != nil {
+		t.Fatalf("EvalSymlinks %q: %v", a, err)
+	}
+	rb, err := filepath.EvalSymlinks(b)
+	if err != nil {
+		t.Fatalf("EvalSymlinks %q: %v", b, err)
+	}
+	return ra == rb
 }
 
 func initRepo(t *testing.T, dir string) {
