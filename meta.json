@@ -1,0 +1,17 @@
+{
+  "sessionId": "298ceb84e52b",
+  "workspaceId": "0c1bb6a9d11f",
+  "agent": "copilot",
+  "agentSessionId": "b655f527-d68e-4354-bd8e-563293e13171",
+  "branch": "task/142-unify-the-per-agent-registries-into-one-source-of-truth",
+  "baseCommit": "5e8f68157956ee1e4ede4361f4d257d0a90591c3",
+  "commit": "79e91a5efd30ea83bc7e68aaef274a9d8cd028bf",
+  "commits": [
+    "5ef49b59b5513d84a78a43442e43ac00ff21294b",
+    "dbe2c3269c3dc6e7dd8c685d6233c5c585b397ca",
+    "79e91a5efd30ea83bc7e68aaef274a9d8cd028bf"
+  ],
+  "startedAt": "2026-07-15T17:11:59.814430393+02:00",
+  "wasaVersion": "dev",
+  "storageVersion": "refs-1"
+}
