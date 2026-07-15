@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/joakimcarlsson/wasa-cli/internal/agent"
 )
 
 // hookEvent is one agent hook the recorder subscribes to. end marks the
@@ -54,11 +56,14 @@ type Recorder interface {
 	Intent(native []byte) string
 }
 
-// recorders are the supported recording integrations. Event choices per agent:
-// a prompt-bearing event early (intent), a per-tool or per-turn event
-// (commit detection) and, where the agent offers one, a session-end event
-// (closing checkpoint for unmanaged sessions; Codex has none, so unmanaged
-// Codex sessions close only through wasa finish).
+// recorders are the supported recording integrations: the behavior behind
+// each RecorderTool declared in agent.Agents. Event choices per agent: a
+// prompt-bearing event early (intent), a per-tool or per-turn event (commit
+// detection) and, where the agent offers one, a session-end event (closing
+// checkpoint for unmanaged sessions; Codex has none, so unmanaged Codex
+// sessions close only through wasa finish). Adding a new recording
+// integration also means declaring its RecorderTool on the agent in
+// agent.Agents; TestRecordersMatchAgentRegistry checks the two stay in sync.
 var recorders = []Recorder{
 	claudeRecorder{},
 	geminiRecorder{},
@@ -79,15 +84,15 @@ func recorderFor(tool string) (Recorder, bool) {
 
 // AgentForProgram returns the recording tool name for a launch program
 // ("/usr/bin/cursor-agent --foo" → "cursor"), or false when the agent has no
-// recording integration.
+// recording integration. The exe-to-tool association comes from the
+// canonical agent.Agents registry; recorderFor then resolves the tool to its
+// behavior implementation.
 func AgentForProgram(program string) (string, bool) {
-	exe := baseExe(program)
-	for _, r := range recorders {
-		if r.Exe() == exe {
-			return r.Tool(), true
-		}
+	a, ok := agent.ByExe(baseExe(program))
+	if !ok || a.RecorderTool == "" {
+		return "", false
 	}
-	return "", false
+	return a.RecorderTool, true
 }
 
 // resumeFlag is the common native-resume argv "--resume <id>", shared by the
@@ -188,12 +193,17 @@ func InstalledAgents(dir string) []string {
 }
 
 // DetectedAgents lists the supported agents found on PATH, which is what
-// repo-level enable installs for.
+// repo-level enable installs for. It walks the canonical agent.Agents
+// registry rather than recorders directly, so the exe-to-tool association
+// stays derived from the single source.
 func DetectedAgents() []string {
 	var tools []string
-	for _, r := range recorders {
-		if _, err := exec.LookPath(r.Exe()); err == nil {
-			tools = append(tools, r.Tool())
+	for _, a := range agent.Agents {
+		if a.RecorderTool == "" {
+			continue
+		}
+		if _, err := exec.LookPath(a.Exe); err == nil {
+			tools = append(tools, a.RecorderTool)
 		}
 	}
 	return tools

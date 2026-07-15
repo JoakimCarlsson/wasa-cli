@@ -9,24 +9,17 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/joakimcarlsson/wasa-cli/internal/agent"
 	"github.com/joakimcarlsson/wasa-cli/internal/registry"
 )
 
-// configDirVars maps a program name to the environment variable that overrides
-// its config/home directory. It is the single place to teach wasa a new
-// program's config-dir convention.
-var configDirVars = map[string]string{
-	"claude":  "CLAUDE_CONFIG_DIR",
-	"copilot": "GH_CONFIG_DIR",
-	"gh":      "GH_CONFIG_DIR",
-}
-
 // ConfigDirVar returns the config-dir environment variable for program and
 // whether one is known. A program with no known convention reports false, and
-// its sessions receive no config-dir override.
+// its sessions receive no config-dir override. It reads from the canonical
+// agent.Agents registry, the single place to teach wasa a new program's
+// config-dir convention.
 func ConfigDirVar(program string) (string, bool) {
-	v, ok := configDirVars[program]
-	return v, ok
+	return agent.ConfigDirVar(program)
 }
 
 // Resolve computes the environment to inject into a session launched for
