@@ -1,0 +1,16 @@
+{
+  "sessionId": "bb857c2ba591",
+  "workspaceId": "0c1bb6a9d11f",
+  "agent": "copilot",
+  "agentSessionId": "1978f925-0b94-4176-a4f9-7106a4771e3c",
+  "branch": "task/143-bring-every-detected-agent-to-full-support-parity",
+  "baseCommit": "666b39745e13147c7b78c43502efe9363a600154",
+  "commit": "8b36406f98155ca9475c5d7c4974c15f14d57708",
+  "commits": [
+    "5a63df8e7a2d4540f341679fb330927680bd527d",
+    "8b36406f98155ca9475c5d7c4974c15f14d57708"
+  ],
+  "startedAt": "2026-07-15T20:53:38.075044882+02:00",
+  "wasaVersion": "dev",
+  "storageVersion": "refs-1"
+}
