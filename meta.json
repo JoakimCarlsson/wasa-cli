@@ -1,0 +1,18 @@
+{
+  "sessionId": "5eae143acdf9",
+  "workspaceId": "0c1bb6a9d11f",
+  "agent": "copilot",
+  "agentSessionId": "0c6a1e56-2d4d-4ee8-8986-3a902f832950",
+  "branch": "task/139-cockpit-show-an-in-progress-status-while-deleting-a-session-or-workspace",
+  "baseCommit": "bf8b97e6a31f7a49f24bc046479c987462b6220c",
+  "commit": "2b984210681b10a3a74922e7478390d4607a3f5a",
+  "commits": [
+    "81150c54c0dbd9b88bb7b6b7d0407252e69f1df8",
+    "c957a0537d76845fc74adf5e616f4da6324dd8e5",
+    "34c30852aee50028375364180896d077fb5e8966",
+    "2b984210681b10a3a74922e7478390d4607a3f5a"
+  ],
+  "startedAt": "2026-07-15T06:41:11.193646832+02:00",
+  "wasaVersion": "dev",
+  "storageVersion": "refs-1"
+}
