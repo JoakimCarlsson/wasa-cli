@@ -43,10 +43,10 @@ so you can pick one for show/explain. "import" backfills the record from this
 repo's pre-existing Claude Code transcripts (one checkpoint per past session,
 redacted like a live one); it is idempotent — a re-run imports only what is
 new. "prune" deletes every checkpoint recorded before <date> (YYYY-MM-DD or
-RFC3339), locally only — push afterwards to prune a remote.
+RFC3339), locally only — run "wasa push" afterwards to prune a remote.
 
 Read-only (apart from prune) and plain git underneath: it works on any clone
-that has the record, which transfers with
+that has the record, which transfers with "wasa pull" or, equivalently,
 
   git fetch origin %q
 
@@ -75,7 +75,7 @@ func runCheckpoints(args []string) error {
 	topJSON := jsonFlag(fs)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			fmt.Fprintf(os.Stdout, checkpointsHelp, record.FetchRefspec)
+			fmt.Fprintf(os.Stdout, checkpointsHelp, record.SyncRefspec)
 			return nil
 		}
 		return err
@@ -127,7 +127,7 @@ func listCheckpoints(repoPath string, jsonOut bool) error {
 			os.Stdout,
 			"no recorded sessions in %s\n(recording writes to %s/*; "+
 				"on a clone, fetch it with: git fetch origin %q)\n",
-			repoPath, record.RefPrefix, record.FetchRefspec,
+			repoPath, record.RefPrefix, record.SyncRefspec,
 		)
 		return nil
 	}
@@ -233,7 +233,7 @@ func explainCheckpoint(repoPath string, args []string, jsonOut bool) error {
 		return fmt.Errorf(
 			"recording has never run in %s (no %s; on a clone, fetch it with: "+
 				"git fetch origin %q)",
-			repoPath, record.RefPrefix, record.FetchRefspec,
+			repoPath, record.RefPrefix, record.SyncRefspec,
 		)
 	}
 	if err != nil {
@@ -309,7 +309,7 @@ func searchCheckpoints(repoPath string, args []string) error {
 		return fmt.Errorf(
 			"recording has never run in %s (no %s; on a clone, fetch it with: "+
 				"git fetch origin %q)",
-			repoPath, record.RefPrefix, record.FetchRefspec,
+			repoPath, record.RefPrefix, record.SyncRefspec,
 		)
 	}
 	if err != nil {

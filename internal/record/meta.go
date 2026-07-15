@@ -7,9 +7,11 @@ import "time"
 // the pre-ref-store chain ref the writer deletes on sight.
 const RefPrefix = "refs/wasa/checkpoints"
 
-// FetchRefspec transfers the whole record to a fresh clone in one fetch:
-// git fetch origin "refs/wasa/checkpoints/*:refs/wasa/checkpoints/*".
-const FetchRefspec = "refs/wasa/checkpoints/*:refs/wasa/checkpoints/*"
+// SyncRefspec covers every namespace under refs/wasa — today checkpoints,
+// tomorrow reviews — in one refspec, so `wasa push`/`wasa pull` (and a
+// fresh-clone fetch) transfer the whole record without knowing what lives
+// under it: git fetch origin "refs/wasa/*:refs/wasa/*".
+const SyncRefspec = "refs/wasa/*:refs/wasa/*"
 
 // StorageVersion tags meta.json with the on-disk layout so readers can
 // dispatch on it forever after. "refs-1" is the per-checkpoint ref store.
