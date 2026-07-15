@@ -1,0 +1,15 @@
+{
+  "sessionId": "d1f54093bfc7",
+  "workspaceId": "0c1bb6a9d11f",
+  "agent": "copilot",
+  "agentSessionId": "949fd8df-bf5a-4a5b-a923-0f1fdb332c6e",
+  "branch": "task/144-cross-session-collision-awareness-flag-when-live-sessions-edit-the-same-paths",
+  "baseCommit": "666b39745e13147c7b78c43502efe9363a600154",
+  "commit": "c31b1c7e0dbaf3547009852f7fbab26e9e6c84f6",
+  "commits": [
+    "c31b1c7e0dbaf3547009852f7fbab26e9e6c84f6"
+  ],
+  "startedAt": "2026-07-15T20:54:35.146625319+02:00",
+  "wasaVersion": "dev",
+  "storageVersion": "refs-1"
+}
