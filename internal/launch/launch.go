@@ -190,6 +190,11 @@ func CreateSession(
 // composition. A program with no recording integration — a shell, an unknown
 // agent — cannot be handed a positional prompt safely (it would run as a
 // command), so it is seeded nothing regardless of what the caller passed.
+// Aider is excluded the same way for a different reason: it has a recorder,
+// but no CLI seeding mechanism — --message/-m sends one message and exits
+// chat mode entirely, and a positional argument means "add this file", not
+// "say this" — so it always starts with an empty chat and the user types
+// their first prompt once it's running.
 func seedPrompt(
 	home string,
 	ws *registry.Workspace,
@@ -198,6 +203,9 @@ func seedPrompt(
 	p Params,
 ) string {
 	if _, ok := record.AgentForProgram(program); !ok {
+		return ""
+	}
+	if baseExe(program) == "aider" {
 		return ""
 	}
 	prompt := p.InitialPrompt

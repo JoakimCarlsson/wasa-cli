@@ -70,6 +70,7 @@ var recorders = []Recorder{
 	codexRecorder{},
 	copilotRecorder{},
 	cursorRecorder{},
+	aiderRecorder{},
 }
 
 // recorderFor returns the integration for a --tool value.

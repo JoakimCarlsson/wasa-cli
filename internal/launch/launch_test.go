@@ -294,6 +294,22 @@ func TestCreateSessionSeedsAgentPrompt(t *testing.T) {
 	if shell.spawnProgram != "/bin/bash" {
 		t.Fatalf("shell was seeded a prompt: spawned %q", shell.spawnProgram)
 	}
+
+	// Aider has a recorder (so AgentForProgram succeeds) but no CLI seeding
+	// mechanism: a positional argument means "add this file", not "say
+	// this". It must be spawned bare, exactly like the shell case above,
+	// even though it is a fully known, recorded agent.
+	aider := &recordingOps{}
+	if _, err := createSession(aider.ops(), "/home", reg, ws, Params{
+		Program:       "aider",
+		WorkingDir:    "/work",
+		InitialPrompt: "add snowflake ids",
+	}); err != nil {
+		t.Fatalf("createSession aider: %v", err)
+	}
+	if aider.spawnProgram != "aider" {
+		t.Fatalf("aider was seeded a prompt: spawned %q", aider.spawnProgram)
+	}
 }
 
 // TestCreateSessionSeedsCollisionNoteWhenEnabled checks the opt-in launch

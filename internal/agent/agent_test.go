@@ -29,6 +29,53 @@ func TestAgentsInvariants(t *testing.T) {
 	}
 }
 
+// declaredGapReasons is the parity allowlist for a capability every
+// currently-declared agent legitimately lacks: exe -> one-line rationale
+// (kept here, not in agent.go's comments, so this test is the single place
+// that must be touched — and so fails loudly — when a future agent leaves a
+// capability empty without a matching entry).
+var declaredConfigDirGapReasons = map[string]string{
+	"cursor-agent": "cursor-agent's CLI reference documents no config-dir override env var (only CURSOR_API_KEY); its config always lives under ~/.cursor",
+	"aider":        "aider resolves .aider.conf.yml from git root/cwd/home with no directory-override env var",
+}
+
+// TestCapabilityGapsAreDeclaredExplicit is the parity test the agent-parity
+// issue asks for: every declared agent must have each of {ConfigDirVar,
+// Autonomy, RecorderTool} either implemented or named, with a reason, in this
+// test's allowlist. An agent added to Agents with a capability left at its
+// zero value and no matching allowlist entry fails CI instead of shipping a
+// silently half-registered agent.
+func TestCapabilityGapsAreDeclaredExplicit(t *testing.T) {
+	for _, a := range Agents {
+		if a.ConfigDirVar == "" {
+			if _, ok := declaredConfigDirGapReasons[a.Exe]; !ok {
+				t.Errorf(
+					"agent %q has no ConfigDirVar and no declared reason in "+
+						"declaredConfigDirGapReasons; either give it one or "+
+						"add an explicit exception",
+					a.Exe,
+				)
+			}
+		}
+		if a.Autonomy == nil {
+			t.Errorf(
+				"agent %q has no Autonomy flag declared; every currently "+
+					"declared agent has one — if a future agent genuinely "+
+					"lacks one, add an explicit exception here",
+				a.Exe,
+			)
+		}
+		if a.RecorderTool == "" {
+			t.Errorf(
+				"agent %q has no RecorderTool declared; every currently "+
+					"declared agent has a recorder — if a future agent "+
+					"genuinely lacks one, add an explicit exception here",
+				a.Exe,
+			)
+		}
+	}
+}
+
 func TestExesPreservesOrder(t *testing.T) {
 	got := Exes()
 	if len(got) != len(Agents) {
@@ -59,8 +106,11 @@ func TestByRecorderTool(t *testing.T) {
 			a, ok,
 		)
 	}
-	if _, ok := ByRecorderTool("aider"); ok {
-		t.Fatal("ByRecorderTool(aider) reported found; want not found (no recorder)")
+	if a, ok := ByRecorderTool("aider"); !ok || a.Exe != "aider" {
+		t.Fatalf("ByRecorderTool(aider) = %+v, %v; want aider", a, ok)
+	}
+	if _, ok := ByRecorderTool("nonexistent"); ok {
+		t.Fatal("ByRecorderTool(nonexistent) reported found; want not found")
 	}
 }
 
@@ -71,8 +121,12 @@ func TestConfigDirVarAliasing(t *testing.T) {
 		wantOK  bool
 	}{
 		{"claude", "CLAUDE_CONFIG_DIR", true},
+		{"codex", "CODEX_HOME", true},
+		{"gemini", "GEMINI_CONFIG_DIR", true},
 		{"copilot", "GH_CONFIG_DIR", true},
 		{"gh", "GH_CONFIG_DIR", true},
+		{"cursor-agent", "", false},
+		{"aider", "", false},
 		{"bash", "", false},
 		{"", "", false},
 	}
