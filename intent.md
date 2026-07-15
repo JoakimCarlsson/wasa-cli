@@ -1,0 +1,1 @@
+https://github.com/JoakimCarlsson/wasa-cli/issues/147 then commit, push and open a pr and follow our tpr template
