@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
 	"github.com/joakimcarlsson/wasa-cli/internal/record"
@@ -25,7 +25,7 @@ func searchModel(t *testing.T) Model {
 	m := New(t.TempDir(), reg, ws.ID, config.Default())
 	m.width, m.height = 120, 30
 
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	next, _ := m.updateList(tea.KeyPressMsg{Text: "/", Code: '/'})
 	return next.(Model)
 }
 
@@ -35,7 +35,7 @@ func typeSearch(t *testing.T, m Model, text string) Model {
 	t.Helper()
 	for _, r := range text {
 		next, _ := m.updateCheckpointSearch(
-			tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}},
+			tea.KeyPressMsg{Text: string(r), Code: r},
 		)
 		m = next.(Model)
 	}
@@ -65,7 +65,7 @@ func TestSearchKeyOpensSearch(t *testing.T) {
 func TestSearchTypingSchedulesDebouncedScan(t *testing.T) {
 	m := searchModel(t)
 	next, cmd := m.updateCheckpointSearch(
-		tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}},
+		tea.KeyPressMsg{Text: "r", Code: 'r'},
 	)
 	m = next.(Model)
 	if !m.checkpointSearch.pending {
@@ -84,10 +84,10 @@ func TestSearchEmptyQueryClearsHits(t *testing.T) {
 	m = typeSearch(t, m, "retry")
 	m.checkpointSearch.hits = []record.SearchHit{hit("s1", "b", "intent", "x")}
 
-	next, _ := m.updateCheckpointSearch(tea.KeyMsg{Type: tea.KeyBackspace})
+	next, _ := m.updateCheckpointSearch(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	for m.checkpointSearch.query != "" {
 		m = next.(Model)
-		next, _ = m.updateCheckpointSearch(tea.KeyMsg{Type: tea.KeyBackspace})
+		next, _ = m.updateCheckpointSearch(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	}
 	m = next.(Model)
 
@@ -163,7 +163,7 @@ func TestSearchCursorClamped(t *testing.T) {
 	m = next.(Model)
 
 	for range 5 {
-		next, _ = m.updateCheckpointSearch(tea.KeyMsg{Type: tea.KeyDown})
+		next, _ = m.updateCheckpointSearch(tea.KeyPressMsg{Code: tea.KeyDown})
 		m = next.(Model)
 	}
 	if m.checkpointSearch.cursor != 1 {
@@ -173,7 +173,7 @@ func TestSearchCursorClamped(t *testing.T) {
 		)
 	}
 	for range 5 {
-		next, _ = m.updateCheckpointSearch(tea.KeyMsg{Type: tea.KeyUp})
+		next, _ = m.updateCheckpointSearch(tea.KeyPressMsg{Code: tea.KeyUp})
 		m = next.(Model)
 	}
 	if m.checkpointSearch.cursor != 0 {
@@ -186,7 +186,7 @@ func TestSearchCursorClamped(t *testing.T) {
 
 func TestSearchEnterNoopWithoutHits(t *testing.T) {
 	m := searchModel(t)
-	next, _ := m.updateCheckpointSearch(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := m.updateCheckpointSearch(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(Model)
 	if m.mode != modeCheckpointSearch {
 		t.Fatal("enter with no results left the search overlay")
@@ -221,7 +221,7 @@ func TestSearchNoRecordShowsRecordingState(t *testing.T) {
 
 func TestSearchEscClosesToList(t *testing.T) {
 	m := searchModel(t)
-	next, _ := m.updateCheckpointSearch(tea.KeyMsg{Type: tea.KeyEsc})
+	next, _ := m.updateCheckpointSearch(tea.KeyPressMsg{Code: tea.KeyEsc})
 	m = next.(Model)
 	if m.mode != modeList {
 		t.Fatal("esc did not return to the session list")

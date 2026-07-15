@@ -2,13 +2,14 @@ package pane
 
 import (
 	"fmt"
+	"image/color"
 	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/tui/component"
@@ -82,7 +83,7 @@ func (d *Diff) SetTheme(theme theme.Theme) {
 // ctrl+f/ctrl+b/ctrl+u/ctrl+d chords and leaves the bare arrow keys to the list
 // so up/down keep moving the session cursor (which re-targets the diff).
 func newDiffViewport() viewport.Model {
-	vp := viewport.New(0, 0)
+	vp := viewport.New(viewport.WithWidth(0), viewport.WithHeight(0))
 	vp.KeyMap = viewport.KeyMap{
 		PageDown:     key.NewBinding(key.WithKeys("pgdown", "ctrl+f")),
 		PageUp:       key.NewBinding(key.WithKeys("pgup", "ctrl+b")),
@@ -182,7 +183,7 @@ func (d *Diff) Apply(msg DiffMsg) tea.Cmd {
 	d.err = msg.err
 	d.text = msg.text
 	d.added, d.removed = msg.added, msg.removed
-	d.vp.SetContent(renderDiff(d.theme, msg.text, d.vp.Width))
+	d.vp.SetContent(renderDiff(d.theme, msg.text, d.vp.Width()))
 	if changed {
 		d.vp.SetYOffset(0)
 	}
@@ -199,8 +200,8 @@ func (d Diff) SID() string {
 // paging math and render match what Body draws. The root runs it on resize and
 // whenever a diff is loaded, never per tick.
 func (d *Diff) Size(w, h int) {
-	d.vp.Width = max(w, 1)
-	d.vp.Height = max(h-1, 1)
+	d.vp.SetWidth(max(w, 1))
+	d.vp.SetHeight(max(h-1, 1))
 }
 
 // Body renders the Diff tab: a colorized git diff of the selected worktree
@@ -229,8 +230,8 @@ func (d Diff) Body(t theme.Theme, sess DiffSession, w, h int) string {
 	}
 
 	vp := d.vp
-	vp.Width = max(w, 1)
-	vp.Height = max(h-1, 1)
+	vp.SetWidth(max(w, 1))
+	vp.SetHeight(max(h-1, 1))
 	return diffSummaryLine(t, d.added, d.removed) + "\n" + vp.View()
 }
 
@@ -324,7 +325,7 @@ func renderDiff(t theme.Theme, text string, width int) string {
 // with the sign in the strong add/remove colour over the same band.
 func diffLine(
 	band lipgloss.Style,
-	signColor lipgloss.TerminalColor,
+	signColor color.Color,
 	t theme.Theme,
 	oldStr string, newLn int,
 	sign, content string,

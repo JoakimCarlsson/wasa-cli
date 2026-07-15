@@ -1,9 +1,12 @@
 package theme
 
 import (
+	"image/color"
+	"reflect"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/compat"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
 )
@@ -13,12 +16,14 @@ import (
 func TestDefaultThemeIsHistoricalPalette(t *testing.T) {
 	th := NewTheme(config.Default().Theme)
 
-	if got := th.TitleStyle.GetForeground(); got != (lipgloss.AdaptiveColor{Light: "#874BFD", Dark: "#7D56F4"}) {
+	wantAccent := compat.AdaptiveColor{
+		Light: lipgloss.Color("#874BFD"),
+		Dark:  lipgloss.Color("#7D56F4"),
+	}
+	if got := th.TitleStyle.GetForeground(); !reflect.DeepEqual(got, wantAccent) {
 		t.Errorf("accent: got %v", got)
 	}
-	if got := th.RunningDotStyle.GetForeground(); got != lipgloss.Color(
-		"#51bd73",
-	) {
+	if got := th.RunningDotStyle.GetForeground(); got != lipgloss.Color("#51bd73") {
 		t.Errorf("running dot: got %v", got)
 	}
 	if got := th.ActiveTabStyle.GetForeground(); got != lipgloss.Color("230") {
@@ -34,7 +39,7 @@ func TestNewThemeOverridesAccent(t *testing.T) {
 	th := NewTheme(cfg)
 
 	want := lipgloss.Color("#abcdef")
-	for name, got := range map[string]lipgloss.TerminalColor{
+	for name, got := range map[string]color.Color{
 		"title":   th.TitleStyle.GetForeground(),
 		"pane":    th.PaneStyle.GetBorderTopForeground(),
 		"banner":  th.BannerStyle.GetForeground(),

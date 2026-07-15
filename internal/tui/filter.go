@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/registry"
 	"github.com/joakimcarlsson/wasa-cli/internal/tui/component"
@@ -92,7 +92,7 @@ func (m Model) enterFilter() (tea.Model, tea.Cmd) {
 	in.Prompt = "> "
 	in.Placeholder = "filter — prefix running/exited/paused"
 	in.CharLimit = 200
-	in.Width = max(m.listColWidth()-4, 10)
+	in.SetWidth(max(m.listColWidth()-4, 10))
 	in.Focus()
 
 	m.filter = filterState{active: true, input: in}
@@ -114,7 +114,7 @@ func (m Model) exitFilter() (tea.Model, tea.Cmd) {
 // query, after which the cursor is clamped into the narrowed set and the preview
 // re-targeted so the live view tracks the new selection.
 func (m Model) updateFilter(msg tea.Msg) (tea.Model, tea.Cmd) {
-	key, ok := msg.(tea.KeyMsg)
+	key, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		var cmd tea.Cmd
 		m.filter.input, cmd = m.filter.input.Update(msg)

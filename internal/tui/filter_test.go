@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
 	"github.com/joakimcarlsson/wasa-cli/internal/registry"
@@ -52,7 +52,7 @@ func typeFilter(t *testing.T, m Model, text string) Model {
 	t.Helper()
 	for _, r := range text {
 		next, _ := m.updateList(
-			tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}},
+			tea.KeyPressMsg{Text: string(r), Code: r},
 		)
 		m = next.(Model)
 	}
@@ -73,7 +73,7 @@ func TestFilterKeyOpensFilter(t *testing.T) {
 		t.Fatal("precondition: filter should start inactive")
 	}
 
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
+	next, _ := m.updateList(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	m = next.(Model)
 	if !m.filter.active {
 		t.Fatal("ctrl+f did not open the session filter")
@@ -88,7 +88,7 @@ func TestFilterEnterIsNoopWithoutSessions(t *testing.T) {
 	ws, _ := reg.EnsureWorkspace("/repo", "", "repo")
 	m := New(t.TempDir(), reg, ws.ID, config.Default())
 
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
+	next, _ := m.updateList(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	if next.(Model).filter.active {
 		t.Fatal("filter opened over an empty session list")
 	}
@@ -96,7 +96,7 @@ func TestFilterEnterIsNoopWithoutSessions(t *testing.T) {
 
 func TestFilterByName(t *testing.T) {
 	m := filterModel(t)
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
+	next, _ := m.updateList(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	m = next.(Model)
 
 	m = typeFilter(t, m, "login")
@@ -110,7 +110,7 @@ func TestFilterByName(t *testing.T) {
 // branches, not the titles.
 func TestFilterMatchesBranch(t *testing.T) {
 	m := filterModel(t)
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
+	next, _ := m.updateList(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	m = next.(Model)
 
 	m = typeFilter(t, m, "feat")
@@ -128,7 +128,7 @@ func TestFilterMatchesBranch(t *testing.T) {
 
 func TestFilterStatusTokenRunning(t *testing.T) {
 	m := filterModel(t)
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
+	next, _ := m.updateList(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	m = next.(Model)
 
 	m = typeFilter(t, m, "running")
@@ -149,7 +149,7 @@ func TestFilterStatusTokenRunning(t *testing.T) {
 // matches "log" but is running.
 func TestFilterStatusTokenExitedWithText(t *testing.T) {
 	m := filterModel(t)
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
+	next, _ := m.updateList(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	m = next.(Model)
 
 	m = typeFilter(t, m, "exited log")
@@ -162,7 +162,7 @@ func TestFilterStatusTokenExitedWithText(t *testing.T) {
 func TestFilterStatusTokenPaused(t *testing.T) {
 	m := filterModel(t)
 	m.reg.MarkPaused("s4")
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
+	next, _ := m.updateList(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	m = next.(Model)
 
 	m = typeFilter(t, m, "paused")
@@ -178,7 +178,7 @@ func TestFilterStatusTokenPaused(t *testing.T) {
 func TestFilterStatusTokenExitedExcludesPaused(t *testing.T) {
 	m := filterModel(t)
 	m.reg.MarkPaused("s4")
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
+	next, _ := m.updateList(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	m = next.(Model)
 
 	m = typeFilter(t, m, "exited")
@@ -190,14 +190,14 @@ func TestFilterStatusTokenExitedExcludesPaused(t *testing.T) {
 
 func TestFilterEmptyResultShowsNoMatches(t *testing.T) {
 	m := filterModel(t)
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
+	next, _ := m.updateList(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	m = next.(Model)
 
 	m = typeFilter(t, m, "zzzznope")
 	if got := len(m.sessions()); got != 0 {
 		t.Fatalf("nonsense filter matched %d sessions, want 0", got)
 	}
-	if out := m.View(); !strings.Contains(out, "no matches") {
+	if out := plainViewContent(m); !strings.Contains(out, "no matches") {
 		t.Fatalf(
 			"empty filter result did not show a no-matches state:\n%s",
 			out,
@@ -211,7 +211,7 @@ func TestFilterEmptyResultShowsNoMatches(t *testing.T) {
 func TestFilterClampsCursorIntoNarrowedSet(t *testing.T) {
 	m := filterModel(t)
 	m.cursor = 3
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
+	next, _ := m.updateList(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	m = next.(Model)
 
 	m = typeFilter(t, m, "login")
@@ -231,7 +231,7 @@ func TestFilterClampsCursorIntoNarrowedSet(t *testing.T) {
 
 func TestFilterEscRestoresFullList(t *testing.T) {
 	m := filterModel(t)
-	next, _ := m.updateList(tea.KeyMsg{Type: tea.KeyCtrlF})
+	next, _ := m.updateList(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	m = next.(Model)
 	m = typeFilter(t, m, "login")
 	if len(m.sessions()) != 1 {
@@ -241,7 +241,7 @@ func TestFilterEscRestoresFullList(t *testing.T) {
 		)
 	}
 
-	next, _ = m.updateList(tea.KeyMsg{Type: tea.KeyEsc})
+	next, _ = m.updateList(tea.KeyPressMsg{Code: tea.KeyEsc})
 	m = next.(Model)
 	if m.filter.active {
 		t.Fatal("esc did not close the filter")

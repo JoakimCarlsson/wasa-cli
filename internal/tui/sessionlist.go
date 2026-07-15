@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
@@ -28,16 +28,14 @@ import (
 const chromeRows = 6
 
 // View implements tea.Model.
-func (m Model) View() string {
-	if m.mode == modeCreate {
-		return m.form.View() + "\n" + m.statusLine()
-	}
-
-	if m.mode == modeCheckpoints {
-		return m.checkpointsView()
-	}
-
-	if m.mode == modePick || m.mode == modePickBranch {
+func (m Model) View() tea.View {
+	var content string
+	switch m.mode {
+	case modeCreate:
+		content = m.form.View() + "\n" + m.statusLine()
+	case modeCheckpoints:
+		content = m.checkpointsView()
+	case modePick, modePickBranch:
 		bg := lipgloss.Place(
 			max(m.width, m.cfg.Layout.CompactWidth), max(m.height-1, 1),
 			lipgloss.Left, lipgloss.Top, m.form.View(),
@@ -46,23 +44,21 @@ func (m Model) View() string {
 		if m.mode == modePickBranch {
 			overlay = m.branch.View()
 		}
-		return component.PlaceOverlay(overlay, bg) + "\n" + m.statusLine()
+		content = component.PlaceOverlay(overlay, bg) + "\n" + m.statusLine()
+	case modePickWorkspace:
+		content = component.Modal(m.picker.View(), m.listView())
+	case modeConfirm:
+		content = component.Modal(m.confirm.View(), m.listView())
+	case modeConfig:
+		content = component.Modal(m.editor.View(), m.listView())
+	case modeCheckpointSearch:
+		content = component.Modal(m.checkpointSearchView(), m.listView())
+	default:
+		content = m.listView()
 	}
-
-	base := m.listView()
-	if m.mode == modePickWorkspace {
-		return component.Modal(m.picker.View(), base)
-	}
-	if m.mode == modeConfirm {
-		return component.Modal(m.confirm.View(), base)
-	}
-	if m.mode == modeConfig {
-		return component.Modal(m.editor.View(), base)
-	}
-	if m.mode == modeCheckpointSearch {
-		return component.Modal(m.checkpointSearchView(), base)
-	}
-	return base
+	v := tea.NewView(content)
+	v.AltScreen = true
+	return v
 }
 
 // listView is the cockpit's normal frame: the workspace tabs, the session list
