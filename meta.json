@@ -1,0 +1,15 @@
+{
+  "sessionId": "fe5f3d0ce82d",
+  "workspaceId": "0c1bb6a9d11f",
+  "agent": "copilot",
+  "agentSessionId": "3599318b-4e15-46e8-a6d4-89048eed9b3c",
+  "branch": "task/141-upgrade-the-tui-to-new-bubble-tea-v2",
+  "baseCommit": "bf8b97e6a31f7a49f24bc046479c987462b6220c",
+  "commits": [
+    "24c12a8e1056819cd420b02bd13d74369892122d"
+  ],
+  "startedAt": "2026-07-15T06:01:57.190418768+02:00",
+  "finishedAt": "2026-07-15T06:33:39.074947592+02:00",
+  "wasaVersion": "dev",
+  "storageVersion": "refs-1"
+}
