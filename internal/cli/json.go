@@ -141,6 +141,7 @@ type checkpointJSON struct {
 	CommitSHA  string    `json:"commitSHA,omitempty"`
 	When       time.Time `json:"when"`
 	State      string    `json:"state"`
+	Signature  string    `json:"signature,omitempty"`
 	Intent     string    `json:"intent,omitempty"`
 	Transcript string    `json:"transcript,omitempty"`
 }
@@ -166,6 +167,7 @@ func explainPayload(
 			CommitSHA: m.CommitSHA,
 			When:      m.When,
 			State:     checkpointState(m.Meta),
+			Signature: string(m.Signature),
 			Intent:    m.Intent,
 		}
 		if !withoutTranscript && len(m.Transcript) != 0 {

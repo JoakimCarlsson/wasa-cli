@@ -24,6 +24,7 @@ type Config struct {
 	Notify    Notify    `json:"notify"`
 	History   History   `json:"history"`
 	Collision Collision `json:"collision"`
+	Sign      Sign      `json:"sign"`
 
 	Path string `json:"-"`
 }
@@ -45,6 +46,19 @@ type History struct {
 type Collision struct {
 	Enabled  bool `json:"enabled"`
 	MaxPaths int  `json:"maxPaths"`
+}
+
+// Sign controls signing the git commits wasa writes to refs/wasa/*
+// (checkpoints, and reviews if present) using the same signing setup the
+// user already has for their own commits — git's own user.signingkey,
+// gpg.format (openpgp or ssh) and gpg.program, honored via `git commit-tree
+// -S`. Disabled by default: it is a teams/sync feature that costs nothing
+// and gains nothing for the solo/offline case. Require, when true, skips a
+// record write (with a warning, never a crash) rather than falling back to
+// an unsigned commit when no signing key is configured.
+type Sign struct {
+	Enabled bool `json:"enabled"`
+	Require bool `json:"require"`
 }
 
 // Notify selects how the cockpit announces a session that transitions into
@@ -243,6 +257,7 @@ func Default() Config {
 		Notify:    NotifyBell,
 		History:   History{Enabled: true, MaxBytes: 6000},
 		Collision: Collision{Enabled: false, MaxPaths: 20},
+		Sign:      Sign{Enabled: false, Require: false},
 	}
 }
 

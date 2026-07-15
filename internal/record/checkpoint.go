@@ -26,6 +26,10 @@ type Checkpoint struct {
 	// commit date, so a backfilled session sorts and dates by its real time
 	// rather than the moment of import. Zero means "now" — live recording.
 	Timestamp time.Time
+	// Sign is the record.sign policy this checkpoint's commit honors. The
+	// zero value disables signing, so a caller that never resolves a policy
+	// gets today's unsigned commit unchanged.
+	Sign SignPolicy
 }
 
 // Write commits cp to its own ref refs/wasa/checkpoints/<shard>/<ulid> in the
@@ -78,8 +82,8 @@ func Write(repoDir string, cp Checkpoint) (string, error) {
 			"GIT_AUTHOR_DATE=" + stamp, "GIT_COMMITTER_DATE=" + stamp,
 		}
 	}
-	commit, err := gitInEnv(
-		repoDir, nil, dateEnv, "commit-tree", treeSHA, "-m", cp.Meta.SessionID,
+	commit, err := commitTree(
+		repoDir, treeSHA, cp.Meta.SessionID, dateEnv, cp.Sign,
 	)
 	if err != nil {
 		return "", fmt.Errorf("commit-tree: %w", err)

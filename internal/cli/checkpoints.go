@@ -118,6 +118,7 @@ func listCheckpoints(repoPath string, jsonOut bool) error {
 				CommitSHA: e.CommitSHA,
 				When:      e.When,
 				State:     checkpointState(e.Meta),
+				Signature: string(e.Signature),
 			})
 		}
 		return emitJSON(os.Stdout, checkpointsJSON{Checkpoints: items})
@@ -132,8 +133,20 @@ func listCheckpoints(repoPath string, jsonOut bool) error {
 		return nil
 	}
 
+	showSignatures := false
+	for _, e := range entries {
+		if e.Signature != record.SignatureUnsigned {
+			showSignatures = true
+			break
+		}
+	}
+
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "SESSION\tBRANCH\tWHEN\tCOMMITS\tSTATE")
+	if showSignatures {
+		fmt.Fprintln(w, "SESSION\tBRANCH\tWHEN\tCOMMITS\tSTATE\tSIGN")
+	} else {
+		fmt.Fprintln(w, "SESSION\tBRANCH\tWHEN\tCOMMITS\tSTATE")
+	}
 	for _, e := range entries {
 		state := "open"
 		if !e.Meta.FinishedAt.IsZero() {
@@ -143,6 +156,18 @@ func listCheckpoints(repoPath string, jsonOut bool) error {
 			state += ", imported"
 		} else if e.Meta.Unmanaged {
 			state += ", unmanaged"
+		}
+		if showSignatures {
+			fmt.Fprintf(
+				w, "%s\t%s\t%s\t%d\t%s\t%s\n",
+				e.Meta.SessionID,
+				e.Meta.Branch,
+				e.When.Local().Format("2006-01-02 15:04"),
+				len(e.Meta.Commits),
+				state,
+				e.Signature,
+			)
+			continue
 		}
 		fmt.Fprintf(
 			w, "%s\t%s\t%s\t%d\t%s\n",
@@ -180,6 +205,7 @@ func showCheckpoint(repoPath string, args []string, jsonOut bool) error {
 			CommitSHA: e.CommitSHA,
 			When:      e.When,
 			State:     checkpointState(e.Meta),
+			Signature: string(e.Signature),
 			Intent:    intent,
 		}
 		if len(transcript) != 0 {
@@ -194,6 +220,9 @@ func showCheckpoint(repoPath string, args []string, jsonOut bool) error {
 	}
 	fmt.Fprintf(os.Stdout, "session %s (checkpoint %s)\n\n",
 		e.Meta.SessionID, e.CommitSHA)
+	if e.Signature != record.SignatureUnsigned {
+		fmt.Fprintf(os.Stdout, "signature: %s\n\n", e.Signature)
+	}
 	fmt.Fprintf(os.Stdout, "intent:\n%s\n\n", indent(intent))
 	fmt.Fprintf(os.Stdout, "meta:\n%s\n\n", indent(string(meta)))
 	if len(transcript) == 0 {

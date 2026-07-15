@@ -27,6 +27,11 @@ type Entry struct {
 	// Meta is the checkpoint's parsed meta.json; when the blob is missing or
 	// malformed only SessionID (from the commit subject) is filled in.
 	Meta Meta
+	// Signature is the checkpoint commit's signature status, verified the
+	// same way `git verify-commit` would (see VerifyCommit). It is always
+	// SignatureUnsigned for a record written before signing was configured,
+	// which is the common, expected case.
+	Signature SignatureStatus
 }
 
 // List returns the newest checkpoint of every recorded session, newest
@@ -268,7 +273,10 @@ func forEachRef(repoDir string) ([]refInfo, error) {
 // readEntry loads a checkpoint's meta.json, degrading to the subject-derived
 // session id when the blob is missing or malformed.
 func readEntry(repoDir string, r refInfo) Entry {
-	e := Entry{Ref: r.ref, ID: r.id, CommitSHA: r.sha, When: r.when}
+	e := Entry{
+		Ref: r.ref, ID: r.id, CommitSHA: r.sha, When: r.when,
+		Signature: VerifyCommit(repoDir, r.sha),
+	}
 	e.Meta.SessionID = r.session
 	if raw, err := gitIn(
 		repoDir, nil, "show", r.sha+":meta.json",
