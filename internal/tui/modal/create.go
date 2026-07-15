@@ -88,18 +88,18 @@ type CreateForm struct {
 	err           string
 }
 
-// NewCreateForm builds the create form for a workspace's profiles, styled with
-// theme. workspaceRepo is the active workspace's repository root, or "" when wasa
-// is creating a session outside any workspace (the orphan/scratch case). A
-// non-empty workspaceRepo drops the Directory field and anchors the session to
-// that repo; an empty one restores the Directory field, which starts focused and
-// empty, as the session's only anchor.
 // formInputWidth is the visible width given to every text input in the create
 // form. Bubbles v2 clips a textinput's placeholder (and value) to its
 // configured width, collapsing to a single character when unset, so each field
 // needs an explicit width wide enough to show its longest placeholder in full.
 const formInputWidth = 50
 
+// NewCreateForm builds the create form for a workspace's profiles, styled with
+// theme. workspaceRepo is the active workspace's repository root, or "" when wasa
+// is creating a session outside any workspace (the orphan/scratch case). A
+// non-empty workspaceRepo drops the Directory field and anchors the session to
+// that repo; an empty one restores the Directory field, which starts focused and
+// empty, as the session's only anchor.
 func NewCreateForm(
 	theme theme.Theme,
 	profiles []string,
