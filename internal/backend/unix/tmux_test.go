@@ -80,7 +80,7 @@ func TestTargetArgs(t *testing.T) {
 		{
 			"capture",
 			captureArgs("s"),
-			[]string{"capture-pane", "-e", "-p", "-t", "s"},
+			[]string{"capture-pane", "-e", "-J", "-p", "-t", "s"},
 		},
 		{
 			"list",
