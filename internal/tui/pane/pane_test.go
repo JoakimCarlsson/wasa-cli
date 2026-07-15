@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/joakimcarlsson/wasa-cli/internal/backend"
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
 	"github.com/joakimcarlsson/wasa-cli/internal/tui/theme"
@@ -531,4 +533,55 @@ func gitInit(t *testing.T, dir string) {
 	run("config", "user.email", "test@example.com")
 	run("config", "user.name", "test")
 	run("commit", "--allow-empty", "-m", "initial")
+}
+
+// TestTabbedBodyMatchesListPaneHeight guards the invariant #152 restores: for a
+// capture with far more (and wider) lines than fit, the right pane's rendered
+// height must exactly equal the left sessions pane's, in every tab, so the menu
+// bar and status line are never pushed off screen. Lip Gloss v2 style Width/
+// Height treat their argument as the frame's outer, border-inclusive size and
+// never truncate oversized content, so a body fed the wrong inner dimensions
+// silently grows past bodyH.
+func TestTabbedBodyMatchesListPaneHeight(t *testing.T) {
+	th := testTheme()
+	const contentW, bodyH = 60, 24
+
+	list := th.PaneStyle.Width(contentW).Height(bodyH).Render("sessions")
+	wantH := lipgloss.Height(list)
+
+	long := strings.Repeat("x", contentW*3)
+	var lines []string
+	for range bodyH * 3 {
+		lines = append(lines, long)
+	}
+	capture := strings.Join(lines, "\n")
+
+	fs := &fakeStream{}
+	tb := NewTabbed(fs, fs, th)
+	tb.Preview.SetTarget("wasa_s1")
+	tb.Preview.Apply(
+		PreviewMsg{gen: tb.Preview.watchGen, content: capture, ok: true},
+	)
+
+	diffSess := DiffSession{Selected: true, ID: "s1"}
+	termSess := TermSession{Selected: true, CompanionName: "s1"}
+
+	for _, tab := range []Tab{TabPreview, TabDiff, TabTerminal} {
+		tb.active = tab
+		body := tb.Body(th, contentW, bodyH, true, diffSess, termSess)
+		if got := lipgloss.Height(body); got != wantH {
+			t.Errorf(
+				"tab %v: Tabbed.Body height = %d, want %d (list pane height)",
+				tab, got, wantH,
+			)
+		}
+		for i, ln := range strings.Split(body, "\n") {
+			if w := lipgloss.Width(ln); w > contentW+2 {
+				t.Errorf(
+					"tab %v: line %d width = %d, want <= %d (no wrap)",
+					tab, i, w, contentW+2,
+				)
+			}
+		}
+	}
 }

@@ -94,6 +94,12 @@ type CreateForm struct {
 // non-empty workspaceRepo drops the Directory field and anchors the session to
 // that repo; an empty one restores the Directory field, which starts focused and
 // empty, as the session's only anchor.
+// formInputWidth is the visible width given to every text input in the create
+// form. Bubbles v2 clips a textinput's placeholder (and value) to its
+// configured width, collapsing to a single character when unset, so each field
+// needs an explicit width wide enough to show its longest placeholder in full.
+const formInputWidth = 50
+
 func NewCreateForm(
 	theme theme.Theme,
 	profiles []string,
@@ -102,18 +108,22 @@ func NewCreateForm(
 	dir := textinput.New()
 	dir.Placeholder = "ctrl+f to browse, or empty for here"
 	dir.CharLimit = 4096
+	dir.SetWidth(formInputWidth)
 
 	branch := textinput.New()
 	branch.Placeholder = "ctrl+f to pick a branch (worktree session)"
 	branch.CharLimit = 200
+	branch.SetWidth(formInputWidth)
 
 	title := textinput.New()
 	title.Placeholder = "optional title"
 	title.CharLimit = 200
+	title.SetWidth(formInputWidth)
 
 	prompt := textinput.New()
 	prompt.Placeholder = "optional — what this session should do"
 	prompt.CharLimit = 4096
+	prompt.SetWidth(formInputWidth)
 
 	shell := launch.Shell()
 	programs := append(launch.DetectAgents(), shell)
