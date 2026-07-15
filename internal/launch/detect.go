@@ -3,20 +3,15 @@ package launch
 import (
 	"os"
 	"os/exec"
+
+	"github.com/joakimcarlsson/wasa-cli/internal/agent"
 )
 
 // KnownAgents is the ordered set of AI coding-agent CLIs wasa probes for on
-// PATH. It is the single place to teach wasa a new agent: append the binary
-// name and detection follows it. The order is also the presentation order in
-// the create-session menu.
-var KnownAgents = []string{
-	"claude",       // Claude Code
-	"codex",        // OpenAI Codex CLI
-	"copilot",      // GitHub Copilot CLI
-	"gemini",       // Gemini CLI
-	"cursor-agent", // Cursor CLI
-	"aider",        // Aider
-}
+// PATH, derived from the canonical agent.Agents registry. To teach wasa a new
+// agent, add it to agent.Agents; detection and the create-session menu order
+// follow from there.
+var KnownAgents = agent.Exes()
 
 // DetectAgents returns the subset of KnownAgents resolvable on PATH, preserving
 // KnownAgents order. The result is empty when none of the known agents are
