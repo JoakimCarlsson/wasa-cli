@@ -203,6 +203,13 @@ func (m Model) sessionRow(i int, s *registry.Session, w int) string {
 	rs := m.runtimeStatus(s)
 	prefix := fmt.Sprintf(" %d ", i+1)
 	head := fmt.Sprintf("%s%s %s", prefix, statusDot(m.theme, rs), title)
+	if len(m.collisions[s.ID]) > 0 {
+		warn := m.theme.ErrorStyle
+		if selected {
+			warn = warn.Background(m.theme.SelRowTitleStyle.GetBackground())
+		}
+		head += " " + warn.Render(collisionIcon)
+	}
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -421,7 +428,40 @@ func (m Model) statusLine() string {
 	if m.status != "" {
 		return m.theme.DimStyle.Render(" " + m.status)
 	}
+	if line := m.collisionLine(); line != "" {
+		return line
+	}
 	return ""
+}
+
+// collisionLine reports, for the selected session, which live sessions it
+// shares changed paths with and which paths — "also edited by <session> —
+// foo.go, bar.go" — so the overlap named by the row's badge (see sessionRow)
+// is explained without leaving the list. It returns "" when nothing is
+// selected or the selected session collides with nothing, and only backs the
+// status line when there is no error or status message to take priority over
+// it.
+func (m Model) collisionLine() string {
+	s := m.selectedSession()
+	if s == nil {
+		return ""
+	}
+	overlaps := m.collisions[s.ID]
+	if len(overlaps) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(overlaps))
+	for _, ov := range overlaps {
+		name := ov.SessionID
+		if other, ok := m.reg.Session(ov.SessionID); ok {
+			title, _ := sessionLabel(other)
+			name = title
+		}
+		parts = append(parts, fmt.Sprintf(
+			"also edited by %s — %s", name, strings.Join(ov.Paths, ", "),
+		))
+	}
+	return m.theme.ErrorStyle.Render(" " + strings.Join(parts, "; "))
 }
 
 func (m Model) compactView() string {

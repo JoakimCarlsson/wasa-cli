@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/backend"
+	"github.com/joakimcarlsson/wasa-cli/internal/collision"
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
 	"github.com/joakimcarlsson/wasa-cli/internal/launch"
 	"github.com/joakimcarlsson/wasa-cli/internal/record"
@@ -99,6 +100,12 @@ type Model struct {
 	lastStatus   map[string]sessionstatus.Status
 	churn        map[string]churnStat
 
+	// collisions maps a session ID to the other live worktree sessions in its
+	// workspace that share at least one changed path with it, recomputed on
+	// the churn tick from the same Numstat read that fills churn — see
+	// internal/collision. A session absent from the map has no collision.
+	collisions map[string][]collision.Overlap
+
 	// recording maps a workspace ID to the recording agents wired in its repo
 	// (from record.InstalledAgents). It is derived, not stored: rebuilt on
 	// refresh and every tick so a change made by `wasa record` in another
@@ -144,6 +151,7 @@ func New(
 		lastNotifyAt: make(map[string]time.Time),
 		lastStatus:   make(map[string]sessionstatus.Status),
 		churn:        make(map[string]churnStat),
+		collisions:   make(map[string][]collision.Overlap),
 		recording:    make(map[string][]string),
 		recorded:     make(map[string]record.Entry),
 	}
@@ -218,7 +226,8 @@ func tick() tea.Cmd {
 type churnTickMsg struct{}
 
 type churnMsg struct {
-	stats map[string]churnStat
+	stats   map[string]churnStat
+	changed map[string][]string
 }
 
 func churnTick() tea.Cmd {
@@ -637,6 +646,9 @@ func (m Model) submitCreate() (tea.Model, tea.Cmd) {
 	}
 	if m.cfg.History.Enabled {
 		params.HistoryMaxBytes = m.cfg.History.MaxBytes
+	}
+	if m.cfg.Collision.Enabled {
+		params.CollisionMaxPaths = m.cfg.Collision.MaxPaths
 	}
 	m.mode = modeList
 	m.status = "creating session…"
@@ -1532,12 +1544,14 @@ type churnTarget struct {
 	workspaceID  string
 }
 
-// churnCmd computes the +N/−M churn of every worktree session concurrently and
-// returns it as a churnMsg. It returns nil — issuing no git commands — when no
-// worktree session is present, so a user living entirely in plain sessions pays
-// nothing on the tick. Each session is numstatted in its own goroutine, joined
-// before the message is returned, so a slow repository does not serialize the
-// tick. A session whose numstat errors is omitted rather than failing the batch.
+// churnCmd computes the +N/−M churn and the changed-path set of every worktree
+// session concurrently and returns it as a churnMsg, reading git once per
+// session (Numstat) for both. It returns nil — issuing no git commands — when
+// no worktree session is present, so a user living entirely in plain sessions
+// pays nothing on the tick. Each session is numstatted in its own goroutine,
+// joined before the message is returned, so a slow repository does not
+// serialize the tick. A session whose numstat errors is omitted from both maps
+// rather than failing the batch — the same contract collision detection needs.
 func (m Model) churnCmd() tea.Cmd {
 	targets := m.churnTargets()
 	if len(targets) == 0 {
@@ -1546,6 +1560,7 @@ func (m Model) churnCmd() tea.Cmd {
 	home := m.home
 	return func() tea.Msg {
 		stats := make(map[string]churnStat, len(targets))
+		changed := make(map[string][]string, len(targets))
 		var (
 			mu sync.Mutex
 			wg sync.WaitGroup
@@ -1554,19 +1569,27 @@ func (m Model) churnCmd() tea.Cmd {
 			wg.Add(1)
 			go func(t churnTarget) {
 				defer wg.Done()
-				added, removed, err := worktree.New(
+				entries, err := worktree.New(
 					t.repoPath, home, t.workspaceID,
-				).DiffNumstat(t.worktreePath, t.baseCommit)
+				).Numstat(t.worktreePath, t.baseCommit)
 				if err != nil {
 					return
 				}
+				var added, removed int
+				paths := make([]string, 0, len(entries))
+				for _, e := range entries {
+					added += e.Added
+					removed += e.Removed
+					paths = append(paths, e.Path)
+				}
 				mu.Lock()
 				stats[t.sessionID] = churnStat{added: added, removed: removed}
+				changed[t.sessionID] = paths
 				mu.Unlock()
 			}(t)
 		}
 		wg.Wait()
-		return churnMsg{stats: stats}
+		return churnMsg{stats: stats, changed: changed}
 	}
 }
 
@@ -1608,7 +1631,8 @@ func (m Model) churnTargets() []churnTarget {
 // blanking.
 func (m *Model) applyChurn(msg churnMsg) {
 	next := make(map[string]churnStat, len(msg.stats))
-	for _, s := range m.reg.ListSessions() {
+	sessions := m.reg.ListSessions()
+	for _, s := range sessions {
 		if c, ok := msg.stats[s.ID]; ok {
 			next[s.ID] = c
 			continue
@@ -1618,6 +1642,7 @@ func (m *Model) applyChurn(msg churnMsg) {
 		}
 	}
 	m.churn = next
+	m.collisions = collision.Compute(sessions, msg.changed)
 }
 
 // runtimeStatus is the status the list renders for a session: paused or exited
