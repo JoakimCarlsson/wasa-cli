@@ -3,8 +3,8 @@ package modal
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/tui/theme"
 )
@@ -55,7 +55,7 @@ func NewConfirmDialog(
 // a command that emits ConfirmAcceptedMsg or ConfirmCancelledMsg on the key that
 // settles the choice, or nil otherwise.
 func (d ConfirmDialog) Update(msg tea.Msg) (ConfirmDialog, tea.Cmd) {
-	key, ok := msg.(tea.KeyMsg)
+	key, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return d, nil
 	}

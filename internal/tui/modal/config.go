@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
 	"github.com/joakimcarlsson/wasa-cli/internal/tui/component"
@@ -348,7 +348,7 @@ func (e ConfigEditor) Update(msg tea.Msg) (ConfigEditor, tea.Cmd) {
 func (e ConfigEditor) updateList(
 	msg tea.Msg,
 ) (ConfigEditor, tea.Cmd) {
-	key, ok := msg.(tea.KeyMsg)
+	key, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return e, nil
 	}
@@ -397,7 +397,7 @@ func (e ConfigEditor) beginEdit() (ConfigEditor, tea.Cmd) {
 func (e ConfigEditor) updateText(
 	msg tea.Msg,
 ) (ConfigEditor, tea.Cmd) {
-	if key, ok := msg.(tea.KeyMsg); ok {
+	if key, ok := msg.(tea.KeyPressMsg); ok {
 		switch key.String() {
 		case "enter":
 			return e.commit(e.input.Value())
@@ -415,7 +415,7 @@ func (e ConfigEditor) updateText(
 func (e ConfigEditor) updateColor(
 	msg tea.Msg,
 ) (ConfigEditor, tea.Cmd) {
-	key, ok := msg.(tea.KeyMsg)
+	key, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return e, nil
 	}
@@ -434,7 +434,7 @@ func (e ConfigEditor) updateColor(
 func (e ConfigEditor) updateKeys(
 	msg tea.Msg,
 ) (ConfigEditor, tea.Cmd) {
-	key, ok := msg.(tea.KeyMsg)
+	key, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return e, nil
 	}
@@ -612,7 +612,7 @@ func newColorEditor(theme theme.Theme, c config.Color) colorEditor {
 	}
 }
 
-func (e colorEditor) update(key tea.KeyMsg) colorEditor {
+func (e colorEditor) update(key tea.KeyPressMsg) colorEditor {
 	k := key.String()
 	if k == e.lastKey {
 		e.repeat++

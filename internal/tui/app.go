@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/backend"
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
@@ -84,7 +84,8 @@ type Model struct {
 	// opens the browser on that checkpoint. Built fresh on open, cleared on close.
 	checkpointSearch checkpointSearchState
 
-	confirmCmd tea.Cmd
+	confirmCmd     tea.Cmd
+	confirmPending string
 
 	width  int
 	height int
@@ -171,9 +172,7 @@ func Run(
 	currentID string,
 	cfg config.Config,
 ) error {
-	_, err := tea.NewProgram(
-		New(home, reg, currentID, cfg), tea.WithAltScreen(),
-	).Run()
+	_, err := tea.NewProgram(New(home, reg, currentID, cfg)).Run()
 	return err
 }
 
@@ -453,11 +452,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.confirmCmd
 		m.mode = modeList
 		m.confirmCmd = nil
+		if m.confirmPending != "" {
+			m.status = m.confirmPending
+			m.confirmPending = ""
+		}
 		return m, cmd
 
 	case modal.ConfirmCancelledMsg:
 		m.mode = modeList
 		m.confirmCmd = nil
+		m.confirmPending = ""
 		return m, nil
 
 	case modal.FormSubmitMsg:
@@ -531,7 +535,7 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateFilter(msg)
 	}
 
-	key, ok := msg.(tea.KeyMsg)
+	key, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return m, nil
 	}
@@ -733,6 +737,7 @@ func (m Model) confirmInitWorkspace(path string) (tea.Model, tea.Cmd) {
 			false,
 		),
 		m.initWorkspaceCmd(path),
+		"initializing repository…",
 	)
 }
 
@@ -779,6 +784,7 @@ func (m Model) enterWorkspaceDelete() (tea.Model, tea.Cmd) {
 			m.theme, "Delete workspace", body, "Delete", "Cancel", true,
 		),
 		m.workspaceDeleteCmd(ws),
+		fmt.Sprintf("deleting workspace %q…", ws.Name),
 	)
 }
 
@@ -925,6 +931,7 @@ func (m Model) enterConfirmDelete() (tea.Model, tea.Cmd) {
 			m.theme, "Delete session", body, "Delete", "Cancel", true,
 		),
 		m.deleteCmd(s),
+		"deleting session…",
 	)
 }
 
@@ -947,6 +954,7 @@ func (m Model) enterConfirmKill() (tea.Model, tea.Cmd) {
 			m.theme, "Kill session", body, "Kill", "Cancel", true,
 		),
 		m.killCmd(s),
+		"killing session…",
 	)
 }
 
@@ -978,6 +986,7 @@ func (m Model) enterConfirmPause() (tea.Model, tea.Cmd) {
 			"Pause", "Cancel", true,
 		),
 		m.pauseCmd(s, false),
+		"pausing session…",
 	)
 }
 
@@ -1001,6 +1010,7 @@ func (m Model) enterConfirmForcePause(
 			m.theme, "Force pause", body, "Discard and pause", "Cancel", true,
 		),
 		m.pauseCmd(s, true),
+		"pausing session…",
 	)
 }
 
@@ -1035,6 +1045,7 @@ func (m Model) enterConfirmClearWorktree(msg createdMsg) (tea.Model, tea.Cmd) {
 			"Clear and create", "Cancel", true,
 		),
 		m.clearWorktreeCollisionCmd(msg),
+		"clearing worktree…",
 	)
 }
 
@@ -1060,13 +1071,17 @@ func (m Model) resume() (tea.Model, tea.Cmd) {
 }
 
 // enterConfirm opens dialog as a modal and stores onConfirm as the command to
-// run if it is accepted.
+// run if it is accepted. pending is the in-progress status shown from the
+// moment the dialog is accepted until onConfirm's result message lands; an
+// empty pending leaves the status untouched, as before.
 func (m Model) enterConfirm(
 	dialog modal.ConfirmDialog,
 	onConfirm tea.Cmd,
+	pending string,
 ) (tea.Model, tea.Cmd) {
 	m.confirm = dialog
 	m.confirmCmd = onConfirm
+	m.confirmPending = pending
 	m.mode = modeConfirm
 	m.err = nil
 	m.status = ""

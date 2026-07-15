@@ -37,7 +37,7 @@ func TestSessionListShowsRuntimeStatus(t *testing.T) {
 	m.lastStatus["wait"] = sessionstatus.Waiting
 	m.lastStatus["idle"] = sessionstatus.Idle
 
-	out := m.View()
+	out := plainViewContent(m)
 	for _, label := range []string{"working", "waiting", "idle", "exited"} {
 		if !strings.Contains(out, label) {
 			t.Fatalf("list missing %q state label:\n%s", label, out)
@@ -128,7 +128,7 @@ func TestSessionRowShowsChurn(t *testing.T) {
 	m.churn["w1"] = churnStat{added: 12, removed: 3}
 	m.churn["clean"] = churnStat{added: 0, removed: 0}
 
-	out := m.View()
+	out := plainViewContent(m)
 	if !strings.Contains(out, "+12/−3") {
 		t.Fatalf("row missing +12/−3 churn suffix:\n%s", out)
 	}
@@ -154,7 +154,7 @@ func TestSessionRowPlainSessionHasNoChurn(t *testing.T) {
 	m.width, m.height = 200, 30
 	m.churn["p1"] = churnStat{added: 9, removed: 9}
 
-	if out := m.View(); strings.Contains(out, "+9/−9") {
+	if out := plainViewContent(m); strings.Contains(out, "+9/−9") {
 		t.Fatalf("plain session rendered a churn suffix:\n%s", out)
 	}
 }
@@ -211,7 +211,7 @@ func TestSessionRowShowsRecordedIndicator(t *testing.T) {
 		Meta: record.Meta{SessionID: "rec", Commits: []string{"x", "y"}},
 	}
 
-	out := m.View()
+	out := plainViewContent(m)
 	if !strings.Contains(out, recordIcon+" 2") &&
 		!strings.Contains(out, recordIcon) {
 		t.Fatalf(

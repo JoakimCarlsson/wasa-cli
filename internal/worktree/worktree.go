@@ -353,9 +353,17 @@ func parseNumstat(out []byte) (added, removed int) {
 // branch -d); force deletes it regardless (git branch -D), discarding any
 // unmerged work. The finish lifecycle force-deletes because wasa never merges,
 // so a session's branch is routinely unmerged at teardown.
+//
+// A branch that no longer exists is treated as success: deletion's goal
+// (the branch is gone) already holds, so teardown callers such as
+// finish.Session must not hard-fail on a resource that's already absent.
 func (m *Manager) DeleteBranch(branch string, force bool) error {
 	if branch == "" {
 		return errors.New("branch must not be empty")
+	}
+
+	if !m.branchExists(branch) {
+		return nil
 	}
 
 	flag := "-d"
