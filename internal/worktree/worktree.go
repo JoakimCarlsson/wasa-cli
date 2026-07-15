@@ -103,14 +103,46 @@ func (m *Manager) Path(branch string) string {
 	})
 }
 
+// ErrWorktreeExists reports that a worktree already occupies branch's computed
+// path — typically a session from an earlier, undeleted run of the same branch.
+// Callers use errors.As to detect the collision and decide whether to clear the
+// existing worktree and retry Add, or to surface an actionable message instead
+// of git's raw `fatal: ... already exists`.
+type ErrWorktreeExists struct {
+	// Branch is the branch Add was asked to create a worktree for.
+	Branch string
+	// Path is the worktree path already occupying that branch's slot.
+	Path string
+}
+
+func (e *ErrWorktreeExists) Error() string {
+	return fmt.Sprintf(
+		"worktree for branch %q already exists at %s", e.Branch, e.Path,
+	)
+}
+
 // Add creates a worktree for branch at its computed path, creating the branch
 // from the current HEAD when it does not already exist, and returns the path.
+// When a worktree already occupies that path or is already registered against
+// branch, Add returns *ErrWorktreeExists instead of running git and surfacing
+// its raw failure, so a caller can offer to clear the stale worktree and retry.
 func (m *Manager) Add(branch string) (string, error) {
 	if branch == "" {
 		return "", errors.New("branch must not be empty")
 	}
 
 	path := m.Path(branch)
+	if list, err := m.List(); err == nil {
+		for _, w := range list {
+			if w.Path == path || w.Branch == branch {
+				return "", &ErrWorktreeExists{Branch: branch, Path: w.Path}
+			}
+		}
+	}
+	if _, err := os.Stat(path); err == nil {
+		return "", &ErrWorktreeExists{Branch: branch, Path: path}
+	}
+
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", fmt.Errorf("create worktree parent: %w", err)
 	}
@@ -123,9 +155,22 @@ func (m *Manager) Add(branch string) (string, error) {
 	}
 
 	if _, err := m.git(args...); err != nil {
+		if isAlreadyExistsErr(err) {
+			return "", &ErrWorktreeExists{Branch: branch, Path: path}
+		}
 		return "", err
 	}
 	return path, nil
+}
+
+// isAlreadyExistsErr reports whether git's worktree add failure is the
+// already-exists / already-checked-out collision, as a fallback classifier
+// for cases the proactive List/Stat check in Add did not catch (e.g. a race
+// with another process).
+func isAlreadyExistsErr(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "already exists") ||
+		strings.Contains(msg, "already checked out")
 }
 
 // List returns the worktrees registered for the repository.
@@ -163,7 +208,10 @@ func (m *Manager) Remove(target string, force bool) error {
 	}
 	if _, err := m.git(append(args, path)...); err != nil {
 		if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-			_, _ = m.git("worktree", "prune") // already gone; drop stale metadata
+			_, _ = m.git(
+				"worktree",
+				"prune",
+			) // already gone; drop stale metadata
 			return nil
 		}
 		return err

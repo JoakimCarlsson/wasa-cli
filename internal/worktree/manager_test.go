@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,6 +46,43 @@ func TestManagerAddListRemove(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("worktree dir still present after remove: %v", err)
+	}
+}
+
+func TestAddCollisionReturnsErrWorktreeExists(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available on PATH")
+	}
+
+	home := t.TempDir()
+	repo := t.TempDir()
+	initRepo(t, repo)
+
+	m := New(repo, home, "demo")
+	path, err := m.Add("task/again")
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	_, err = m.Add("task/again")
+	var exists *ErrWorktreeExists
+	if !errors.As(err, &exists) {
+		t.Fatalf("Add second time = %v, want *ErrWorktreeExists", err)
+	}
+	if exists.Branch != "task/again" || exists.Path != path {
+		t.Fatalf(
+			"ErrWorktreeExists = %+v, want branch %q path %q",
+			exists, "task/again", path,
+		)
+	}
+
+	// The collision must be resolvable: clearing the existing worktree lets
+	// a retried Add succeed at the same path.
+	if err := m.Remove(path, true); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if _, err := m.Add("task/again"); err != nil {
+		t.Fatalf("Add after clearing collision: %v", err)
 	}
 }
 

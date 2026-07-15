@@ -346,6 +346,71 @@ func createPlainSession(
 	return s, nil
 }
 
+// WorktreeCollision describes a worktree already occupying the path
+// CreateSession needs for a branch, as classified by DetectWorktreeCollision.
+// Session is the registry record that still points at the colliding worktree,
+// or nil when the worktree is stale — left behind with no matching record, e.g.
+// after a crash. Alive is only meaningful when Session is non-nil: it reports
+// whether that session's tmux window is still running, so a caller can require
+// extra confirmation before tearing down a live session.
+type WorktreeCollision struct {
+	Branch  string
+	Path    string
+	Session *registry.Session
+	Alive   bool
+}
+
+// DetectWorktreeCollision inspects err for the *worktree.ErrWorktreeExists
+// collision CreateSession's addWorktree step can return, and — when present —
+// resolves the session record that still owns the colliding worktree (if any)
+// and whether that session's tmux is still alive. It returns ok=false for any
+// other error, so a caller can fall back to surfacing it unchanged.
+func DetectWorktreeCollision(
+	reg *registry.Registry, ws *registry.Workspace, err error,
+) (WorktreeCollision, bool) {
+	var wtErr *worktree.ErrWorktreeExists
+	if !errors.As(err, &wtErr) {
+		return WorktreeCollision{}, false
+	}
+
+	col := WorktreeCollision{Branch: wtErr.Branch, Path: wtErr.Path}
+	if ws == nil {
+		return col, true
+	}
+	for _, s := range reg.ListSessions() {
+		if s.WorkspaceID == ws.ID && s.Branch == wtErr.Branch {
+			col.Session = s
+			break
+		}
+	}
+	if col.Session != nil && col.Session.TmuxName != "" {
+		alive, _ := backend.Default().Has(col.Session.TmuxName)
+		col.Alive = alive
+	}
+	return col, true
+}
+
+// ClearWorktreeCollision tears down whatever occupies col's path so a retried
+// CreateSession can succeed: when the collision belongs to a recorded session
+// its tmux is killed and its record dropped (the same reconciliation
+// DeleteSession performs), then the worktree itself is force-removed. It never
+// deletes the branch — Add reuses the surviving branch for the retry — and it
+// does not Save reg; the caller persists once the retry has also succeeded.
+func ClearWorktreeCollision(
+	reg *registry.Registry,
+	home string,
+	ws *registry.Workspace,
+	col WorktreeCollision,
+) error {
+	if col.Session != nil {
+		if err := DeleteSession(reg, col.Session); err != nil {
+			return err
+		}
+		_ = sessionstatus.Remove(home, col.Session.ID)
+	}
+	return worktree.New(ws.RepoPath, home, ws.ID).Remove(col.Path, true)
+}
+
 // PauseSession soft-stops s: its tmux is killed and its worktree removed, but —
 // unlike finish — its branch and its registry record are kept, and the session
 // is marked paused so ResumeSession can rebuild it. A plain session simply has

@@ -43,8 +43,9 @@ func runWorktree(args []string) error {
 }
 
 func worktreeAdd(args []string) error {
-	if len(args) != 1 {
-		return errors.New("usage: wasa worktree add <branch>")
+	branch, force, err := parseWorktreeAddArgs(args)
+	if err != nil {
+		return err
 	}
 
 	m, err := newManager()
@@ -52,12 +53,50 @@ func worktreeAdd(args []string) error {
 		return err
 	}
 
-	path, err := m.Add(args[0])
+	path, err := m.Add(branch)
 	if err != nil {
-		return err
+		var exists *worktree.ErrWorktreeExists
+		if !errors.As(err, &exists) {
+			return err
+		}
+		if !force {
+			return fmt.Errorf(
+				"%w\nrun `wasa worktree remove %s --force` or "+
+					"`wasa worktree add %s --force` to replace it",
+				exists, exists.Path, branch,
+			)
+		}
+		if err := m.Remove(exists.Path, true); err != nil {
+			return fmt.Errorf("clear existing worktree: %w", err)
+		}
+		path, err = m.Add(branch)
+		if err != nil {
+			return err
+		}
 	}
 	fmt.Fprintln(os.Stdout, path)
 	return nil
+}
+
+// parseWorktreeAddArgs splits `wasa worktree add <branch> [--force]` into the
+// branch and whether an existing worktree at that branch's path should be
+// cleared and replaced rather than reported as an error.
+func parseWorktreeAddArgs(
+	args []string,
+) (branch string, force bool, err error) {
+	const usage = "usage: wasa worktree add <branch> [--force]"
+	var rest []string
+	for _, a := range args {
+		if a == "--force" {
+			force = true
+			continue
+		}
+		rest = append(rest, a)
+	}
+	if len(rest) != 1 {
+		return "", false, errors.New(usage)
+	}
+	return rest[0], force, nil
 }
 
 func worktreeList(args []string) error {

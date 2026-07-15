@@ -1,6 +1,7 @@
 package launch
 
 import (
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/joakimcarlsson/wasa-cli/internal/hook"
 	"github.com/joakimcarlsson/wasa-cli/internal/registry"
+	"github.com/joakimcarlsson/wasa-cli/internal/worktree"
 )
 
 // fakeBackend is a SessionBackend that records the tmux names it was asked to
@@ -140,6 +142,83 @@ func testRegistry(t *testing.T) *registry.Registry {
 		t.Fatalf("Open: %v", err)
 	}
 	return reg
+}
+
+// initGitRepo creates a minimal git repository at dir with one commit, so
+// worktree.Manager.Add has a HEAD to branch from.
+func initGitRepo(t *testing.T, dir string) {
+	t.Helper()
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=wasa", "GIT_AUTHOR_EMAIL=wasa@example.com",
+			"GIT_COMMITTER_NAME=wasa", "GIT_COMMITTER_EMAIL=wasa@example.com",
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q", "-b", "main")
+	run("commit", "--allow-empty", "-q", "-m", "init")
+}
+
+// TestDetectWorktreeCollisionResolvesOwningSession checks that a colliding
+// worktree left behind by a still-recorded session is matched to that
+// session's record by workspace and branch, and that ClearWorktreeCollision
+// tears it down (record dropped, worktree removed) without deleting the
+// branch, so a retried Add on the same branch succeeds.
+func TestDetectWorktreeCollisionResolvesOwningSession(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available on PATH")
+	}
+
+	home := t.TempDir()
+	repoDir := t.TempDir()
+	initGitRepo(t, repoDir)
+
+	reg := testRegistry(t)
+	ws, _ := reg.EnsureWorkspace(repoDir, "", "demo")
+	wt := worktree.New(repoDir, home, ws.ID)
+
+	path, err := wt.Add("task/again")
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	reg.AddSession(&registry.Session{
+		ID: "s1", WorkspaceID: ws.ID, Branch: "task/again",
+		WorktreePath: path, TmuxName: "wasa_s1",
+	})
+
+	_, addErr := wt.Add("task/again")
+	if addErr == nil {
+		t.Fatal("Add second time = nil, want a collision error")
+	}
+
+	col, ok := DetectWorktreeCollision(reg, ws, addErr)
+	if !ok {
+		t.Fatalf("DetectWorktreeCollision did not classify %v", addErr)
+	}
+	if col.Session == nil || col.Session.ID != "s1" {
+		t.Fatalf("collision session = %+v, want s1", col.Session)
+	}
+	if col.Alive {
+		t.Fatal("collision reported alive with no real tmux server")
+	}
+
+	if err := ClearWorktreeCollision(reg, home, ws, col); err != nil {
+		t.Fatalf("ClearWorktreeCollision: %v", err)
+	}
+	if _, ok := reg.Session("s1"); ok {
+		t.Fatal("colliding session record still present after clear")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("worktree dir still present after clear: %v", err)
+	}
+
+	if _, err := wt.Add("task/again"); err != nil {
+		t.Fatalf("Add after clearing collision: %v", err)
+	}
 }
 
 func TestCreateSessionPlainMakesNoWorktree(t *testing.T) {
