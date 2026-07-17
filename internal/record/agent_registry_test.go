@@ -26,7 +26,9 @@ func TestRecordersMatchAgentRegistry(t *testing.T) {
 		if a.RecorderTool != r.Tool() {
 			t.Errorf(
 				"agent %q declares RecorderTool %q, but its recorder's Tool() = %q",
-				a.Exe, a.RecorderTool, r.Tool(),
+				a.Exe,
+				a.RecorderTool,
+				r.Tool(),
 			)
 		}
 	}
@@ -46,7 +48,9 @@ func TestRecordersMatchAgentRegistry(t *testing.T) {
 		if r.Exe() != a.Exe {
 			t.Errorf(
 				"recorder for tool %q has Exe() = %q, want %q (agent's declared Exe)",
-				a.RecorderTool, r.Exe(), a.Exe,
+				a.RecorderTool,
+				r.Exe(),
+				a.Exe,
 			)
 		}
 	}
