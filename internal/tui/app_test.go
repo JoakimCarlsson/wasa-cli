@@ -816,7 +816,11 @@ func TestConfirmAcceptShowsPendingStatusUntilResult(t *testing.T) {
 	next, _ := m.enterConfirmDelete()
 	m = next.(Model)
 	if m.confirmPending != "deleting session…" {
-		t.Fatalf("confirmPending = %q, want %q", m.confirmPending, "deleting session…")
+		t.Fatalf(
+			"confirmPending = %q, want %q",
+			m.confirmPending,
+			"deleting session…",
+		)
 	}
 
 	next, cmd := m.updateConfirm(

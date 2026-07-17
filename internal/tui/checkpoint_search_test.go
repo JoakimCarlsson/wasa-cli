@@ -87,7 +87,9 @@ func TestSearchEmptyQueryClearsHits(t *testing.T) {
 	next, _ := m.updateCheckpointSearch(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	for m.checkpointSearch.query != "" {
 		m = next.(Model)
-		next, _ = m.updateCheckpointSearch(tea.KeyPressMsg{Code: tea.KeyBackspace})
+		next, _ = m.updateCheckpointSearch(
+			tea.KeyPressMsg{Code: tea.KeyBackspace},
+		)
 	}
 	m = next.(Model)
 

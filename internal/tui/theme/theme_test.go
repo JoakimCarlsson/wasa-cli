@@ -20,10 +20,15 @@ func TestDefaultThemeIsHistoricalPalette(t *testing.T) {
 		Light: lipgloss.Color("#874BFD"),
 		Dark:  lipgloss.Color("#7D56F4"),
 	}
-	if got := th.TitleStyle.GetForeground(); !reflect.DeepEqual(got, wantAccent) {
+	if got := th.TitleStyle.GetForeground(); !reflect.DeepEqual(
+		got,
+		wantAccent,
+	) {
 		t.Errorf("accent: got %v", got)
 	}
-	if got := th.RunningDotStyle.GetForeground(); got != lipgloss.Color("#51bd73") {
+	if got := th.RunningDotStyle.GetForeground(); got != lipgloss.Color(
+		"#51bd73",
+	) {
 		t.Errorf("running dot: got %v", got)
 	}
 	if got := th.ActiveTabStyle.GetForeground(); got != lipgloss.Color("230") {
