@@ -1,0 +1,3 @@
+{"type":"user","message":{"role":"user","content":"this line is truncated and never closes
+not json at all, just a stray log line
+{"type":"user","timestamp":"2026-07-05T14:40:20.000Z","message":{"role":"user","content":"recover here after the broken lines"}}

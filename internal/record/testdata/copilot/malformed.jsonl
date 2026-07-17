@@ -1,0 +1,4 @@
+{"type":"user.message","timestamp":"2026-07-15T19:31:21.000Z","data":{"content":"first prompt before the break
+{"type":"session.compaction_start","timestamp":"not-a-timestamp","data":{}
+plain log line, not json
+{"type":"assistant.message","timestamp":"2026-07-15T19:31:27.000Z","data":{"content":"recovered after malformed lines"}}

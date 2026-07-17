@@ -6,24 +6,6 @@ import (
 	"testing"
 )
 
-const sampleAiderHistory = `
-# aider chat started at 2026-01-02 10:00:00
-
-#### build the feature
-
-Sure, I'll build the feature.
-
-I made these changes:
-
-` + "```python\ndef foo():\n    pass\n```" + `
-
-> Applied edit to foo.py
-
-#### now add a test
-
-Added a test for foo.
-`
-
 func TestAiderRecorderNoHookMechanism(t *testing.T) {
 	dir := t.TempDir()
 	r := aiderRecorder{}
@@ -55,9 +37,7 @@ func TestAiderRecorderLocateTranscript(t *testing.T) {
 
 	path := filepath.Join(dir, ".aider.chat.history.md")
 	if err := os.WriteFile(
-		path,
-		[]byte(sampleAiderHistory),
-		0o644,
+		path, readFixture(t, "aider", "session.md"), 0o644,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +48,8 @@ func TestAiderRecorderLocateTranscript(t *testing.T) {
 
 func TestAiderNormalizeAndIntent(t *testing.T) {
 	r := aiderRecorder{}
-	msgs := r.Normalize([]byte(sampleAiderHistory))
+	history := readFixture(t, "aider", "session.md")
+	msgs := r.Normalize(history)
 
 	var users, assistants []string
 	for _, m := range msgs {
@@ -82,8 +63,8 @@ func TestAiderNormalizeAndIntent(t *testing.T) {
 		}
 	}
 
-	if len(users) != 2 || users[0] != "build the feature" ||
-		users[1] != "now add a test" {
+	if len(users) != 2 || users[0] != "Add a --version flag to the CLI." ||
+		users[1] != "Now document it in the README." {
 		t.Errorf("user messages = %v", users)
 	}
 	if len(assistants) != 2 {
@@ -91,9 +72,13 @@ func TestAiderNormalizeAndIntent(t *testing.T) {
 	}
 
 	if intent := r.Intent(
-		[]byte(sampleAiderHistory),
-	); intent != "build the feature" {
-		t.Errorf("Intent = %q, want %q", intent, "build the feature")
+		history,
+	); intent != "Add a --version flag to the CLI." {
+		t.Errorf(
+			"Intent = %q, want %q",
+			intent,
+			"Add a --version flag to the CLI.",
+		)
 	}
 }
 
@@ -106,7 +91,7 @@ func TestFinishAiderPicksUpChatLogWithoutHooks(t *testing.T) {
 	home := t.TempDir()
 	if err := os.WriteFile(
 		filepath.Join(dir, ".aider.chat.history.md"),
-		[]byte(sampleAiderHistory), 0o644,
+		readFixture(t, "aider", "session.md"), 0o644,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -121,8 +106,12 @@ func TestFinishAiderPicksUpChatLogWithoutHooks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Find: %v", err)
 	}
-	if intent != "build the feature" {
-		t.Errorf("intent = %q, want %q", intent, "build the feature")
+	if intent != "Add a --version flag to the CLI." {
+		t.Errorf(
+			"intent = %q, want %q",
+			intent,
+			"Add a --version flag to the CLI.",
+		)
 	}
 	if len(transcript) == 0 {
 		t.Error("transcript empty, want the picked-up chat log")

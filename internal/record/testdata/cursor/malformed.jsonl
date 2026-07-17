@@ -1,0 +1,2 @@
+{"role":"user","message":{"content":[{"type":"text","text":"prompt before the truncation
+{"role":"assistant","message":{"content":[{"type":"text","text":"recovered assistant turn"}]}}

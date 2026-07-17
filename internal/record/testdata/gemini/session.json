@@ -1,0 +1,31 @@
+{
+  "sessionId": "44444444-4444-4444-8444-444444444444",
+  "projectHash": "9f2c1a0b8f2c1a0b8f2c1a0b8f2c1a0b8f2c1a0b8f2c1a0b8f2c1a0b8f2c1a0b",
+  "startTime": "2026-07-05T14:40:00.000Z",
+  "lastUpdated": "2026-07-05T14:40:12.000Z",
+  "messages": [
+    {
+      "id": "m1",
+      "type": "user",
+      "timestamp": "2026-07-05T14:40:01.000Z",
+      "content": "Add a README section about configuration."
+    },
+    {
+      "id": "m2",
+      "type": "info",
+      "timestamp": "2026-07-05T14:40:03.000Z",
+      "content": "Tool call: write_file(README.md)"
+    },
+    {
+      "id": "m3",
+      "type": "gemini",
+      "timestamp": "2026-07-05T14:40:10.000Z",
+      "content": [
+        { "text": "Added a Configuration section " },
+        { "text": "to the README." }
+      ],
+      "tokens": { "input": 1400, "output": 36 },
+      "model": "gemini-2.5-pro"
+    }
+  ]
+}
