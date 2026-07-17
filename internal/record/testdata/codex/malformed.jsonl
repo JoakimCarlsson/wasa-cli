@@ -1,0 +1,4 @@
+{"timestamp":"2026-07-05T14:40:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt before the break
+{"timestamp":"bad-timestamp","type":"response_item","payload":{"type":"message"
+stray non-json rollout line
+{"timestamp":"2026-07-05T14:40:07.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"recovered after malformed lines"}]}}

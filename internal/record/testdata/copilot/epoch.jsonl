@@ -1,0 +1,3 @@
+{"type":"session.start","timestamp":1751968800000,"data":{"sessionId":"22222222-2222-4222-8222-222222222222","copilotVersion":"1.0.70"}}
+{"type":"user.message","timestamp":1751968800000,"data":{"content":"epoch-millis timestamp variant"}}
+{"type":"assistant.message","timestamp":1751968805000,"data":{"content":"handled the epoch-millis timestamp"}}
