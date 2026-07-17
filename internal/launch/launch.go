@@ -275,6 +275,12 @@ func createSession(
 // createWorktreeSession adds a branch + worktree, runs the post-worktree hook
 // and spawns the program in the worktree. A worktree session requires a
 // workspace, since the branch and worktree are created against its repository.
+//
+// Project-scoped agent config directories (.claude, .cursor, ...) are governed
+// by the worktree package's isolate policy: git carries whatever the branch
+// tracks and untracked local config is deliberately left behind, so there is no
+// copy step here by design. A user who wants an untracked dir carried names it
+// in the profile's LinkPaths/CopyPaths, applied by o.applyPaths below.
 func createWorktreeSession(
 	o ops,
 	home string,

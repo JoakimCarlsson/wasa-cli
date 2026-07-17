@@ -30,6 +30,16 @@ type Agent struct {
 	// copilot's GH_CONFIG_DIR).
 	ConfigDirAliases []string
 
+	// ProjectConfigDirs are the repository-root-relative directory names this
+	// agent reads project-scoped settings, rules and skills from within the
+	// working tree (e.g. ".claude", ".gemini"), or nil when the agent keeps no
+	// project config directory. Unlike ConfigDirVar — which relocates the
+	// agent's account/global config — these live inside the repo and so travel
+	// with a branch's tree; the worktree layer's isolate policy governs the
+	// untracked ones (see internal/worktree). Each entry is a single,
+	// slash-free, dot-prefixed path segment.
+	ProjectConfigDirs []string
+
 	// Autonomy is the agent's skip-permissions flag, or nil when the agent
 	// has no such flag.
 	Autonomy *Autonomy
@@ -48,17 +58,19 @@ type Agent struct {
 // wasa about it across launch, profile and record.
 var Agents = []Agent{
 	{
-		Exe:          "claude",
-		ConfigDirVar: "CLAUDE_CONFIG_DIR",
-		Autonomy:     &Autonomy{Flag: "--dangerously-skip-permissions"},
-		RecorderTool: "claude",
+		Exe:               "claude",
+		ConfigDirVar:      "CLAUDE_CONFIG_DIR",
+		ProjectConfigDirs: []string{".claude"},
+		Autonomy:          &Autonomy{Flag: "--dangerously-skip-permissions"},
+		RecorderTool:      "claude",
 	},
 	{
 		// CODEX_HOME is the env var Codex's own CLI reads for its config/data
 		// directory (default ~/.codex); record/codex.go already resolves a
 		// session's transcript through it via agentHome.
-		Exe:          "codex",
-		ConfigDirVar: "CODEX_HOME",
+		Exe:               "codex",
+		ConfigDirVar:      "CODEX_HOME",
+		ProjectConfigDirs: []string{".codex"},
 		Autonomy: &Autonomy{
 			Flag:    "--dangerously-bypass-approvals-and-sandbox",
 			Aliases: []string{"--yolo", "--full-auto"},
@@ -69,6 +81,12 @@ var Agents = []Agent{
 		Exe:              "copilot",
 		ConfigDirVar:     "GH_CONFIG_DIR",
 		ConfigDirAliases: []string{"gh"},
+		// .github is a shared repository directory, not copilot-exclusive, but
+		// it is where Copilot reads its project-scoped instructions
+		// (.github/copilot-instructions.md) and where record installs copilot's
+		// recorder hook (.github/hooks/wasa.json), so it is copilot's project
+		// config dir for wasa's purposes.
+		ProjectConfigDirs: []string{".github"},
 		Autonomy: &Autonomy{
 			Flag:    "--allow-all-tools",
 			Aliases: []string{"--allow-all", "--yolo"},
@@ -79,8 +97,9 @@ var Agents = []Agent{
 		// GEMINI_CONFIG_DIR is the env var Gemini CLI reads for its config
 		// directory (default ~/.gemini); record/gemini.go already resolves a
 		// session's transcript store through it via agentHome.
-		Exe:          "gemini",
-		ConfigDirVar: "GEMINI_CONFIG_DIR",
+		Exe:               "gemini",
+		ConfigDirVar:      "GEMINI_CONFIG_DIR",
+		ProjectConfigDirs: []string{".gemini"},
 		Autonomy: &Autonomy{
 			Flag:    "--yolo",
 			Aliases: []string{"--approval-mode"},
@@ -94,9 +113,10 @@ var Agents = []Agent{
 		// ConfigDirVar stays "" — a declared absence, not an omission — and
 		// two cursor-agent sessions against different accounts share global
 		// config until Cursor documents an override.
-		Exe:          "cursor-agent",
-		Autonomy:     &Autonomy{Flag: "--force"},
-		RecorderTool: "cursor",
+		Exe:               "cursor-agent",
+		ProjectConfigDirs: []string{".cursor"},
+		Autonomy:          &Autonomy{Flag: "--force"},
+		RecorderTool:      "cursor",
 	},
 	{
 		// Aider has --yes-always (skip-permissions) and a recorder built on
@@ -104,6 +124,8 @@ var Agents = []Agent{
 		// convention: its own docs (aider.chat/docs/config, aider/args.py)
 		// resolve .aider.conf.yml from git root/cwd/home with no directory
 		// override env var, so ConfigDirVar stays "" — a declared absence.
+		// ProjectConfigDirs is likewise nil: aider's project config is loose
+		// files (.aider.conf.yml, .aider.chat.history.md), not a directory.
 		Exe:          "aider",
 		Autonomy:     &Autonomy{Flag: "--yes-always"},
 		RecorderTool: "aider",
@@ -156,4 +178,36 @@ func ConfigDirVar(program string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// ProjectConfigDirs returns the project-scoped config directory names declared
+// for program — matched against an agent's Exe — and whether that program is a
+// declared agent. A declared agent with no project config directory reports
+// (nil, true); an unknown program reports (nil, false).
+func ProjectConfigDirs(program string) ([]string, bool) {
+	for _, a := range Agents {
+		if a.Exe == program {
+			return a.ProjectConfigDirs, true
+		}
+	}
+	return nil, false
+}
+
+// AllProjectConfigDirs returns the deduplicated, sorted union of every declared
+// agent's ProjectConfigDirs — the registry's single answer to "which working-
+// tree directories are agent project config". It is the agent-agnostic input
+// the worktree layer's isolate policy is applied over.
+func AllProjectConfigDirs() []string {
+	seen := map[string]bool{}
+	var dirs []string
+	for _, a := range Agents {
+		for _, d := range a.ProjectConfigDirs {
+			if !seen[d] {
+				seen[d] = true
+				dirs = append(dirs, d)
+			}
+		}
+	}
+	slices.Sort(dirs)
+	return dirs
 }
