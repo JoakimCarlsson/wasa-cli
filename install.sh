@@ -12,6 +12,7 @@ set -euo pipefail
 
 REPO="JoakimCarlsson/wasa-cli"
 BINARY="wasa"
+HELPER="git-remote-wasa"
 BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
 VERSION="${VERSION:-latest}"
 tmp=""
@@ -120,6 +121,8 @@ main() {
     mkdir -p "$BIN_DIR"
     install -m 0755 "$tmp/$BINARY" "$BIN_DIR/$BINARY" 2>/dev/null \
         || { mv "$tmp/$BINARY" "$BIN_DIR/$BINARY" && chmod 0755 "$BIN_DIR/$BINARY"; }
+    ln -sf "$BINARY" "$BIN_DIR/$HELPER" \
+        || echo "note: could not link $HELPER — wasa:// remotes will not resolve."
 
     setup_path
     check_runtime_deps
