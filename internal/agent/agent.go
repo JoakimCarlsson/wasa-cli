@@ -44,6 +44,12 @@ type Agent struct {
 	// has no such flag.
 	Autonomy *Autonomy
 
+	// PromptFlag is the flag an initial prompt must be passed behind, or ""
+	// when the agent takes its prompt as a bare positional argument. Copilot
+	// CLI, for instance, accepts no positional arguments at all and exits
+	// with "too many arguments" unless the prompt arrives behind -p.
+	PromptFlag string
+
 	// RecorderTool is the recording tool name this agent binds to — the
 	// value a record.Recorder implementation returns from Tool() — or "" when
 	// the agent has no recording integration. It is deliberately distinct
@@ -91,6 +97,7 @@ var Agents = []Agent{
 			Flag:    "--allow-all-tools",
 			Aliases: []string{"--allow-all", "--yolo"},
 		},
+		PromptFlag:   "-p",
 		RecorderTool: "copilot",
 	},
 	{
@@ -191,6 +198,19 @@ func ProjectConfigDirs(program string) ([]string, bool) {
 		}
 	}
 	return nil, false
+}
+
+// PromptFlag returns the flag an initial prompt must be passed behind for
+// program — matched against an agent's Exe — and whether that program is a
+// declared agent. A declared agent that takes a positional prompt reports
+// ("", true); an unknown program reports ("", false).
+func PromptFlag(program string) (string, bool) {
+	for _, a := range Agents {
+		if a.Exe == program {
+			return a.PromptFlag, true
+		}
+	}
+	return "", false
 }
 
 // AllProjectConfigDirs returns the deduplicated, sorted union of every declared
