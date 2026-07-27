@@ -1,6 +1,10 @@
 package launch
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/joakimcarlsson/wasa-cli/internal/agent"
+)
 
 // launchProgram is the command a session is actually spawned with: the base
 // program continued natively when p.ResumeArgs is set, seeded with p.InitialPrompt
@@ -27,11 +31,15 @@ func resumeProgram(program string, args []string) string {
 
 // seedProgram returns the launch command that starts program with prompt as its
 // first message, so a resumed session whose agent has no native resume still
-// continues from the recorded context. The prompt is passed as one positional
-// argument, shell-quoted, and the program string is run through the shell by
-// tmux. A positional prompt fits claude/codex/gemini/copilot/cursor; an agent
-// that needs a prompt flag would get a per-agent override added here.
+// continues from the recorded context. The prompt is one shell-quoted argument
+// and the program string is run through the shell by tmux. Most agents take it
+// positionally; one that declares a PromptFlag gets it behind that flag
+// instead, because copilot accepts no positional arguments and exits rather
+// than starting.
 func seedProgram(program, prompt string) string {
+	if flag, _ := agent.PromptFlag(baseExe(program)); flag != "" {
+		return program + " " + flag + " " + shellQuote(prompt)
+	}
 	return program + " " + shellQuote(prompt)
 }
 
