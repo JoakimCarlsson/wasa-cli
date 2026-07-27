@@ -7,6 +7,7 @@ require (
 	charm.land/bubbletea/v2 v2.0.8
 	charm.land/lipgloss/v2 v2.0.5
 	github.com/charmbracelet/x/ansi v0.11.7
+	github.com/joakimcarlsson/wasa-api v0.0.0-20260727175134-e0fa7cc4c764
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mattn/go-runewidth v0.0.24
 	github.com/zalando/go-keyring v0.2.8

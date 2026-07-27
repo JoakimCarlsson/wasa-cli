@@ -25,6 +25,22 @@ make env       # (Windows) re-run inside WSL; put a fresh bin/wasa first on PATH
 flow. Anything touching tmux must be exercised inside WSL2 (a distro with tmux +
 Go), not native Windows.
 
+## Dependencies
+
+One dependency is not an ordinary one: `github.com/joakimcarlsson/wasa-api/pkg/proto`,
+the client wasa-api generates from its own handlers, which `link/core/` calls the
+control plane through. It resolves two ways — from the sibling checkout via the
+workspace `go.work` (`../AGENTS.md`) during local dev, and from the pinned
+pseudo-version in `go.mod` everywhere else. Bump the pin with
+`go get github.com/joakimcarlsson/wasa-api@<commit>` after a contract change
+lands on wasa-api's default branch.
+
+wasa-api is a **private** repo, so a build without the workspace — CI, a release,
+a fresh clone — needs a credential for it: the workflows point git at the
+`WASA_API_TOKEN` secret (a PAT with read access) and set
+`GOPRIVATE=github.com/joakimcarlsson/*`. Locally, `go.work` covers it; a
+standalone `GOWORK=off` build needs the same git credential.
+
 ## Layout
 
 `internal/<name>/` dirs are subsystems. Orchestration seams each live in one
@@ -44,7 +60,7 @@ place so the CLI and the TUI drive the same path.
 - `registry/` — persistent repo-keyed data model (workspaces + sessions) as one JSON doc under `$WASA_HOME`; reconciles against tmux on startup.
 - `sessionstatus/` — per-session activity state (working/waiting/idle) and how it's derived.
 - `config/` — loads `$WASA_HOME/config.json` over defaults; owns the theme/keys/layout schema; validates at startup.
-- `link/` — the opt-in control-plane path, nothing on it runs offline. `link/userdirs/` resolves config (`~/.config/wasa`) vs cache (`~/.cache/wasa`) — the only place those paths are derived, and a throwaway per-process dir under `go test`. `link/identity/` is the leaf identity store the CLI and the `git-remote-wasa` helper share: named contexts + `current_context` in `contexts.json`, access/refresh tokens in the OS keychain with a `credentials.json` fallback. Every file it owns is 0600, written temp+rename, under an exclusive flock held across the whole read and write. `link/core/` talks to a wasa-api core: the loopback browser login and the authenticated calls after it. `link/auth/` is the seam between the two — it records a completed login and hands later commands a login JWT known to be valid, refreshing ahead in that one place.
+- `link/` — the opt-in control-plane path, nothing on it runs offline. `link/userdirs/` resolves config (`~/.config/wasa`) vs cache (`~/.cache/wasa`) — the only place those paths are derived, and a throwaway per-process dir under `go test`. `link/identity/` is the leaf identity store the CLI and the `git-remote-wasa` helper share: named contexts + `current_context` in `contexts.json`, access/refresh tokens in the OS keychain with a `credentials.json` fallback. Every file it owns is 0600, written temp+rename, under an exclusive flock held across the whole read and write. `link/core/` talks to a wasa-api core: the loopback browser login, and the calls after it through the generated `pkg/proto` client. `link/auth/` is the seam between the two — it records a completed login and hands later commands a login JWT known to be valid, refreshing ahead in that one place. `link/repotoken/` is the per-repo credential cache: it exchanges that login JWT (RFC 8693, `POST /oauth/token`) for tokens scoped to one repo and one action, keyed by `(audience, action)` so different repos exchange in parallel while racing callers for the same key collapse onto one round-trip. A login JWT never reaches a git host.
 
 **Entry & UI:**
 
