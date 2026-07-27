@@ -14,11 +14,22 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GOTOOLCHAIN: local
+      GOPRIVATE: github.com/joakimcarlsson/*
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
+      # pkg/proto comes from the private wasa-api repo, which the job's own
+      # GITHUB_TOKEN cannot read. WASA_API_TOKEN is a PAT with read access to it.
+      - name: Authenticate the private wasa-api module
+        env:
+          WASA_API_TOKEN: ${{ secrets.WASA_API_TOKEN }}
+        run: |
+          git config --global \
+            url."https://x-access-token:${WASA_API_TOKEN}@github.com/joakimcarlsson/".insteadOf \
+            "https://github.com/joakimcarlsson/"
 
       - name: Set up Go
         uses: actions/setup-go@v6

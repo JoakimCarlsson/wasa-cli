@@ -98,7 +98,7 @@ func TestRefresh(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
 				t.Errorf("decode body: %v", err)
 			}
-			writeJSON(w, http.StatusOK, tokenResponse{
+			writeJSON(w, http.StatusOK, tokenBody{
 				AccessToken: "fresh-jwt",
 				TokenType:   "Bearer",
 				ExpiresIn:   900,
@@ -125,7 +125,7 @@ func TestRefresh(t *testing.T) {
 func TestRefreshRejected(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, http.StatusUnauthorized, problemDetails{
+			writeJSON(w, http.StatusUnauthorized, problemBody{
 				Title:  "Unauthorized",
 				Status: http.StatusUnauthorized,
 				Detail: "the refresh token is invalid, expired, or revoked",
@@ -148,7 +148,7 @@ func TestMe(t *testing.T) {
 			if got := r.Header.Get("Authorization"); got != "Bearer jwt" {
 				t.Errorf("Authorization = %q", got)
 			}
-			writeJSON(w, http.StatusOK, meResponse{
+			writeJSON(w, http.StatusOK, meBody{
 				UserID: "01JABC", Handle: "octocat",
 			})
 		}))
@@ -175,7 +175,7 @@ func TestPrincipalStringWithoutHandle(t *testing.T) {
 func TestServerErrorCarriesDetail(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, http.StatusBadGateway, problemDetails{
+			writeJSON(w, http.StatusBadGateway, problemBody{
 				Title:  "Bad Gateway",
 				Status: http.StatusBadGateway,
 				Detail: "the login provider could not be reached",
@@ -211,6 +211,27 @@ func clientFor(t *testing.T, base string) *Client {
 		t.Fatalf("New(%q): %v", base, err)
 	}
 	return c
+}
+
+// The response bodies a core sends, spelled out here rather than borrowed
+// from pkg/proto: a test that writes the wire form itself still fails when the
+// client stops parsing it.
+type tokenBody struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int    `json:"expires_in"`
+}
+
+type meBody struct {
+	UserID string `json:"user_id"`
+	Handle string `json:"handle"`
+}
+
+type problemBody struct {
+	Title  string `json:"title"`
+	Status int    `json:"status"`
+	Detail string `json:"detail"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

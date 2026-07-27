@@ -1,16 +1,16 @@
 package core
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/joakimcarlsson/wasa-api/pkg/proto"
 )
 
 // DefaultProvider is the login provider used when none is named. The core
@@ -22,6 +22,11 @@ const DefaultProvider = "github"
 // an expired login JWT, or a refresh token that is unknown, expired or
 // revoked. Callers turn it into "log in again" rather than a transport error.
 var ErrUnauthorized = errors.New("core: unauthorized")
+
+// ErrForbidden reports that the credential was accepted but names a principal
+// without the authority asked for. It is not a stale login, so re-logging in
+// does not help: the caller needs access granted.
+var ErrForbidden = errors.New("core: forbidden")
 
 // Tokens is the credential pair a completed login or refresh yields. Refresh
 // is empty on a renewal: the core reissues only the login JWT and expects the
@@ -48,9 +53,16 @@ func (p Principal) String() string {
 }
 
 // Client calls one wasa-api core.
+//
+// Every request goes out through pkg/proto, the client wasa-api generates from
+// its own handler signatures, so an endpoint that changes shape breaks the
+// build here instead of failing as a 4xx at runtime. What this type adds on
+// top is the CLI's own vocabulary: a normalized core URL, per-call bearer
+// tokens, and errors that read as ErrUnauthorized or ErrForbidden.
 type Client struct {
 	baseURL string
 	http    *http.Client
+	api     *proto.Client
 }
 
 // DefaultTimeout bounds every non-interactive call to a core.
@@ -64,10 +76,12 @@ func New(rawURL string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{
-		baseURL: base,
-		http:    &http.Client{Timeout: DefaultTimeout},
-	}, nil
+	httpClient := &http.Client{Timeout: DefaultTimeout}
+	api, err := proto.New(base, proto.WithHTTPClient(httpClient))
+	if err != nil {
+		return nil, fmt.Errorf("core: %w", err)
+	}
+	return &Client{baseURL: base, http: httpClient, api: api}, nil
 }
 
 // NormalizeURL validates a core URL and returns it without a trailing slash,
@@ -127,29 +141,23 @@ func (c *Client) Refresh(
 	ctx context.Context,
 	refreshToken string,
 ) (Tokens, error) {
-	body, err := json.Marshal(
-		map[string]string{"refresh_token": refreshToken},
-	)
-	if err != nil {
-		return Tokens{}, err
-	}
-	req, err := http.NewRequestWithContext(
+	out, err := c.api.PostApiV1AuthRefresh(
 		ctx,
-		http.MethodPost,
-		c.baseURL+"/api/v1/auth/refresh",
-		bytes.NewReader(body),
+		proto.PostApiV1AuthRefreshParams{
+			Body: proto.RefreshRequest{RefreshToken: refreshToken},
+		},
 	)
 	if err != nil {
-		return Tokens{}, err
+		return Tokens{}, c.asError(err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	var out tokenResponse
-	if err := c.do(req, &out); err != nil {
-		return Tokens{}, err
+	tokens := Tokens{
+		Access:    out.AccessToken,
+		ExpiresIn: time.Duration(out.ExpiresIn) * time.Second,
 	}
-	return out.tokens(), nil
+	if out.RefreshToken != nil {
+		tokens.Refresh = *out.RefreshToken
+	}
+	return tokens, nil
 }
 
 // Me describes the caller a login JWT names.
@@ -157,92 +165,68 @@ func (c *Client) Me(
 	ctx context.Context,
 	accessToken string,
 ) (Principal, error) {
-	req, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodGet,
-		c.baseURL+"/api/v1/auth/me",
-		nil,
+	out, err := c.bearer(accessToken).GetApiV1AuthMe(ctx)
+	if err != nil {
+		return Principal{}, c.asError(err)
+	}
+	p := Principal{UserID: out.UserID}
+	if out.Handle != nil {
+		p.Handle = *out.Handle
+	}
+	return p, nil
+}
+
+// bearer returns a client that presents accessToken on every call. The
+// generated client takes its credentials at construction, and one core client
+// serves calls for more than one token, so the authenticated variant is built
+// per call — it shares the same *http.Client, so no connection pool is lost.
+func (c *Client) bearer(accessToken string) *proto.Client {
+	api, err := proto.New(
+		c.baseURL,
+		proto.WithHTTPClient(c.http),
+		proto.WithHeader("Authorization", "Bearer "+accessToken),
 	)
 	if err != nil {
-		return Principal{}, err
+		return c.api
 	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Accept", "application/json")
-
-	var out meResponse
-	if err := c.do(req, &out); err != nil {
-		return Principal{}, err
-	}
-	return Principal(out), nil
+	return api
 }
 
-type tokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	TokenType    string `json:"token_type"`
-	ExpiresIn    int    `json:"expires_in"`
+// asError turns a generated-client error into the CLI's vocabulary. A response
+// the core described as a problem detail is reported in the core's own wording
+// so the user reads the server's explanation, and the two statuses a caller
+// acts on differently — 401 relog, 403 no access — carry sentinel errors.
+func (c *Client) asError(err error) error {
+	var apiErr *proto.APIError
+	if !errors.As(err, &apiErr) {
+		return fmt.Errorf("core: %w", err)
+	}
+	msg := problemMessage(apiErr)
+	switch apiErr.StatusCode {
+	case http.StatusUnauthorized:
+		return fmt.Errorf("%w: %s", ErrUnauthorized, msg)
+	case http.StatusForbidden:
+		return fmt.Errorf("%w: %s", ErrForbidden, msg)
+	}
+	return fmt.Errorf("core: %s (HTTP %d)", msg, apiErr.StatusCode)
 }
 
-func (t tokenResponse) tokens() Tokens {
-	return Tokens{
-		Access:    t.AccessToken,
-		Refresh:   t.RefreshToken,
-		ExpiresIn: time.Duration(t.ExpiresIn) * time.Second,
-	}
-}
-
-type meResponse struct {
-	UserID string `json:"user_id"`
-	Handle string `json:"handle"`
-}
-
-// problemDetails is the RFC 7807 body every core error carries.
-type problemDetails struct {
-	Title  string `json:"title"`
-	Status int    `json:"status"`
-	Detail string `json:"detail"`
-}
-
-// do sends req and decodes a 2xx JSON body into out. A non-2xx response is
-// turned into the core's own problem detail so the user reads the server's
-// wording rather than a bare status code.
-func (c *Client) do(req *http.Request, out any) error {
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("core: %s: %w", req.URL.Host, err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return statusError(resp.StatusCode, body)
-	}
-	if out == nil {
-		return nil
-	}
-	if err := json.Unmarshal(body, out); err != nil {
-		return fmt.Errorf("core: malformed response from %s: %w",
-			req.URL.Host, err)
-	}
-	return nil
-}
-
-func statusError(status int, body []byte) error {
-	msg := http.StatusText(status)
-	var p problemDetails
-	if err := json.Unmarshal(body, &p); err == nil {
-		switch {
-		case p.Detail != "":
-			msg = p.Detail
-		case p.Title != "":
-			msg = p.Title
+// problemMessage picks the most specific wording an error response offers.
+// The body is parsed even for a status the endpoint never declared, because a
+// core behind a proxy can answer with a problem detail the spec does not list.
+func problemMessage(apiErr *proto.APIError) string {
+	pd, ok := proto.ErrorValue[*proto.ProblemDetails](apiErr)
+	if !ok {
+		pd = &proto.ProblemDetails{}
+		if json.Unmarshal(apiErr.Body, pd) != nil {
+			return http.StatusText(apiErr.StatusCode)
 		}
 	}
-	if status == http.StatusUnauthorized {
-		return fmt.Errorf("%w: %s", ErrUnauthorized, msg)
+	switch {
+	case pd.Detail != nil && *pd.Detail != "":
+		return *pd.Detail
+	case pd.Title != nil && *pd.Title != "":
+		return *pd.Title
 	}
-	return fmt.Errorf("core: %s (HTTP %d)", msg, status)
+	return http.StatusText(apiErr.StatusCode)
 }
