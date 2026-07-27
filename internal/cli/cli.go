@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
+	"github.com/joakimcarlsson/wasa-cli/internal/link/gitremote"
 	"github.com/joakimcarlsson/wasa-cli/internal/record"
 )
 
@@ -16,6 +18,30 @@ const programName = "wasa"
 // process exit code. version is the build-stamped version string.
 func Run(version string, args []string) int {
 	return run(version, args, os.Stdout, os.Stderr)
+}
+
+// RunArgv is Run over a whole argv, dispatching on the name the binary was
+// invoked under before it looks at the arguments.
+//
+// git resolves a remote helper by executable name, so a git-remote-wasa symlink
+// pointing at wasa is the entire installation step for wasa:// remotes — no
+// second binary to build, ship and keep in step.
+func RunArgv(version string, argv []string) int {
+	return runArgv(version, argv, os.Stdout, os.Stderr)
+}
+
+func runArgv(
+	version string,
+	argv []string,
+	stdout, stderr io.Writer,
+) int {
+	if len(argv) == 0 {
+		return run(version, nil, stdout, stderr)
+	}
+	if name := filepath.Base(argv[0]); name == gitremote.BinaryName {
+		return runCommand(name, argv[1:], stderr)
+	}
+	return run(version, argv[1:], stdout, stderr)
 }
 
 func run(version string, args []string, stdout, stderr io.Writer) int {
@@ -65,18 +91,37 @@ func run(version string, args []string, stdout, stderr io.Writer) int {
 	}
 
 	name := rest[0]
-	cmd, ok := lookup(name)
-	if !ok {
+	if _, ok := lookup(name); !ok {
 		fmt.Fprintf(stderr, "%s: unknown command %q\n\n", programName, name)
 		usage(stderr, version)
 		return 2
 	}
+	return runCommand(name, rest[1:], stderr)
+}
 
-	if err := cmd.Run(rest[1:]); err != nil {
-		fmt.Fprintf(stderr, "%s %s: %v\n", programName, name, err)
-		return 1
+// runCommand runs one registered subcommand and turns its error into an exit
+// code. It is the whole of the process for a command wasa is invoked as rather
+// than asked for — a git remote helper never reaches the flag parsing above.
+//
+// A subprocess wasa delegated to and that already explained its own failure
+// reports a gitremote.ExitError: its status is passed through and nothing is
+// printed, so the terminal shows git's account of what went wrong once.
+func runCommand(name string, args []string, stderr io.Writer) int {
+	cmd, ok := lookup(name)
+	if !ok {
+		fmt.Fprintf(stderr, "%s: unknown command %q\n", programName, name)
+		return 2
 	}
-	return 0
+	err := cmd.Run(args)
+	if err == nil {
+		return 0
+	}
+	var exit *gitremote.ExitError
+	if errors.As(err, &exit) && exit.Code > 0 {
+		return exit.Code
+	}
+	fmt.Fprintf(stderr, "%s %s: %v\n", programName, name, err)
+	return 1
 }
 
 func versionLine(version string) string {
