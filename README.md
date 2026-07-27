@@ -83,6 +83,9 @@ same operations are available as subcommands for scripting:
 | `tmux`        | spawn and attach to background sessions                           |
 | `checkpoints` | list or show recorded agent sessions for this repository          |
 | `record`      | enable, disable or inspect repo-level session recording           |
+| `login`       | log in to a wasa-api core in the browser (optional)               |
+| `whoami`      | show the current login context and principal                      |
+| `logout`      | discard the current login                                         |
 
 Run `wasa --help` for the full list, and `wasa <command>` for per-command usage.
 
@@ -120,6 +123,30 @@ local artifacts only, so merge or push any work you want to keep beforehand:
 ```sh
 wasa finish <session>
 ```
+
+### Logging in to a control plane (optional)
+
+wasa is standalone: everything above works with no server at all. If you do run a
+[wasa-api](https://github.com/JoakimCarlsson/wasa-api) core, `wasa login` gives
+this machine an identity against it.
+
+```sh
+# Opens your browser at the core's login page and waits for it to hand back a
+# token. --core defaults to $WASA_CORE.
+wasa login --core https://core.example.com
+
+# Who am I, and against which core? Renews the token when it is near expiry.
+wasa whoami
+
+# Forget it again.
+wasa logout
+```
+
+The login is stored as a named context (the core's host by default) in
+`~/.config/wasa/contexts.json`, with the tokens themselves in your OS keychain —
+falling back to a 0600 `credentials.json` on hosts without one. Tokens are never
+written to `config.json` or logged. With no login, every command behaves exactly
+as it does offline.
 
 ### Machine-readable output (`--json`)
 
