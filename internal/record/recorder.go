@@ -162,6 +162,19 @@ func RestoreTranscript(
 	return os.WriteFile(path, denormalize(data), 0o644)
 }
 
+// machineWideHook marks a recorder whose hook fires for every repository on the
+// machine rather than only the ones it was installed into. Copilot is the only
+// one: it does not execute repository hooks at all, so its hook has to live in
+// the user's config directory.
+//
+// HandleEvent confirms such a recorder's repository marker is present before it
+// records anything, which is what keeps recording per-repository — without the
+// check, enabling recording in one repo would start recording every Copilot
+// session on the machine.
+type machineWideHook interface {
+	machineWideHook()
+}
+
 // InstallHooks installs tool's recording hooks into dir, a repository root
 // or worktree.
 func InstallHooks(dir, tool, wasaExe string) error {

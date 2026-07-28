@@ -510,3 +510,76 @@ func TestRefreshPreservesDialectAndUserHooks(t *testing.T) {
 		t.Errorf("gemini name field lost on refresh: %s", got)
 	}
 }
+
+// TestCopilotInstallsUserLevelHook pins the location fix. Copilot does not
+// execute .github/hooks/*.json — verified against the real CLI, which ran for
+// twenty minutes with that file correctly installed and fired nothing — so the
+// hook that actually runs has to be in the user's config directory.
+func TestCopilotInstallsUserLevelHook(t *testing.T) {
+	dir := initRepo(t)
+
+	if err := InstallHooks(dir, "copilot", "/usr/bin/wasa"); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	userHook := copilotUserHookFile().path
+	raw, err := os.ReadFile(userHook)
+	if err != nil {
+		t.Fatalf("user-level hook not written: %v", err)
+	}
+	if !strings.Contains(string(raw), hookMarker) {
+		t.Errorf("user-level hook lacks the marker: %s", raw)
+	}
+	if !strings.Contains(string(raw), "/usr/bin/wasa") {
+		t.Errorf("user-level hook lacks the binary path: %s", raw)
+	}
+
+	rec := copilotRecorder{}
+	if !rec.HooksInstalled(dir) {
+		t.Error("repo marker missing after install")
+	}
+
+	if err := RemoveHooks(dir); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if rec.HooksInstalled(dir) {
+		t.Error("repo marker survived remove")
+	}
+	if _, err := os.Stat(userHook); err != nil {
+		t.Errorf("user-level hook removed, breaking other repos: %v", err)
+	}
+}
+
+// TestHandleEventDropsMachineWideEventWithoutRepoMarker is the invariant that
+// makes a user-level hook safe: it fires for every repository on the machine, so
+// a repo that never enabled recording must record nothing.
+func TestHandleEventDropsMachineWideEventWithoutRepoMarker(t *testing.T) {
+	home := t.TempDir()
+	enabled := initRepo(t)
+	notEnabled := initRepo(t)
+
+	if err := InstallHooks(enabled, "copilot", "/usr/bin/wasa"); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	HandleEvent(home, Event{
+		Agent:          "copilot",
+		AgentSessionID: "cop-off",
+		Prompt:         "should not be recorded",
+		Dir:            notEnabled,
+	})
+	if _, ok := loadState(home, "cop-off"); ok {
+		t.Error("recorded a session in a repo with recording disabled")
+	}
+
+	HandleEvent(home, Event{
+		Agent:          "copilot",
+		AgentSessionID: "cop-on",
+		Prompt:         "should be recorded",
+		Dir:            enabled,
+	})
+	st, ok := loadState(home, "cop-on")
+	if !ok || st.Intent != "should be recorded" {
+		t.Errorf("enabled repo did not record: %+v %v", st, ok)
+	}
+}
