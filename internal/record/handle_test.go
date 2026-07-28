@@ -3,6 +3,7 @@ package record
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -246,5 +247,40 @@ func TestFinishWithoutHookDataStillRecords(t *testing.T) {
 func TestFinishOutsideRepoIsNil(t *testing.T) {
 	if err := Finish(t.TempDir(), FinishInfo{SessionID: "s"}); err != nil {
 		t.Errorf("Finish with nothing known = %v, want nil", err)
+	}
+}
+
+// TestHandleEventStripsSeededPreambleFromIntent covers the live recording path,
+// which is the one that actually runs: the hook reports the prompt verbatim, so
+// a seeded prompt arrives with wasa's <context> preambles ahead of the request.
+// Recording those made intent.md quote the previous session's history and grow a
+// further copy every session. The transcript-derived path already sanitized; a
+// test that only covered it passed while the live path stayed broken.
+func TestHandleEventStripsSeededPreambleFromIntent(t *testing.T) {
+	dir := initRepo(t)
+	home := t.TempDir()
+
+	seeded := "<context>\n" +
+		"Recorded history from previous sessions in this repo (context only):" +
+		"\n\n── session old · branch task/x ──\nintent:  an earlier request\n" +
+		"</context>\n\nadd voting to the gallery"
+
+	HandleEvent(home, Event{
+		Agent:          "claude",
+		AgentSessionID: "c-1",
+		Prompt:         seeded,
+		Dir:            dir,
+	})
+
+	st, ok := loadState(home, "c-1")
+	if !ok {
+		t.Fatal("state not saved")
+	}
+	if st.Intent != "add voting to the gallery" {
+		t.Errorf("intent = %q, want the request alone", st.Intent)
+	}
+	if strings.Contains(st.Intent, "<context>") ||
+		strings.Contains(st.Intent, "Recorded history") {
+		t.Errorf("preamble survived into the intent: %q", st.Intent)
 	}
 }

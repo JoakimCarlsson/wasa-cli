@@ -47,6 +47,14 @@ type Event struct {
 // an unmanaged session's record on the agent's session-end event (a managed
 // session is closed by the finish flow instead). It never returns anything:
 // the hook contract is fire-and-forget, so every failure is a silent no-op.
+//
+// The intent is sanitized, not merely trimmed. A hook reports the prompt
+// verbatim, and a seeded prompt carries wasa's own <context> preambles —
+// recorded history, collision notes — ahead of what the user typed. Recording
+// those makes the next session's history quote the previous session's, so
+// intent.md accumulates a further copy every session. The transcript fallback
+// below sanitizes already; this path has to as well, or the wrappers the
+// extractor exists to remove survive on the only path that runs live.
 func HandleEvent(home string, ev Event) {
 	if _, ok := recorderFor(ev.Agent); !ok || ev.Dir == "" {
 		return
@@ -79,7 +87,7 @@ func HandleEvent(home string, ev Event) {
 		)
 	}
 	if st.Intent == "" {
-		st.Intent = strings.TrimSpace(ev.Prompt)
+		st.Intent = sanitizeIntent(ev.Prompt)
 	}
 	if st.Intent == "" {
 		transcript, _ := os.ReadFile(st.TranscriptPath)
