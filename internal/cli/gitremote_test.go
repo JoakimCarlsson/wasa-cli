@@ -32,6 +32,37 @@ func TestRunArgvDispatchesOnTheHelperName(t *testing.T) {
 	}
 }
 
+func TestRunRemoteHelperRunsTheHelper(t *testing.T) {
+	var stderr bytes.Buffer
+	code := runRemoteHelper([]string{"origin", "wasa://a/b"}, &stderr)
+
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1 (no login in a test home)", code)
+	}
+	if !strings.Contains(stderr.String(), "not logged in") {
+		t.Errorf("stderr = %q, want the not-logged-in cure", stderr.String())
+	}
+}
+
+// git spawns the credential helper out of os.Executable(), which for the
+// git-remote-wasa binary is that binary itself: it has to answer to the
+// credential command as its first argument the way wasa does as a subcommand.
+func TestRunRemoteHelperDispatchesTheCredentialCommand(t *testing.T) {
+	var stderr bytes.Buffer
+	code := runRemoteHelper([]string{gitremote.CredentialCommand}, &stderr)
+
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), gitCredentialUsage) {
+		t.Errorf(
+			"stderr = %q, want the credential usage — the argument reached "+
+				"the remote helper instead",
+			stderr.String(),
+		)
+	}
+}
+
 func TestRunArgvKeepsOrdinarySubcommands(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := runArgv(

@@ -21,8 +21,9 @@ lint:
 	$(GOLANGCI)
 
 build:
+	rm -f $(HELPER)
 	go build -buildvcs=false -o $(BIN) ./cmd/wasa
-	ln -sf wasa $(HELPER)
+	go build -buildvcs=false -o $(HELPER) ./cmd/git-remote-wasa
 
 run: build
 	$(RUN)

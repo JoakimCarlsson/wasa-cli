@@ -64,7 +64,8 @@ place so the CLI and the TUI drive the same path.
 
 **Entry & UI:**
 
-- `cmd/wasa/` — `main` (`//go:build !windows`) calls `cli.RunArgv(version, os.Args)`, which dispatches on the name the binary was invoked under before its arguments: git resolves a remote helper by executable name, so a `git-remote-wasa` symlink to `wasa` is the whole installation step (`make build` and `install.sh` both make it). `main_windows.go` is the WSL stub. `version` via `-ldflags "-X main.version=…"`.
+- `cmd/wasa/` — `main` (`//go:build !windows`) calls `cli.RunArgv(version, os.Args)`, which dispatches on the name the binary was invoked under before its arguments, so a `git-remote-wasa` symlink to `wasa` — how releases before the helper binary installed it — keeps working. `main_windows.go` is the WSL stub. `version` via `-ldflags "-X main.version=…"`.
+- `cmd/git-remote-wasa/` — the remote helper as a binary of its own, so a `go install`, a hand-untarred release or a packager's recipe all put one on `PATH`; git resolves a remote helper by executable name and nothing else. It is a one-liner over `cli.RunRemoteHelper`, the same entry point `RunArgv`'s argv[0] branch takes, which also answers `git-credential-wasa` as a first argument: git spawns the credential helper out of `os.Executable()`, which here is the helper binary. No version ldflag — the helper prints none. `main_windows.go` is the WSL stub.
 - `cli/` — flag parsing, usage, subcommand dispatch.
 - `tui/` — the cockpit (Bubble Tea): one tab per workspace, sessions with status dots, create/attach/kill. Drives the seams; never reimplements them.
 - `tui/theme/` — resolved lipgloss styles. A leaf package (config + lipgloss only) so every layer imports `Theme` without an import cycle.
