@@ -84,9 +84,13 @@ func settingsFile(dir, sub, name string) configFile {
 
 // installNested merges wasa's recording hooks into a Claude-style settings
 // file: {"hooks":{"<Event>":[{"hooks":[<entry>]}]}}. It is additive and
-// idempotent: user settings and hooks are preserved, and a re-install is a
-// no-op once a recorder entry is present. A file that exists but is not
-// valid JSON is left untouched and the error returned, so a hand-edited
+// idempotent: user settings and hooks are preserved, and a re-install with
+// the same binary rewrites nothing. Idempotence is on the installed command
+// being right, not on a recorder entry merely being present — an entry naming
+// a binary that has moved or belongs to another user is repointed at this one
+// (see refreshRecordHook), because a hook that cannot execute records nothing
+// and, recording being best-effort, says nothing. A file that exists but is
+// not valid JSON is left untouched and the error returned, so a hand-edited
 // config is never clobbered. The file is added to the repository's shared
 // info/exclude (best-effort) so recording never dirties git status. finish
 // is an optional extra mutation of the top-level document (e.g. Gemini's
@@ -107,13 +111,15 @@ func installNested(
 	}
 	changed := false
 	for _, event := range events {
+		want := HookCommand(wasaExe, tool, event.end)
 		if hasRecordHook(hooks[event.name]) {
+			if refreshRecordHook(hooks[event.name], want) {
+				changed = true
+			}
 			continue
 		}
 		hooks[event.name] = append(hooks[event.name], settingsHookMatcher{
-			Hooks: []settingsHookEntry{
-				entry(HookCommand(wasaExe, tool, event.end)),
-			},
+			Hooks: []settingsHookEntry{entry(want)},
 		})
 		changed = true
 	}
@@ -404,6 +410,39 @@ func onlyOwnedKeys(top map[string]json.RawMessage, owned []string) bool {
 
 func hasRecordHook(matchers []settingsHookMatcher) bool {
 	return slices.ContainsFunc(matchers, matcherIsRecordHook)
+}
+
+// refreshRecordHook points wasa's own entries in matchers at want, reporting
+// whether any of them had to move. Install is idempotent on the command being
+// right rather than on the marker being present: a hook naming a binary that
+// has moved, been replaced, or belongs to another user would otherwise survive
+// every re-install, and because recording is best-effort its failures are
+// silent — the session records nothing and says nothing.
+//
+// Only the field carrying the marker is rewritten, so an agent's dialect
+// survives: Gemini's name, Codex's timeout, and Copilot's bash-instead-of-
+// command are all left as they are. Entries that are not wasa's are never
+// read, and matchers is mutated in place through the slice's backing array.
+func refreshRecordHook(matchers []settingsHookMatcher, want string) bool {
+	changed := false
+	for i := range matchers {
+		if !matcherIsRecordHook(matchers[i]) {
+			continue
+		}
+		for j := range matchers[i].Hooks {
+			h := &matchers[i].Hooks[j]
+			if strings.Contains(h.Command, hookMarker) &&
+				h.Command != want {
+				h.Command = want
+				changed = true
+			}
+			if strings.Contains(h.Bash, hookMarker) && h.Bash != want {
+				h.Bash = want
+				changed = true
+			}
+		}
+	}
+	return changed
 }
 
 func matcherIsRecordHook(m settingsHookMatcher) bool {

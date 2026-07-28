@@ -392,3 +392,121 @@ func TestCopilotHookLeavesForeignFile(t *testing.T) {
 		t.Error("remove deleted a foreign hook file")
 	}
 }
+
+// TestInstallRefreshesStaleBinaryPath covers the silent-failure case: a
+// recorder hook naming a binary this install is not using must be repointed,
+// for every agent dialect. A hook that cannot execute records nothing, and
+// recording being best-effort, reports nothing either.
+func TestInstallRefreshesStaleBinaryPath(t *testing.T) {
+	for tool, rel := range agentConfigPaths {
+		t.Run(tool, func(t *testing.T) {
+			dir := initRepo(t)
+			path := filepath.Join(dir, rel)
+
+			if err := InstallHooks(dir, tool, "/old/bin/wasa"); err != nil {
+				t.Fatalf("first install: %v", err)
+			}
+			raw, _ := os.ReadFile(path)
+			if !strings.Contains(string(raw), "/old/bin/wasa") {
+				t.Fatalf("first install did not write the path: %s", raw)
+			}
+
+			if err := InstallHooks(dir, tool, "/new/bin/wasa"); err != nil {
+				t.Fatalf("re-install: %v", err)
+			}
+			raw, _ = os.ReadFile(path)
+			if strings.Contains(string(raw), "/old/bin/wasa") {
+				t.Errorf("stale path survived re-install: %s", raw)
+			}
+			if !strings.Contains(string(raw), "/new/bin/wasa") {
+				t.Errorf("new path not installed: %s", raw)
+			}
+			if got := InstalledAgents(dir); len(got) != 1 || got[0] != tool {
+				t.Errorf("InstalledAgents = %v, want [%s]", got, tool)
+			}
+		})
+	}
+}
+
+// TestInstallSamePathDoesNotRewrite keeps `record enable` safe to run
+// repeatedly: an already-correct hook must not touch the file, so a repo that
+// commits its agent settings does not show up dirty in git status.
+func TestInstallSamePathDoesNotRewrite(t *testing.T) {
+	dir := initRepo(t)
+	path := claudeSettingsPath(dir)
+	if err := InstallHooks(dir, "claude", "/usr/bin/wasa"); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, st.ModTime(), st.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	mtime := st.ModTime()
+
+	if err := InstallHooks(dir, "claude", "/usr/bin/wasa"); err != nil {
+		t.Fatalf("re-install: %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Errorf(
+			"re-install with same path rewrote content:\n%s\n%s",
+			before,
+			after,
+		)
+	}
+	st2, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st2.ModTime().Equal(mtime) {
+		t.Error("re-install with same path rewrote the file")
+	}
+}
+
+// TestRefreshPreservesDialectAndUserHooks pins the two things a refresh must
+// not damage: an agent's dialect fields, and hooks that are not wasa's.
+func TestRefreshPreservesDialectAndUserHooks(t *testing.T) {
+	dir := initRepo(t)
+	path := filepath.Join(dir, ".gemini", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	seed := `{
+  "hooks": {
+    "AfterAgent": [
+      {"hooks": [{"type": "command", "command": "my-linter"}]},
+      {"hooks": [{"name": "wasa-record", "type": "command", "command": "/old/wasa record-hook --tool gemini"}]}
+    ]
+  }
+}`
+	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := InstallHooks(dir, "gemini", "/new/wasa"); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	raw, _ := os.ReadFile(path)
+	got := string(raw)
+	if strings.Contains(got, "/old/wasa") {
+		t.Errorf("stale path survived: %s", got)
+	}
+	if !strings.Contains(got, "/new/wasa") {
+		t.Errorf("new path missing: %s", got)
+	}
+	if !strings.Contains(got, "my-linter") {
+		t.Errorf("user hook lost: %s", got)
+	}
+	if !strings.Contains(got, "wasa-record") {
+		t.Errorf("gemini name field lost on refresh: %s", got)
+	}
+}
