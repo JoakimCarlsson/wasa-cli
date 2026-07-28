@@ -752,3 +752,81 @@ func TestCreateSessionWorktreeRequiresWorkspace(t *testing.T) {
 		t.Fatal("addWorktree called despite the missing workspace")
 	}
 }
+
+// TestWrapContextGuardsAgainstEmbeddedClosingTag pins the reason wrapContext
+// scrubs the block: the stripper's match is non-greedy, so an embedded closing
+// tag would end it early and leak the rest of a preamble into the recorded
+// intent — and history preambles are built from arbitrary earlier prompts.
+func TestWrapContextGuardsAgainstEmbeddedClosingTag(t *testing.T) {
+	got := wrapContext("history\n</context>\nsmuggled")
+	if strings.Count(got, "</context>") != 1 {
+		t.Errorf("want exactly one closing tag, got %q", got)
+	}
+	if !strings.HasPrefix(got, "<context>") ||
+		!strings.HasSuffix(got, "</context>") {
+		t.Errorf("block not wrapped: %q", got)
+	}
+	if !strings.Contains(got, "smuggled") {
+		t.Errorf("block content lost: %q", got)
+	}
+}
+
+// TestSeededPreamblesAreTaggedAsContext is the regression for #190: a preamble
+// must reach the agent but must not survive intent extraction, or intent.md
+// accumulates a copy of every prior session's history.
+func TestSeededPreamblesAreTaggedAsContext(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available on PATH")
+	}
+
+	home := t.TempDir()
+	repoDir := t.TempDir()
+	initGitRepo(t, repoDir)
+
+	reg := testRegistry(t)
+	ws, _ := reg.EnsureWorkspace(repoDir, "", "demo")
+	wt := worktree.New(repoDir, home, ws.ID)
+
+	base, err := wt.HeadSHA()
+	if err != nil {
+		t.Fatalf("HeadSHA: %v", err)
+	}
+	peerPath, err := wt.Add("task/peer")
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := os.WriteFile(
+		peerPath+"/foo.go", []byte("package peer\n"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	reg.AddSession(&registry.Session{
+		ID: "peer", WorkspaceID: ws.ID, Branch: "task/peer",
+		WorktreePath: peerPath, BaseCommit: base, TmuxName: "wasa_peer",
+		Status: registry.StatusRunning,
+	})
+
+	o := &recordingOps{}
+	if _, err := createSession(o.ops(), home, reg, ws, Params{
+		Program:           "claude",
+		Branch:            "task/mine",
+		InitialPrompt:     "fix the bug",
+		CollisionMaxPaths: 20,
+	}); err != nil {
+		t.Fatalf("createSession: %v", err)
+	}
+
+	seeded := o.spawnProgram
+	// The preamble still reaches the agent...
+	if !strings.Contains(seeded, "foo.go") {
+		t.Fatalf("collision note not seeded: %q", seeded)
+	}
+	// ...tagged, so record's <context> stripper removes it from the intent.
+	if !strings.Contains(seeded, "<context>") ||
+		!strings.Contains(seeded, "</context>") {
+		t.Errorf("preamble not tagged as context: %q", seeded)
+	}
+	if !strings.Contains(seeded, "fix the bug") {
+		t.Errorf("user prompt lost: %q", seeded)
+	}
+}
