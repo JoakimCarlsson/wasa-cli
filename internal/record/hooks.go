@@ -276,6 +276,23 @@ func copilotHookFile(dir string) configFile {
 	return settingsFile(dir, filepath.Join(".github", "hooks"), "wasa.json")
 }
 
+// copilotUserHookFile is wasa's recorder hook at ~/.copilot/hooks/ — the only
+// location Copilot actually executes, and the same directory sessionstatus
+// installs into. It is distinctly named so installFlat owns it and a foreign
+// file is refused, and it carries no exclude entry: it lives outside any
+// repository, so there is nothing to keep out of git status.
+//
+// One file serves every repository on the machine, which is why it is not what
+// HooksInstalled reports and not what RemoveHooks deletes — see the type comment
+// on copilotRecorder.
+func copilotUserHookFile() configFile {
+	return configFile{
+		path: filepath.Join(
+			agentHome("", ".copilot"), "hooks", "wasa-record.json",
+		),
+	}
+}
+
 // copilotEntry is a Copilot repo-hook entry: {"type":"command","command":...}.
 func copilotEntry(command string) settingsHookEntry {
 	return settingsHookEntry{Type: "command", Command: command}

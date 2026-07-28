@@ -56,11 +56,15 @@ type Event struct {
 // below sanitizes already; this path has to as well, or the wrappers the
 // extractor exists to remove survive on the only path that runs live.
 func HandleEvent(home string, ev Event) {
-	if _, ok := recorderFor(ev.Agent); !ok || ev.Dir == "" {
+	r, ok := recorderFor(ev.Agent)
+	if !ok || ev.Dir == "" {
 		return
 	}
 	repoDir, err := worktree.Toplevel(ev.Dir)
 	if err != nil {
+		return
+	}
+	if _, wide := r.(machineWideHook); wide && !r.HooksInstalled(repoDir) {
 		return
 	}
 	sid := ev.WasaSession
