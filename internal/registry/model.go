@@ -75,19 +75,62 @@ type Link struct {
 	Slug    string `json:"slug"`
 }
 
+// Checkpoint sync destinations: where a workspace's refs/wasa checkpoints are
+// pushed. CheckpointSyncOrigin is the empty string on purpose, so the zero
+// value — every workspace already on disk, and every new one — syncs through
+// the repository's own origin with no migration and no record rewrite.
+// CheckpointSyncCore is the deliberate opt-out for people who do not want
+// transcripts in their code repository: it routes checkpoints over the
+// control-plane remote instead, which requires the workspace to be linked.
+const (
+	CheckpointSyncOrigin = ""
+	CheckpointSyncCore   = "wasa"
+)
+
+// ParseCheckpointSync maps a destination as typed to its stored form. An
+// unknown destination is an error rather than a silent fallback to origin,
+// because choosing the control plane is a privacy decision and a typo that
+// quietly kept transcripts in the code repository would be the wrong outcome.
+func ParseCheckpointSync(s string) (string, error) {
+	switch s {
+	case "origin":
+		return CheckpointSyncOrigin, nil
+	case CheckpointSyncCore:
+		return CheckpointSyncCore, nil
+	}
+	return "", fmt.Errorf(
+		"unknown checkpoint sync destination %q — use origin or %s",
+		s, CheckpointSyncCore,
+	)
+}
+
+// CheckpointSyncName spells a stored destination the way a user typed it, so
+// the zero value reads as origin rather than as an empty column.
+func CheckpointSyncName(stored string) string {
+	if stored == CheckpointSyncCore {
+		return CheckpointSyncCore
+	}
+	return "origin"
+}
+
 // Workspace is a per-repository scope. Its ID is content-addressed from the
 // repository's canonical path and primary remote, so it is stable across runs.
 // LastUsedAt drives most-recently-used ordering and updates only on session
 // create and on attach, never via a background watcher.
+//
+// CheckpointSync names where the workspace's checkpoints are pushed; its zero
+// value means origin, and it is independent of Link — a linked workspace still
+// syncs checkpoints to origin unless it selects the control plane explicitly.
 type Workspace struct {
-	ID         string    `json:"id"`
-	Name       string    `json:"name"`
-	RepoPath   string    `json:"repoPath"`
-	RemoteURL  string    `json:"remoteURL"`
-	Profiles   []Profile `json:"profiles"`
-	Link       *Link     `json:"link,omitempty"`
-	LastUsedAt time.Time `json:"lastUsedAt"`
-	CreatedAt  time.Time `json:"createdAt"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	RepoPath       string    `json:"repoPath"`
+	RemoteURL      string    `json:"remoteURL"`
+	Profiles       []Profile `json:"profiles"`
+	Link           *Link     `json:"link,omitempty"`
+	CheckpointSync string    `json:"checkpointSync,omitempty"`
+	LastUsedAt     time.Time `json:"lastUsedAt"`
+	CreatedAt      time.Time `json:"createdAt"`
 }
 
 // Session is one running agent, owned by a workspace. It comes in two shapes,

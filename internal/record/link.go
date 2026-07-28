@@ -8,14 +8,18 @@ import (
 	"github.com/joakimcarlsson/wasa-cli/internal/registry"
 )
 
-// LinkedRemote is the git remote a linked workspace's record travels through.
-// `wasa link` configures it; nothing else in the repository uses it.
+// LinkedRemote is the git remote a workspace's record travels through when it
+// selects the control plane as its checkpoint destination. `wasa link`
+// configures it; nothing else in the repository uses it.
 const LinkedRemote = "wasa"
 
 // SyncRemote returns the remote a workspace's refs/wasa record should sync to:
-// LinkedRemote when the workspace carries a link record, and fallback when it
-// does not. An unlinked workspace is the whole of today's behaviour, so the
-// fallback path is unchanged and reaches no network of its own.
+// LinkedRemote when the workspace has explicitly selected the control plane as
+// its checkpoint destination, and fallback otherwise. Origin is the default for
+// every workspace, linked or not — the control plane reads refs/wasa/* from the
+// git host, so riding along with the remote the user already has credentials
+// for is both the shorter path and the one that needs no live core. A link is
+// no longer what decides this: the two concerns are separate.
 //
 // The workspace is found by id when the caller knows one — a managed session
 // records it — and otherwise by resolving repoDir to the main checkout it
@@ -47,7 +51,7 @@ func SyncRemote(home, repoDir, workspaceID, fallback string) string {
 }
 
 func remoteFor(w *registry.Workspace, fallback string) string {
-	if w.Link == nil {
+	if w.CheckpointSync != registry.CheckpointSyncCore {
 		return fallback
 	}
 	return LinkedRemote

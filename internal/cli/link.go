@@ -34,9 +34,11 @@ func init() {
 }
 
 const linkUsage = "usage: wasa link " +
-	"[--core <url>] [--slug <owner>/<repo>] [--project <id>]"
+	"[--core <url>] [--slug <owner>/<repo>] [--project <id>] " +
+	"[--checkpoints <origin|wasa>]"
 
 const linkHelp = `usage: wasa link [--core <url>] [--slug <owner>/<repo>] [--project <id>]
+                 [--checkpoints <origin|wasa>]
 
 Connect this repository to the wasa-api core you are logged in to, so its
 refs/wasa record syncs through the control plane instead of staying local.
@@ -53,10 +55,18 @@ Linking is opt-in and reversible: until it is run, and again after
 plane at all. Running it twice is not an error — the second run re-resolves
 the repo and rewrites the record.
 
+Checkpoints go to origin by default whether or not this repository is linked:
+the core reads refs/wasa/* from the git host, so a checkpoint rides along with
+the remote you already have credentials for. Pass --checkpoints wasa to send
+them over the control-plane remote instead, which is the choice to make when
+transcripts should not live in the code repository. Omitting the flag leaves
+whichever destination is already recorded untouched.
+
 Flags:
-  --core <url>            the core to link to (default: the current context's)
-  --slug <owner>/<repo>   the repo on the core (default: derived from origin)
-  --project <id>          the project to create the repo in, as a ULID
+  --core <url>              the core to link to (default: the current context's)
+  --slug <owner>/<repo>     the repo on the core (default: derived from origin)
+  --project <id>            the project to create the repo in, as a ULID
+  --checkpoints <dest>      where checkpoints sync: origin (default) or wasa
 `
 
 func runLink(args []string) error {
@@ -64,6 +74,9 @@ func runLink(args []string) error {
 	coreURL := fs.String("core", "", "the core to link to")
 	slug := fs.String("slug", "", "the repo on the core")
 	project := fs.String("project", "", "project to create the repo in")
+	checkpoints := fs.String(
+		"checkpoints", "", "where checkpoints sync: origin or wasa",
+	)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprint(os.Stdout, linkHelp)
@@ -74,18 +87,26 @@ func runLink(args []string) error {
 	if fs.NArg() != 0 {
 		return errors.New(linkUsage)
 	}
-	return link(
-		context.Background(),
-		linkRequest{core: *coreURL, slug: *slug, project: *project},
-		os.Stdout,
-	)
+	req := linkRequest{core: *coreURL, slug: *slug, project: *project}
+	if *checkpoints != "" {
+		dest, err := registry.ParseCheckpointSync(*checkpoints)
+		if err != nil {
+			return err
+		}
+		req.checkpoints = &dest
+	}
+	return link(context.Background(), req, os.Stdout)
 }
 
-// linkRequest is what the user asked for, before any of it is resolved.
+// linkRequest is what the user asked for, before any of it is resolved. A nil
+// checkpoints means the flag was not passed, which leaves whichever destination
+// the workspace already records alone — re-linking never silently moves a
+// deliberate privacy choice back to origin.
 type linkRequest struct {
-	core    string
-	slug    string
-	project string
+	core        string
+	slug        string
+	project     string
+	checkpoints *string
 }
 
 // link resolves the repo this workspace should sync through, records it and
@@ -151,6 +172,9 @@ func link(ctx context.Context, req linkRequest, out io.Writer) error {
 	ws.Link = &registry.Link{
 		CoreURL: coreURL, RepoID: found.ID, Slug: found.Slug,
 	}
+	if req.checkpoints != nil {
+		ws.CheckpointSync = *req.checkpoints
+	}
 	if err := reg.Save(); err != nil {
 		return err
 	}
@@ -162,6 +186,10 @@ func link(ctx context.Context, req linkRequest, out io.Writer) error {
 
 	fmt.Fprintf(
 		out, "linked %s (%s) on %s\n", found.Slug, found.ID, coreURL,
+	)
+	fmt.Fprintf(
+		out, "checkpoints sync to %s\n",
+		registry.CheckpointSyncName(ws.CheckpointSync),
 	)
 	return nil
 }
@@ -300,6 +328,8 @@ const unlinkUsage = "usage: wasa unlink"
 
 // runUnlink drops the link record and the remote that carried it, which
 // returns the workspace to syncing locally exactly as an unlinked one does.
+// A workspace that had selected the control plane for its checkpoints goes back
+// to origin with it, since the remote that carried them is being removed.
 // Nothing on the core is touched: the repo and everything pushed to it stay.
 func runUnlink(args []string) error {
 	fs := newFlagSet("wasa unlink")
@@ -322,6 +352,7 @@ func runUnlink(args []string) error {
 	linked := ok && ws.Link != nil
 	if linked {
 		ws.Link = nil
+		ws.CheckpointSync = registry.CheckpointSyncOrigin
 		if err := reg.Save(); err != nil {
 			return err
 		}

@@ -76,8 +76,8 @@ func runPull(args []string) error {
 }
 
 // syncArgs parses the optional remote argument shared by push and pull. An
-// empty result means none was named, which is what lets a linked workspace
-// pick its own without overriding a remote the user typed.
+// empty result means none was named, which is what lets a workspace pick its
+// own destination without overriding a remote the user typed.
 func syncArgs(usage string, args []string) (remote string, err error) {
 	fs := newFlagSet(usage)
 	if err := fs.Parse(args); err != nil {
@@ -94,8 +94,8 @@ func syncArgs(usage string, args []string) (remote string, err error) {
 }
 
 // syncRemote picks the remote a sync travels through when the user named
-// none: a linked workspace's control-plane remote, and otherwise origin,
-// which is what every workspace did before links existed.
+// none: the workspace's checkpoint destination, which is origin unless it
+// selected the control-plane remote.
 func syncRemote(repoPath, named string) string {
 	if named != "" {
 		return named

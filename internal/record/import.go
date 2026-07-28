@@ -43,8 +43,8 @@ type ImportResult struct {
 // session whose id is already recorded is skipped; a malformed or truncated
 // transcript is skipped with a warning, never a failed run. On a dry run
 // nothing is written. What it writes syncs the way a recorded checkpoint
-// does, which is why it needs home: a linked workspace's backfill travels
-// through the control plane, an unlinked one's through origin.
+// does, which is why it needs home: the backfill follows the workspace's
+// checkpoint destination, origin unless it selected the control plane.
 func Import(
 	home, repoDir, fromDir string, dryRun bool,
 ) (ImportResult, error) {
