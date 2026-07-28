@@ -8,9 +8,10 @@ import (
 	"strings"
 )
 
-// RemoteName is the git remote `wasa link` configures. A linked workspace's
-// record travels through it; everything else in the repository keeps using
-// whatever remotes it already had.
+// RemoteName is the git remote `wasa link` configures. A workspace that
+// selects the control plane as its checkpoint destination sends its record
+// through it; everything else in the repository keeps using whatever remotes
+// it already had.
 const RemoteName = Scheme
 
 // CoreConfigKey is the per-remote git config value naming the core a remote

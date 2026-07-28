@@ -108,8 +108,9 @@ func dropLegacyRef(repoDir string) {
 	_, _ = gitIn(repoDir, nil, "update-ref", "-d", RefPrefix)
 }
 
-// Push best-effort syncs the named checkpoint refs in one push: to a linked
-// workspace's control-plane remote, and to origin otherwise. Offline, no
+// Push best-effort syncs the named checkpoint refs in one push, to whichever
+// destination the workspace records: origin by default, and the control-plane
+// remote for a workspace that selected it. Offline, no
 // remote or no permission are all expected outcomes; the caller decides
 // whether the returned error is worth one log line. The push is non-atomic,
 // so one ref being rejected does not stop the others. Credential prompts are
@@ -141,8 +142,8 @@ func Push(home, repoDir, workspaceID string, refs ...string) error {
 // so the push runs in its own session and outlives it. No timeout: prompts
 // are disabled, so git either finishes or fails on its own.
 //
-// A linked workspace's refs travel through the control plane and an unlinked
-// one's through origin, exactly as an explicit push does. It stays
+// The refs travel to the workspace's checkpoint destination — origin unless it
+// selected the control plane — exactly as an explicit push does. It stays
 // best-effort either way: a core that is down must not fail a session.
 func pushDetached(home, repoDir, workspaceID string, refs []string) {
 	if len(refs) == 0 {

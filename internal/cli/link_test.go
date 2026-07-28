@@ -44,6 +44,18 @@ func TestLinkWithoutALoginFailsWithTheCure(t *testing.T) {
 	}
 }
 
+// TestLinkRejectsAnUnknownCheckpointDestination fails on the flag before
+// anything reaches the network, so a typo is reported rather than half-applied.
+func TestLinkRejectsAnUnknownCheckpointDestination(t *testing.T) {
+	inGitRepo(t)
+
+	err := runLink([]string{"--checkpoints", "upstream"})
+	if err == nil ||
+		!strings.Contains(err.Error(), "checkpoint sync destination") {
+		t.Errorf("runLink with a bogus destination = %v", err)
+	}
+}
+
 func TestLinkCoreMustMatchTheCurrentContext(t *testing.T) {
 	if _, err := linkCore("", "https://core.example"); err != nil {
 		t.Errorf("linkCore with no request = %v", err)
@@ -97,6 +109,7 @@ func TestUnlinkDropsTheRecordAndTheRemote(t *testing.T) {
 		RepoID:  "01J000000000000000000000AB",
 		Slug:    "acme/widgets",
 	}
+	ws.CheckpointSync = registry.CheckpointSyncCore
 	if err := reg.Save(); err != nil {
 		t.Fatalf("registry.Save: %v", err)
 	}
@@ -121,6 +134,12 @@ func TestUnlinkDropsTheRecordAndTheRemote(t *testing.T) {
 	after, ok := reg.Workspace(registry.WorkspaceID(repoDir, ""))
 	if !ok || after.Link != nil {
 		t.Errorf("workspace after unlink = %+v, want no link", after)
+	}
+	if after.CheckpointSync != registry.CheckpointSyncOrigin {
+		t.Errorf(
+			"checkpoint destination after unlink = %q, want origin",
+			after.CheckpointSync,
+		)
 	}
 	if got := gitremote.ConfiguredCore(
 		repoDir, gitremote.RemoteName,
