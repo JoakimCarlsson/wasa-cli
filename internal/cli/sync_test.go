@@ -13,13 +13,13 @@ func TestPushPullCommandsRegistered(t *testing.T) {
 	}
 }
 
-func TestSyncArgsDefaultsToOrigin(t *testing.T) {
+func TestSyncArgsNoRemoteIsUnnamed(t *testing.T) {
 	remote, err := syncArgs(pushUsage, nil)
 	if err != nil {
 		t.Fatalf("syncArgs(nil) err = %v", err)
 	}
-	if remote != "origin" {
-		t.Fatalf("remote = %q, want %q", remote, "origin")
+	if remote != "" {
+		t.Fatalf("remote = %q, want the empty unnamed remote", remote)
 	}
 }
 

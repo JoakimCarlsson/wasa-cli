@@ -54,11 +54,11 @@ func runGitRemoteHelper(args []string) error {
 		return errors.New(gitRemoteUsage)
 	}
 
-	current, err := currentContext()
+	coreURL, err := helperCore(remote)
 	if err != nil {
 		return err
 	}
-	target, err := gitremote.Resolve(current.CoreURL, rawURL)
+	target, err := gitremote.Resolve(coreURL, rawURL)
 	if err != nil {
 		return err
 	}
@@ -78,7 +78,7 @@ func runGitRemoteHelper(args []string) error {
 		Target: target,
 		Action: action,
 		Credential: gitremote.CredentialConfig(
-			exe, target.Audience, action.Path(),
+			exe, coreURL, target.Audience, action.Path(),
 		),
 		Stdin:  os.Stdin,
 		Stdout: os.Stdout,
@@ -86,15 +86,36 @@ func runGitRemoteHelper(args []string) error {
 	})
 }
 
+// helperCore returns the core a transfer goes to: the one pinned on the
+// remote git invoked the helper for, and otherwise the current login's.
+//
+// The pin is what `wasa link` writes, and it outranks the current context on
+// purpose. A workspace linked to one core, with the context pointed at
+// another, would otherwise push to the second — 404ing on a repo that is not
+// there, or worse, reaching a repo of the same slug that is. Where a
+// workspace's record lives is the link's decision; the context only decides
+// who the transfer acts as.
+func helperCore(remote string) (string, error) {
+	if pinned := gitremote.ConfiguredCore(".", remote); pinned != "" {
+		return pinned, nil
+	}
+	current, err := currentContext()
+	if err != nil {
+		return "", err
+	}
+	return current.CoreURL, nil
+}
+
 const gitCredentialUsage = "usage: " + programName + " " +
 	gitremote.CredentialCommand +
-	" --audience <audience> --action-file <path> <operation>"
+	" --core <url> --audience <audience> --action-file <path> <operation>"
 
 // runGitCredential answers the transport's credential request with a token
 // scoped to one repo and to the direction the helper recorded. git spawns it
 // per request, so it holds no state of its own beyond the login it reads.
 func runGitCredential(args []string) error {
 	fs := newFlagSet(programName + " " + gitremote.CredentialCommand)
+	coreURL := fs.String("core", "", "core the token is exchanged at")
 	audience := fs.String("audience", "", "repo the token is minted for")
 	actionFile := fs.String(
 		"action-file", "", "file the transfer direction was recorded in",
@@ -106,7 +127,7 @@ func runGitCredential(args []string) error {
 		return errors.New(gitCredentialUsage)
 	}
 
-	tokens, err := currentTokens()
+	tokens, err := coreTokens(*coreURL)
 	if err != nil {
 		return err
 	}
@@ -143,10 +164,10 @@ func currentContext() (identity.Context, error) {
 	return current, err
 }
 
-// currentTokens returns the repo-token cache over the current login: exchanges
-// go to that context's core, and the login JWT is re-read (and refreshed) at
-// each exchange rather than captured now.
-func currentTokens() (*repotoken.Cache, error) {
+// coreTokens returns the repo-token cache for one core: exchanges go to
+// coreURL, or to the current context's core when it is empty, and the login
+// JWT is re-read (and refreshed) at each exchange rather than captured now.
+func coreTokens(coreURL string) (*repotoken.Cache, error) {
 	store, err := auth.Default()
 	if err != nil {
 		return nil, err
@@ -158,7 +179,10 @@ func currentTokens() (*repotoken.Cache, error) {
 	if err != nil {
 		return nil, err
 	}
-	client, err := core.New(current.CoreURL)
+	if coreURL == "" {
+		coreURL = current.CoreURL
+	}
+	client, err := core.New(coreURL)
 	if err != nil {
 		return nil, err
 	}

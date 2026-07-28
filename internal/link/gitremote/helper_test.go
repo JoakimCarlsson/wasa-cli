@@ -115,9 +115,11 @@ func TestChildEnvResetsTheCredentialHelperFirst(t *testing.T) {
 
 func TestCredentialConfigQuotesEveryValue(t *testing.T) {
 	got := CredentialConfig(
-		"/opt/it's here/wasa", "/et/acme/widgets", "/tmp/x y/action",
+		"/opt/it's here/wasa", "https://core.invalid",
+		"/et/acme/widgets", "/tmp/x y/action",
 	)
 	want := "!'/opt/it'\\''s here/wasa' " + CredentialCommand +
+		" --core 'https://core.invalid'" +
 		" --audience '/et/acme/widgets' --action-file '/tmp/x y/action'"
 	if got != want {
 		t.Errorf("CredentialConfig = %q, want %q", got, want)
@@ -180,6 +182,7 @@ func TestRunRecordsTheDirectionInTheCallersFile(t *testing.T) {
 		Action: f,
 		Credential: CredentialConfig(
 			"/nonexistent/wasa",
+			"https://core.invalid",
 			target.Audience,
 			f.Path(),
 		),
@@ -211,7 +214,8 @@ func TestRunReportsATransportThatFails(t *testing.T) {
 		},
 		Action: f,
 		Credential: CredentialConfig(
-			"/nonexistent/wasa", "/et/acme/widgets", f.Path(),
+			"/nonexistent/wasa", "https://core.invalid",
+			"/et/acme/widgets", f.Path(),
 		),
 		Stdin:  strings.NewReader("capabilities\nlist\n"),
 		Stdout: io.Discard,
@@ -250,7 +254,8 @@ func TestRunEndsWhenTheTransportDoesNotWhenGitStops(t *testing.T) {
 			},
 			Action: f,
 			Credential: CredentialConfig(
-				"/nonexistent/wasa", "/et/acme/widgets", f.Path(),
+				"/nonexistent/wasa", "https://core.invalid",
+				"/et/acme/widgets", f.Path(),
 			),
 			Stdin:  held,
 			Stdout: io.Discard,

@@ -230,16 +230,22 @@ func childEnv(env []string, credential string) []string {
 }
 
 // CredentialConfig builds the credential.helper value pointing at wasa's own
-// credential helper. exe is the wasa binary to invoke, audience the repo the
-// minted token is for, and actionPath the file the direction is recorded in.
+// credential helper. exe is the wasa binary to invoke, coreURL the core the
+// token is exchanged at, audience the repo the minted token is for, and
+// actionPath the file the direction is recorded in.
+//
+// The core is passed down rather than re-derived because the helper may have
+// read it off the remote: a token exchanged at some other core would not open
+// this transfer's repo.
 //
 // The leading "!" is what makes git run the value as a command line rather than
 // look for a git-credential-<name> binary, and every interpolated value is
 // quoted because git hands that line to a shell.
-func CredentialConfig(exe, audience, actionPath string) string {
+func CredentialConfig(exe, coreURL, audience, actionPath string) string {
 	return "!" + strings.Join([]string{
 		shellQuote(exe),
 		CredentialCommand,
+		"--core", shellQuote(coreURL),
 		"--audience", shellQuote(audience),
 		"--action-file", shellQuote(actionPath),
 	}, " ")

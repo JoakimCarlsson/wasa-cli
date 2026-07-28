@@ -284,7 +284,7 @@ func TestPushWithoutOriginFails(t *testing.T) {
 	ref := mustWrite(t, dir, Checkpoint{
 		Meta: Meta{SessionID: "s1", WasaVersion: "test"},
 	})
-	if err := Push(dir, ref); err == nil {
+	if err := Push("", dir, "", ref); err == nil {
 		t.Error("Push without origin should return an error to log")
 	}
 }
@@ -299,7 +299,7 @@ func TestPushToOrigin(t *testing.T) {
 	ref := mustWrite(t, dir, Checkpoint{
 		Meta: Meta{SessionID: "s1", WasaVersion: "test"},
 	})
-	if err := Push(dir, ref); err != nil {
+	if err := Push("", dir, "", ref); err != nil {
 		t.Fatalf("Push: %v", err)
 	}
 	if out, err := exec.Command(

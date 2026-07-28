@@ -34,7 +34,7 @@ const (
 // named ref, this is a set union across runners, never an overwrite: two
 // runners pushing against the same origin both survive intact.
 func runPush(args []string) error {
-	remote, err := syncArgs(pushUsage, args)
+	named, err := syncArgs(pushUsage, args)
 	if err != nil {
 		return err
 	}
@@ -42,6 +42,7 @@ func runPush(args []string) error {
 	if err != nil {
 		return err
 	}
+	remote := syncRemote(repoPath, named)
 	result, err := record.PushAll(repoPath, remote)
 	if err != nil {
 		if len(result.Refs) > 0 {
@@ -57,7 +58,7 @@ func runPush(args []string) error {
 // origin) and integrates it locally, reporting what arrived. On a fresh
 // clone this populates the entire record in one call.
 func runPull(args []string) error {
-	remote, err := syncArgs(pullUsage, args)
+	named, err := syncArgs(pullUsage, args)
 	if err != nil {
 		return err
 	}
@@ -65,6 +66,7 @@ func runPull(args []string) error {
 	if err != nil {
 		return err
 	}
+	remote := syncRemote(repoPath, named)
 	result, err := record.PullAll(repoPath, remote)
 	if err != nil {
 		return err
@@ -73,8 +75,9 @@ func runPull(args []string) error {
 	return nil
 }
 
-// syncArgs parses the optional remote argument shared by push and pull,
-// defaulting to origin.
+// syncArgs parses the optional remote argument shared by push and pull. An
+// empty result means none was named, which is what lets a linked workspace
+// pick its own without overriding a remote the user typed.
 func syncArgs(usage string, args []string) (remote string, err error) {
 	fs := newFlagSet(usage)
 	if err := fs.Parse(args); err != nil {
@@ -82,12 +85,22 @@ func syncArgs(usage string, args []string) (remote string, err error) {
 	}
 	switch rest := fs.Args(); len(rest) {
 	case 0:
-		return "origin", nil
+		return "", nil
 	case 1:
 		return rest[0], nil
 	default:
 		return "", errors.New(usage)
 	}
+}
+
+// syncRemote picks the remote a sync travels through when the user named
+// none: a linked workspace's control-plane remote, and otherwise origin,
+// which is what every workspace did before links existed.
+func syncRemote(repoPath, named string) string {
+	if named != "" {
+		return named
+	}
+	return record.SyncRemote(wasaHome(), repoPath, "", "origin")
 }
 
 // printSyncSummary reports the refs a push or pull transferred, or that

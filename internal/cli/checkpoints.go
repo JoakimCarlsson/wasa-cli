@@ -482,7 +482,7 @@ func importCheckpoints(repoPath string, args []string) error {
 		)
 	}
 
-	res, err := record.Import(repoPath, *from, *dryRun)
+	res, err := record.Import(wasaHome(), repoPath, *from, *dryRun)
 	if err != nil {
 		return err
 	}

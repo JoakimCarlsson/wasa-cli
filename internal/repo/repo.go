@@ -51,9 +51,17 @@ func Register(
 	return reg.EnsureWorkspace(repoPath, remoteURL, filepath.Base(repoPath))
 }
 
+// linkRemote is the remote `wasa link` configures. It is named here rather
+// than imported so this package still builds on Windows, and it is named at
+// all because it must never be taken for a repository's primary remote: the
+// workspace id is content-addressed from that remote, and a workspace whose
+// id changed the moment it was linked would be a second workspace for the
+// same repository.
+const linkRemote = "wasa"
+
 // originRemoteURL returns the URL of the origin remote, falling back to the
-// first configured remote. It returns an empty string when the repository has no
-// remote.
+// first configured remote that is not wasa's own. It returns an empty string
+// when the repository has no such remote.
 func originRemoteURL(dir string) string {
 	if u := remoteURL(dir, "origin"); u != "" {
 		return u
@@ -63,9 +71,11 @@ func originRemoteURL(dir string) string {
 		return ""
 	}
 	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
-		if name := strings.TrimSpace(line); name != "" {
-			return remoteURL(dir, name)
+		name := strings.TrimSpace(line)
+		if name == "" || name == linkRemote {
+			continue
 		}
+		return remoteURL(dir, name)
 	}
 	return ""
 }
