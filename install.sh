@@ -70,6 +70,12 @@ check_runtime_deps() {
     fi
 }
 
+install_binary() {
+    local name="$1"
+    install -m 0755 "$tmp/$name" "$BIN_DIR/$name" 2>/dev/null \
+        || { mv "$tmp/$name" "$BIN_DIR/$name" && chmod 0755 "$BIN_DIR/$name"; }
+}
+
 setup_path() {
     case "${SHELL:-}" in
         */zsh) profile="$HOME/.zshrc" ;;
@@ -119,16 +125,25 @@ main() {
 
     tar -xzf "$tmp/$archive" -C "$tmp"
     mkdir -p "$BIN_DIR"
-    install -m 0755 "$tmp/$BINARY" "$BIN_DIR/$BINARY" 2>/dev/null \
-        || { mv "$tmp/$BINARY" "$BIN_DIR/$BINARY" && chmod 0755 "$BIN_DIR/$BINARY"; }
-    ln -sf "$BINARY" "$BIN_DIR/$HELPER" \
-        || echo "note: could not link $HELPER — wasa:// remotes will not resolve."
+    install_binary "$BINARY"
+
+    local helper_kind
+    if [ -f "$tmp/$HELPER" ]; then
+        rm -f "$BIN_DIR/$HELPER"
+        install_binary "$HELPER"
+        helper_kind="binary"
+    elif ln -sf "$BINARY" "$BIN_DIR/$HELPER"; then
+        helper_kind="symlink to $BINARY"
+    else
+        helper_kind=""
+        echo "note: could not install $HELPER — wasa:// remotes will not resolve."
+    fi
 
     setup_path
     check_runtime_deps
 
     echo ""
-    echo "installed: $("$BIN_DIR/$BINARY" --version 2>/dev/null || echo "$BIN_DIR/$BINARY")"
+    echo "installed: $("$BIN_DIR/$BINARY" --version 2>/dev/null || echo "$BIN_DIR/$BINARY")${helper_kind:+ ($HELPER: $helper_kind)}"
 }
 
 main "$@"

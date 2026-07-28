@@ -17,8 +17,25 @@ builds:
     ldflags:
       - -s -w -X main.version={{ .Version }}
 
+  - id: git-remote-wasa
+    binary: git-remote-wasa
+    main: ./cmd/git-remote-wasa
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+
 archives:
   - id: wasa
+    ids:
+      - wasa
+      - git-remote-wasa
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
 
