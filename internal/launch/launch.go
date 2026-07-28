@@ -210,9 +210,33 @@ func seedPrompt(
 	}
 	prompt := p.InitialPrompt
 	for _, block := range contextPreambles(home, ws, reg, p) {
-		prompt = strings.TrimSpace(block + "\n\n" + prompt)
+		prompt = strings.TrimSpace(wrapContext(block) + "\n\n" + prompt)
 	}
 	return prompt
+}
+
+// wrapContext tags a preamble as machine context so the recorder does not mine
+// it for the session's intent.
+//
+// A preamble is prepended to the same message the user's request arrives in, so
+// the intent extractor sees one blob and would record all of it. That matters
+// most for the recorded-history preamble, which is built from earlier intents:
+// recording it makes the next session's history contain the previous session's
+// history, and intent.md grows a further copy every session (observed nesting
+// eight deep, several kilobytes of boilerplate around a one-line request).
+//
+// <context> is already in record's intentStrippers, so tagging the block is all
+// that is needed — no new stripper, and no new vocabulary for the agents, which
+// read the tag as ordinary text and are told inside the block that it is
+// context only.
+//
+// A closing tag inside the block is removed first. The stripper's match is
+// non-greedy, so an embedded </context> would end it early and leak the rest of
+// the preamble back into the intent — and since a history preamble is built
+// from arbitrary earlier prompts, one can contain that text.
+func wrapContext(block string) string {
+	block = strings.ReplaceAll(block, "</context>", "")
+	return "<context>\n" + block + "\n</context>"
 }
 
 // contextPreambles returns the ordered, independent preamble blocks a new
