@@ -108,20 +108,22 @@ func dropLegacyRef(repoDir string) {
 	_, _ = gitIn(repoDir, nil, "update-ref", "-d", RefPrefix)
 }
 
-// Push best-effort syncs the named checkpoint refs to origin in one push.
-// Offline, no origin or no permission are all expected outcomes; the caller
-// decides whether the returned error is worth one log line. The push is
-// non-atomic, so one ref being rejected does not stop the others. Credential
-// prompts are disabled — terminal and GUI alike — so an unauthenticated push
-// fails fast instead of hanging a hook invocation on a prompt nobody can see.
-func Push(repoDir string, refs ...string) error {
+// Push best-effort syncs the named checkpoint refs in one push: to a linked
+// workspace's control-plane remote, and to origin otherwise. Offline, no
+// remote or no permission are all expected outcomes; the caller decides
+// whether the returned error is worth one log line. The push is non-atomic,
+// so one ref being rejected does not stop the others. Credential prompts are
+// disabled — terminal and GUI alike — so an unauthenticated push fails fast
+// instead of hanging a hook invocation on a prompt nobody can see.
+func Push(home, repoDir, workspaceID string, refs ...string) error {
 	if len(refs) == 0 {
 		return nil
 	}
+	remote := SyncRemote(home, repoDir, workspaceID, "origin")
 	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(
-		ctx, "git", append([]string{"-C", repoDir, "push", "origin"},
+		ctx, "git", append([]string{"-C", repoDir, "push", remote},
 			refspecs(refs)...)...,
 	)
 	cmd.Env = pushEnv()
@@ -138,12 +140,17 @@ func Push(repoDir string, refs ...string) error {
 // must exit immediately (an agent cancels slow hooks and surfaces the noise),
 // so the push runs in its own session and outlives it. No timeout: prompts
 // are disabled, so git either finishes or fails on its own.
-func pushDetached(repoDir string, refs []string) {
+//
+// A linked workspace's refs travel through the control plane and an unlinked
+// one's through origin, exactly as an explicit push does. It stays
+// best-effort either way: a core that is down must not fail a session.
+func pushDetached(home, repoDir, workspaceID string, refs []string) {
 	if len(refs) == 0 {
 		return
 	}
+	remote := SyncRemote(home, repoDir, workspaceID, "origin")
 	cmd := exec.Command(
-		"git", append([]string{"-C", repoDir, "push", "origin"},
+		"git", append([]string{"-C", repoDir, "push", remote},
 			refspecs(refs)...)...,
 	)
 	cmd.Env = pushEnv()

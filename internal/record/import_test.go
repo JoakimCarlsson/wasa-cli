@@ -42,7 +42,7 @@ func TestImport(t *testing.T) {
 	placeTranscript(t, claude, dir, "sess-good", goodSession)
 	placeTranscript(t, claude, dir, "sess-bad", truncatedSession)
 
-	dry, err := Import(dir, "", true)
+	dry, err := Import("", dir, "", true)
 	if err != nil {
 		t.Fatalf("dry-run Import: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestImport(t *testing.T) {
 		t.Fatalf("dry run wrote %d refs, want 0", len(entries))
 	}
 
-	res, err := Import(dir, "", false)
+	res, err := Import("", dir, "", false)
 	if err != nil {
 		t.Fatalf("Import: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestImport(t *testing.T) {
 		t.Errorf("transcript not redacted: %q", transcript)
 	}
 
-	again, err := Import(dir, "", false)
+	again, err := Import("", dir, "", false)
 	if err != nil {
 		t.Fatalf("re-Import: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestImportFromDir(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	res, err := Import(dir, from, false)
+	res, err := Import("", dir, from, false)
 	if err != nil || len(res.Imported) != 1 {
 		t.Fatalf("Import --from = %+v, %v", res, err)
 	}

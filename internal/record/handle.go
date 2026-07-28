@@ -87,7 +87,7 @@ func HandleEvent(home string, ev Event) {
 	}
 
 	if head := headSHA(repoDir); head != "" && head != st.LastHead {
-		st = checkpointNewCommits(repoDir, st, head, signPolicyFor(home))
+		st = checkpointNewCommits(home, repoDir, st, head, signPolicyFor(home))
 	}
 
 	_ = saveState(home, st)
@@ -132,7 +132,7 @@ func Finalize(home, sid string) error {
 	}
 	sign := signPolicyFor(home)
 	if head := headSHA(st.RepoDir); head != "" && head != st.LastHead {
-		st = checkpointNewCommits(st.RepoDir, st, head, sign)
+		st = checkpointNewCommits(home, st.RepoDir, st, head, sign)
 	}
 	native, _ := os.ReadFile(st.TranscriptPath)
 	m := st.meta()
@@ -148,7 +148,7 @@ func Finalize(home, sid string) error {
 		return err
 	}
 	removeState(home, sid)
-	pushDetached(st.RepoDir, []string{ref})
+	pushDetached(home, st.RepoDir, st.WorkspaceID, []string{ref})
 	return nil
 }
 
@@ -199,7 +199,7 @@ func newState(home, sid, repoDir string, ev Event) state {
 // contract; the head is still advanced so the same commits are not retried
 // on every subsequent event.
 func checkpointNewCommits(
-	repoDir string, st state, head string, sign SignPolicy,
+	home, repoDir string, st state, head string, sign SignPolicy,
 ) state {
 	newCommits := commitsBetween(repoDir, st.LastHead, head)
 	if len(newCommits) == 0 {
@@ -236,7 +236,7 @@ func checkpointNewCommits(
 		}
 	}
 	st.LastHead = head
-	pushDetached(repoDir, refs)
+	pushDetached(home, repoDir, st.WorkspaceID, refs)
 	return st
 }
 
@@ -348,7 +348,7 @@ func Finish(home string, info FinishInfo) error {
 		return err
 	}
 	removeState(home, info.SessionID)
-	if err := Push(repoDir, ref); err != nil {
+	if err := Push(home, repoDir, m.WorkspaceID, ref); err != nil {
 		log.Printf("wasa: checkpoint sync skipped: %v", err)
 	}
 	return nil

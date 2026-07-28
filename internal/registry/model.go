@@ -60,6 +60,21 @@ type Profile struct {
 	PortEnv          string            `json:"portEnv,omitempty"`
 }
 
+// Link is the control-plane repo a workspace's record syncs through. A nil
+// Link is an unlinked workspace, which is every workspace until `wasa link`
+// is run in it: the field is omitted from the stored document entirely, so an
+// unlinked workspace's JSON is byte-for-byte what it was before links existed
+// and an older wasa reading a newer document ignores what it does not know.
+//
+// CoreURL is the authority for where the record lives, and outranks whichever
+// login context happens to be current: a workspace linked to one core never
+// follows a context switch to another.
+type Link struct {
+	CoreURL string `json:"coreURL"`
+	RepoID  string `json:"repoID"`
+	Slug    string `json:"slug"`
+}
+
 // Workspace is a per-repository scope. Its ID is content-addressed from the
 // repository's canonical path and primary remote, so it is stable across runs.
 // LastUsedAt drives most-recently-used ordering and updates only on session
@@ -70,6 +85,7 @@ type Workspace struct {
 	RepoPath   string    `json:"repoPath"`
 	RemoteURL  string    `json:"remoteURL"`
 	Profiles   []Profile `json:"profiles"`
+	Link       *Link     `json:"link,omitempty"`
 	LastUsedAt time.Time `json:"lastUsedAt"`
 	CreatedAt  time.Time `json:"createdAt"`
 }
