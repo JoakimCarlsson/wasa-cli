@@ -81,7 +81,7 @@ func (m Model) enterCheckpointSearch() (tea.Model, tea.Cmd) {
 	in.Prompt = "> "
 	in.Placeholder = "search intent & transcripts"
 	in.CharLimit = 200
-	in.SetWidth(max(m.checkpointSearchWidth()-4, 10))
+	in.SetWidth(max(m.overlayWidth()-4, 10))
 	in.Focus()
 
 	m.checkpointSearch = checkpointSearchState{
@@ -230,10 +230,11 @@ func (cs *checkpointSearchState) ensureVisible() {
 	}
 }
 
-// checkpointSearchWidth is the width of the search box's content, a comfortable
-// fraction of the terminal floored and capped so it stays readable on both narrow
-// and very wide terminals.
-func (m Model) checkpointSearchWidth() int {
+// overlayWidth is the width of a search overlay's content — the checkpoint
+// search and the global jump share it — a comfortable fraction of the terminal
+// floored and capped so it stays readable on both narrow and very wide
+// terminals.
+func (m Model) overlayWidth() int {
 	return max(min(m.width-8, 96), 40)
 }
 
@@ -242,7 +243,7 @@ func (m Model) checkpointSearchWidth() int {
 // footer hint, framed in the shared picker box so it floats over the session list.
 func (m Model) checkpointSearchView() string {
 	cs := m.checkpointSearch
-	w := m.checkpointSearchWidth()
+	w := m.overlayWidth()
 
 	var b strings.Builder
 	b.WriteString(m.theme.TitleStyle.Render("Search checkpoints"))

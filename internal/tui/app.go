@@ -39,6 +39,7 @@ const (
 	modeConfig
 	modeCheckpoints
 	modeCheckpointSearch
+	modeGlobalFilter
 )
 
 // Model is the cockpit's Bubble Tea model. It holds the registry it drives, the
@@ -74,6 +75,12 @@ type Model struct {
 	branch  component.BranchPicker
 	editor  modal.ConfigEditor
 	filter  filterState
+
+	// globalFilter backs the global jump overlay (modeGlobalFilter): a fuzzy
+	// query over every session in every workspace whose result switches the
+	// active workspace and lands the cursor on that session. It is a sibling of
+	// filter, never a mode of it, so the two cannot leak state into each other.
+	globalFilter globalFilterState
 
 	// checkpoints backs the checkpoints browser (modeCheckpoints): the record of
 	// the active workspace's repo, browsable read-only without leaving the
@@ -535,6 +542,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateCheckpoints(msg)
 	case modeCheckpointSearch:
 		return m.updateCheckpointSearch(msg)
+	case modeGlobalFilter:
+		return m.updateGlobalFilter(msg)
 	}
 	return m.updateList(msg)
 }
@@ -575,6 +584,8 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case config.ActionFilter:
 		return m.enterFilter()
+	case config.ActionGlobalFilter:
+		return m.enterGlobalFilter()
 	case config.ActionWorkspaceAdd:
 		return m.enterWorkspaceAdd()
 	case config.ActionWorkspaceDelete:
