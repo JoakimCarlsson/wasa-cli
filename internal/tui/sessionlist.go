@@ -27,6 +27,12 @@ import (
 // tracks the fixed frame the cockpit draws, not a preference.
 const chromeRows = 6
 
+// sessionRowLines is the height of one session row as sessionRows lays it out:
+// its title and detail lines plus the blank line that separates it from the
+// next. It is what turns an available row budget into a count of sessions the
+// list pane can show at once.
+const sessionRowLines = 3
+
 // View implements tea.Model.
 func (m Model) View() tea.View {
 	var content string
@@ -79,8 +85,9 @@ func (m Model) listView() string {
 	previewW := m.width - listW - 4
 
 	list := m.theme.PaneStyle.Width(listW).Height(bodyH).Render(
-		m.paneTitle("sessions") + m.recordingBadge() + "\n" +
-			m.sessionList(listW),
+		m.paneTitle("sessions") + m.recordingBadge() +
+			m.listPosition(bodyH-1) + "\n" +
+			m.sessionList(listW, bodyH-1),
 	)
 	right := m.tabbedRightPane(previewW, bodyH)
 	body := lipgloss.JoinHorizontal(lipgloss.Top, list, right)
@@ -146,14 +153,18 @@ func (m Model) tabBar() string {
 	return lipgloss.JoinHorizontal(lipgloss.Bottom, parts...)
 }
 
-func (m Model) sessionList(paneW int) string {
+// sessionList renders the list pane's body within rows terminal lines, so a
+// list longer than the pane scrolls with the cursor instead of running off the
+// bottom of the screen.
+func (m Model) sessionList(paneW, rows int) string {
 	if len(m.tabList()) == 0 {
 		return noWorkspaceBanner(m.theme, m.menuKey(config.ActionWorkspaceAdd))
 	}
 
 	ss := m.sessions()
 	if m.filter.active {
-		return m.filter.input.View() + "\n\n" + m.filterBody(ss, paneW)
+		return m.filter.input.View() + "\n\n" +
+			m.filterBody(ss, paneW, rows-2)
 	}
 	if len(ss) == 0 {
 		if m.activeID == "" {
@@ -165,32 +176,77 @@ func (m Model) sessionList(paneW int) string {
 		}
 		return noSessionBanner(m.theme, name)
 	}
-	return m.sessionRows(ss, paneW)
+	return m.sessionRows(ss, paneW, rows)
 }
 
 // filterBody is the list body while filtering: the matched rows, or a clear
 // "no matches" line when the query narrows the list to nothing — so the pane
 // reads as deliberately empty rather than blank.
-func (m Model) filterBody(ss []*registry.Session, paneW int) string {
+func (m Model) filterBody(
+	ss []*registry.Session, paneW, rows int,
+) string {
 	if len(ss) == 0 {
 		return m.theme.DimStyle.Render("  no matches")
 	}
-	return m.sessionRows(ss, paneW)
+	return m.sessionRows(ss, paneW, rows)
 }
 
-// sessionRows renders the session list body: each session as a two-line row,
-// numbered from one in the order shown.
-func (m Model) sessionRows(ss []*registry.Session, paneW int) string {
+// sessionRows renders the session list body within rows terminal lines: each
+// session as a two-line row, numbered from one in the order shown. Only the
+// window around the cursor is drawn, so a list taller than the pane scrolls
+// instead of running off the bottom of the screen; the numbering still counts
+// from the top of the whole list, so a row's number is its position in the
+// list rather than in the window.
+func (m Model) sessionRows(
+	ss []*registry.Session, paneW, rows int,
+) string {
 	inner := paneW - 2
+	start, end := listWindow(len(ss), m.cursor, visibleSessions(rows))
 	var b strings.Builder
-	for i, s := range ss {
-		if i > 0 {
+	for i := start; i < end; i++ {
+		if i > start {
 			b.WriteString("\n")
 		}
-		b.WriteString(m.sessionRow(i, s, inner))
+		b.WriteString(m.sessionRow(i, ss[i], inner))
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// visibleSessions is how many session rows fit in rows terminal lines, at
+// least one so the cursor's row is drawn however short the pane is.
+func visibleSessions(rows int) int {
+	return max(rows/sessionRowLines, 1)
+}
+
+// listWindow returns the half-open range of a list of n items to draw when
+// capacity of them fit and the cursor sits on the given item. The window keeps
+// the cursor as near the middle as the ends allow: it stays at the top until
+// the cursor passes the middle, then follows it a row at a time, and stops
+// against the last item — so the cursor is always drawn and the list never
+// scrolls past its end.
+func listWindow(n, cursor, capacity int) (start, end int) {
+	if n <= capacity {
+		return 0, n
+	}
+	start = min(max(cursor-capacity/2, 0), n-capacity)
+	return start, start + capacity
+}
+
+// listPosition is the dim "6/23" counter shown beside the sessions title once
+// the list is taller than the pane, so a scrolled list says where in it the
+// cursor sits. It is empty whenever the whole list is on screen.
+func (m Model) listPosition(rows int) string {
+	if m.filter.active {
+		rows -= 2
+	}
+	ss := m.sessions()
+	if len(ss) <= visibleSessions(rows) || m.cursor >= len(ss) {
+		return ""
+	}
+	return m.theme.DimStyle.Render(
+		fmt.Sprintf("  %d/%d", m.cursor+1, len(ss)),
+	)
 }
 
 func (m Model) sessionRow(i int, s *registry.Session, w int) string {
@@ -479,7 +535,10 @@ func (m Model) compactView() string {
 	parts := []string{
 		m.tabBar(),
 		"",
-		m.sessionList(max(m.width, m.cfg.Layout.CompactWidth)),
+		m.sessionList(
+			max(m.width, m.cfg.Layout.CompactWidth),
+			max(m.height-4, sessionRowLines),
+		),
 		m.menuBar(),
 	}
 	if s := m.statusLine(); s != "" {

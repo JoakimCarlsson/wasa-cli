@@ -12,6 +12,7 @@ import (
 	"github.com/joakimcarlsson/wasa-cli/internal/bootstrap"
 	"github.com/joakimcarlsson/wasa-cli/internal/finish"
 	"github.com/joakimcarlsson/wasa-cli/internal/hook"
+	"github.com/joakimcarlsson/wasa-cli/internal/mcp"
 	"github.com/joakimcarlsson/wasa-cli/internal/profile"
 	"github.com/joakimcarlsson/wasa-cli/internal/record"
 	"github.com/joakimcarlsson/wasa-cli/internal/registry"
@@ -75,6 +76,12 @@ type ops struct {
 	// hook-emitting agent, installs the lifecycle hook that makes it report
 	// status to wasa. It returns the environment the program is spawned with.
 	prepareHooks func(home, sessionID, program string, env []string) []string
+	// installMCP writes the profile's declared MCP servers into the new
+	// worktree's agent MCP configuration, so the launched agent starts with
+	// them. Best-effort: an agent with no MCP mechanism is skipped and a
+	// write failure logs one warning, leaving the session to launch without
+	// them.
+	installMCP func(worktreePath, program string, prof registry.Profile)
 	// installRecordHooks installs the session-recording hook configuration
 	// into the new worktree for a supported agent, so the session's
 	// transcript and commits are captured as checkpoints. Best-effort: a
@@ -119,6 +126,7 @@ func defaultOps() ops {
 			return backend.Default().SpawnEnv(name, dir, env, program)
 		},
 		prepareHooks:       prepareHooks,
+		installMCP:         installMCPServers,
 		installRecordHooks: installRecordHooks,
 	}
 }
@@ -141,6 +149,28 @@ func installRecordHooks(worktreePath, program string) {
 	if err := record.InstallHooks(worktreePath, tool, exe); err != nil {
 		log.Printf("wasa: session recording hooks not installed: %v", err)
 	}
+}
+
+// installMCPServers writes prof's declared MCP servers into the worktree's
+// agent MCP configuration so the launched agent is started with them. An agent
+// that declares no MCP mechanism is skipped — the declared "not supported",
+// never a launch failure — and, as with recording, a write failure logs one
+// warning and the session still launches.
+func installMCPServers(
+	worktreePath, program string, prof registry.Profile,
+) {
+	if err := mcp.Install(
+		worktreePath, baseExe(program), prof.MCPServers,
+	); err != nil {
+		log.Printf("wasa: MCP servers not installed: %v", err)
+	}
+}
+
+// MCPSupported reports whether program's base executable can be handed the
+// MCP servers a profile declares. It is what a caller checks before telling
+// the user their declaration will not reach this agent.
+func MCPSupported(program string) bool {
+	return mcp.Supported(baseExe(program))
 }
 
 // prepareHooks adds the WASA_SESSION and WASA_HOME variables every session needs
@@ -350,6 +380,7 @@ func createWorktreeSession(
 		return nil, err
 	}
 
+	o.installMCP(worktreePath, program, prof)
 	o.installRecordHooks(worktreePath, program)
 
 	tmuxName := registry.TmuxName(ws.ID, sessionID)
@@ -600,6 +631,7 @@ func resumeSession(
 			return err
 		}
 
+		o.installMCP(worktreePath, s.Program, prof)
 		o.installRecordHooks(worktreePath, s.Program)
 
 		s.WorktreePath = worktreePath

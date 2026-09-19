@@ -11,6 +11,21 @@ type Autonomy struct {
 	Aliases []string
 }
 
+// MCP is an agent's MCP-server configuration convention: the file inside the
+// working tree wasa writes a session's declared servers into, and the
+// top-level key the name-to-server map lives under in it. An agent with no
+// MCP mechanism declares nil, a visible "not supported" rather than an
+// accidental omission.
+type MCP struct {
+	// Path is the config file's slash-separated path relative to the working
+	// tree root (".mcp.json", ".gemini/settings.json").
+	Path string
+	// Key is the top-level object key holding the name-to-server map. Every
+	// agent wasa knows spells it "mcpServers"; the field keeps the writer from
+	// hardcoding that for the one that will not.
+	Key string
+}
+
 // Agent is one CLI's declared capabilities across every seam that needs to
 // know about it. A capability an agent legitimately lacks is declared as its
 // zero value (empty string / nil), a visible "not supported" rather than an
@@ -50,6 +65,10 @@ type Agent struct {
 	// with "too many arguments" unless the prompt arrives behind -p.
 	PromptFlag string
 
+	// MCP is the agent's MCP-server configuration convention, or nil when the
+	// agent has no MCP mechanism wasa can write to.
+	MCP *MCP
+
 	// RecorderTool is the recording tool name this agent binds to — the
 	// value a record.Recorder implementation returns from Tool() — or "" when
 	// the agent has no recording integration. It is deliberately distinct
@@ -68,6 +87,7 @@ var Agents = []Agent{
 		ConfigDirVar:      "CLAUDE_CONFIG_DIR",
 		ProjectConfigDirs: []string{".claude"},
 		Autonomy:          &Autonomy{Flag: "--dangerously-skip-permissions"},
+		MCP:               &MCP{Path: ".mcp.json", Key: "mcpServers"},
 		RecorderTool:      "claude",
 	},
 	{
@@ -81,6 +101,11 @@ var Agents = []Agent{
 			Flag:    "--dangerously-bypass-approvals-and-sandbox",
 			Aliases: []string{"--yolo", "--full-auto"},
 		},
+		// Codex declares MCP servers as [mcp_servers.<name>] tables in
+		// config.toml, and wasa carries no TOML parser — the same reason
+		// record only ever creates .codex/config.toml when it is missing and
+		// refuses to edit one the user owns. So MCP stays nil, a declared
+		// absence, until wasa can merge TOML safely.
 		RecorderTool: "codex",
 	},
 	{
@@ -97,7 +122,11 @@ var Agents = []Agent{
 			Flag:    "--allow-all-tools",
 			Aliases: []string{"--allow-all", "--yolo"},
 		},
-		PromptFlag:   "-p",
+		PromptFlag: "-p",
+		// Copilot CLI reads its MCP registry from the user-level config
+		// directory (mcp-config.json under GH_CONFIG_DIR), not from anything
+		// repository-scoped, so there is no per-session file wasa can write
+		// without editing the account's global configuration. MCP stays nil.
 		RecorderTool: "copilot",
 	},
 	{
@@ -111,6 +140,10 @@ var Agents = []Agent{
 			Flag:    "--yolo",
 			Aliases: []string{"--approval-mode"},
 		},
+		MCP: &MCP{
+			Path: ".gemini/settings.json",
+			Key:  "mcpServers",
+		},
 		RecorderTool: "gemini",
 	},
 	{
@@ -123,6 +156,7 @@ var Agents = []Agent{
 		Exe:               "cursor-agent",
 		ProjectConfigDirs: []string{".cursor"},
 		Autonomy:          &Autonomy{Flag: "--force"},
+		MCP:               &MCP{Path: ".cursor/mcp.json", Key: "mcpServers"},
 		RecorderTool:      "cursor",
 	},
 	{
@@ -133,6 +167,8 @@ var Agents = []Agent{
 		// override env var, so ConfigDirVar stays "" — a declared absence.
 		// ProjectConfigDirs is likewise nil: aider's project config is loose
 		// files (.aider.conf.yml, .aider.chat.history.md), not a directory.
+		// Aider has no MCP support at all — no config file, no flag — so MCP
+		// is nil for it the same way ConfigDirVar is "".
 		Exe:          "aider",
 		Autonomy:     &Autonomy{Flag: "--yes-always"},
 		RecorderTool: "aider",
@@ -211,6 +247,23 @@ func PromptFlag(program string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// MCPConfig returns the MCP configuration convention declared for program —
+// matched against an agent's Exe — and whether wasa can inject MCP servers
+// into it at all. An unknown program and a declared agent with no MCP
+// mechanism both report false, which every caller reads as "not supported".
+func MCPConfig(program string) (MCP, bool) {
+	for _, a := range Agents {
+		if a.Exe != program {
+			continue
+		}
+		if a.MCP == nil {
+			return MCP{}, false
+		}
+		return *a.MCP, true
+	}
+	return MCP{}, false
 }
 
 // AllProjectConfigDirs returns the deduplicated, sorted union of every declared

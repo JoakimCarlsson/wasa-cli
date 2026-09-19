@@ -28,6 +28,20 @@ const (
 	shortLen = 8
 )
 
+// MCPServer is one Model Context Protocol server a session's agent is
+// launched with. A local server sets Command and, optionally, Args and Env; a
+// remote one sets URL and Type ("http" or "sse"). The fields are the
+// vocabulary the supported agents' own MCP configuration already speaks, so
+// wasa writes them through verbatim rather than translating per agent.
+type MCPServer struct {
+	Type    string            `json:"type,omitempty"`
+	Command string            `json:"command,omitempty"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	URL     string            `json:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
 // Profile is a named configuration scope within a workspace: the environment
 // and per-program account a session launched under it should use. A workspace
 // holds one or more profiles and its first is the default.
@@ -38,6 +52,12 @@ const (
 // set, overrides the launched program's config/home directory by way of that
 // program's config-dir environment variable, enabling a per-repository account.
 // PostWorktreeHook is a command run after a worktree is created for the session.
+//
+// MCPServers declares the MCP servers a session launched under this profile
+// should hand its agent, keyed by server name. They are written into the
+// launched agent's own MCP configuration inside the session worktree (see
+// internal/mcp); an agent with no MCP mechanism is left alone rather than
+// failing the launch.
 //
 // LinkPaths, CopyPaths and PortEnv are the declarative worktree bootstrap: when
 // a worktree session is created, each LinkPaths entry is symlinked and each
@@ -58,6 +78,8 @@ type Profile struct {
 	LinkPaths        []string          `json:"linkPaths,omitempty"`
 	CopyPaths        []string          `json:"copyPaths,omitempty"`
 	PortEnv          string            `json:"portEnv,omitempty"`
+
+	MCPServers map[string]MCPServer `json:"mcpServers,omitempty"`
 }
 
 // Workspace is a per-repository scope. Its ID is content-addressed from the
