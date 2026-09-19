@@ -178,6 +178,7 @@ const (
 	ActionCursorUp         = "cursor-up"
 	ActionCursorDown       = "cursor-down"
 	ActionFilter           = "filter"
+	ActionGlobalFilter     = "global-filter"
 	ActionWorkspaceAdd     = "workspace-add"
 	ActionWorkspaceDelete  = "workspace-delete"
 	ActionRecordToggle     = "record-toggle"
@@ -214,6 +215,7 @@ var defaultBindings = []binding{
 	{ActionCursorUp, modeList, KeyList{"up"}},
 	{ActionCursorDown, modeList, KeyList{"down"}},
 	{ActionFilter, modeList, KeyList{"ctrl+f"}},
+	{ActionGlobalFilter, modeList, KeyList{"ctrl+g"}},
 	{ActionWorkspaceAdd, modeList, KeyList{"w"}},
 	{ActionWorkspaceDelete, modeList, KeyList{"W"}},
 	{ActionRecordToggle, modeList, KeyList{"R"}},

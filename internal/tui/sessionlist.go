@@ -53,6 +53,8 @@ func (m Model) View() tea.View {
 		content = component.Modal(m.editor.View(), m.listView())
 	case modeCheckpointSearch:
 		content = component.Modal(m.checkpointSearchView(), m.listView())
+	case modeGlobalFilter:
+		content = component.Modal(m.globalFilterView(), m.listView())
 	default:
 		content = m.listView()
 	}
@@ -324,6 +326,14 @@ func (m Model) highlightMatch(
 		return title, ref
 	}
 	_, text := parseFilterQuery(m.filter.input.Value())
+	return m.highlightFuzzy(title, ref, text)
+}
+
+// highlightFuzzy accents the characters of a title and ref that text matches as
+// a fuzzy subsequence, leaving either untouched when it does not match at all.
+// It is the one place the per-workspace filter and the global jump agree on how
+// a match is emphasised; an empty query highlights nothing.
+func (m Model) highlightFuzzy(title, ref, text string) (string, string) {
 	if text == "" {
 		return title, ref
 	}
@@ -386,6 +396,7 @@ func (m Model) menuBar() string {
 		{m.menuKey(config.ActionPause), "pause"},
 		{m.menuKey(config.ActionResume), "resume"},
 		{m.menuKey(config.ActionFilter), "filter"},
+		{m.menuKey(config.ActionGlobalFilter), "jump"},
 		{m.menuKey(config.ActionWorkspaceAdd), "+ws"},
 		{m.menuKey(config.ActionWorkspaceDelete), "-ws"},
 		{m.menuKey(config.ActionRecordToggle), "record"},
