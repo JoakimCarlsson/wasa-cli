@@ -108,7 +108,9 @@ func (c *Color) UnmarshalJSON(b []byte) error {
 // exited colour the status dots; title and desc are the row text greys; selection
 // fg/bg are the highlighted-row colours; danger is the destructive accent; onAccent
 // is the text laid over an accent fill (tabs, buttons); inactiveBtnBg is the
-// unfocused button fill; and the menu greys colour the footer hint bar.
+// unfocused button fill; and the menu greys colour the footer hint bar. Syntax
+// is not a colour but the name of the Chroma style the diff pane colourises
+// source with; an unknown name falls back to the cockpit default.
 type Theme struct {
 	Accent        Color `json:"accent"`
 	Running       Color `json:"running"`
@@ -127,6 +129,8 @@ type Theme struct {
 	MenuKey       Color `json:"menuKey"`
 	MenuDesc      Color `json:"menuDesc"`
 	MenuSep       Color `json:"menuSep"`
+
+	Syntax string `json:"syntax"`
 }
 
 // Layout controls the cockpit's column sizing. ListColFrac is the fraction of the
@@ -185,6 +189,7 @@ const (
 	ActionCheckpoints      = "checkpoints"
 	ActionCheckpointSearch = "checkpoint-search"
 	ActionConfig           = "config"
+	ActionHelp             = "help"
 	ActionQuit             = "quit"
 )
 
@@ -222,6 +227,7 @@ var defaultBindings = []binding{
 	{ActionCheckpoints, modeList, KeyList{"c"}},
 	{ActionCheckpointSearch, modeList, KeyList{"/"}},
 	{ActionConfig, modeList, KeyList{","}},
+	{ActionHelp, modeList, KeyList{"?"}},
 	{ActionQuit, modeList, KeyList{"q", "ctrl+c"}},
 }
 
@@ -248,6 +254,7 @@ func Default() Config {
 			MenuKey:       Color{Light: "#655F5F", Dark: "#cfcaca"},
 			MenuDesc:      Color{Light: "#7A7474", Dark: "#9C9494"},
 			MenuSep:       Color{Light: "#DDDADA", Dark: "#3C3C3C"},
+			Syntax:        "onedark",
 		},
 		Layout: Layout{
 			ListColFrac:   0.34,

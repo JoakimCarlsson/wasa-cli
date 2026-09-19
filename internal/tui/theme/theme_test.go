@@ -46,7 +46,7 @@ func TestNewThemeOverridesAccent(t *testing.T) {
 	want := lipgloss.Color("#abcdef")
 	for name, got := range map[string]color.Color{
 		"title":   th.TitleStyle.GetForeground(),
-		"pane":    th.PaneStyle.GetBorderTopForeground(),
+		"paneTab": th.PaneTabActiveStyle.GetForeground(),
 		"banner":  th.BannerStyle.GetForeground(),
 		"selBg":   th.ActiveTabStyle.GetBackground(),
 		"matched": th.MatchStyle.GetForeground(),

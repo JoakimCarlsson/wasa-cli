@@ -40,6 +40,7 @@ const (
 	modeCheckpoints
 	modeCheckpointSearch
 	modeGlobalFilter
+	modeHelp
 )
 
 // Model is the cockpit's Bubble Tea model. It holds the registry it drives, the
@@ -544,6 +545,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateCheckpointSearch(msg)
 	case modeGlobalFilter:
 		return m.updateGlobalFilter(msg)
+	case modeHelp:
+		return m.updateHelp(msg)
 	}
 	return m.updateList(msg)
 }
@@ -610,6 +613,8 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.resume()
 	case config.ActionConfig:
 		return m.enterConfig()
+	case config.ActionHelp:
+		return m.enterHelp()
 	}
 	return m, m.afterListChange()
 }

@@ -228,10 +228,10 @@ func TestSessionRowShowsRecordedIndicator(t *testing.T) {
 	}
 }
 
-// TestSubLineDropsRecordedTokenWhenNarrow is the layout guard: at a width too
-// small for the indicator the sub-line drops it rather than wrapping or
-// overflowing the column.
-func TestSubLineDropsRecordedTokenWhenNarrow(t *testing.T) {
+// TestSessionRowFitsColumnWhenNarrow is the layout guard: at every width the
+// row's two lines fit the column exactly rather than wrapping or overflowing,
+// however much metadata the session carries.
+func TestSessionRowFitsColumnWhenNarrow(t *testing.T) {
 	reg, err := registry.Open(t.TempDir())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -241,15 +241,19 @@ func TestSubLineDropsRecordedTokenWhenNarrow(t *testing.T) {
 	m.recorded["rec"] = record.Entry{
 		Meta: record.Meta{SessionID: "rec", Commits: []string{"x", "y"}},
 	}
-	s := &registry.Session{ID: "rec", ProfileName: "claude"}
+	s := &registry.Session{
+		ID: "rec", ProfileName: "claude",
+		Branch: "feature/a-fairly-long-branch-name",
+	}
+	reg.AddSession(s)
 
 	for _, w := range []int{20, 30, 40, 80} {
-		out := m.subLine(
-			s, "feature/a-fairly-long-branch-name",
-			sessionstatus.Idle, m.theme.RowDescStyle, false, w,
-		)
-		if got := ansi.StringWidth(out); got > w {
-			t.Fatalf("sub-line width %d exceeds column %d: %q", got, w, out)
+		for _, line := range strings.Split(m.sessionRow(0, s, w), "\n") {
+			if got := ansi.StringWidth(line); got > w {
+				t.Fatalf(
+					"row line width %d exceeds column %d: %q", got, w, line,
+				)
+			}
 		}
 	}
 }

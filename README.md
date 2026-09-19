@@ -71,9 +71,30 @@ Run `wasa` with no arguments to open the interactive cockpit (TUI):
 wasa
 ```
 
+The cockpit draws no boxes: the workspace tabs sit flush at the top, the two
+body columns are separated by whitespace under a shared rule, and the content
+runs to the edges of the terminal on its own background. The footer carries the
+keys that apply to what is selected on the left and the workspace's session
+count and recording state on the right; press `?` for the full keymap.
+
 From the cockpit you can browse workspaces, add a git repository as a workspace
-(`w`) or remove one (`W`), create sessions, and attach to running agents. The
-same operations are available as subcommands for scripting:
+(`w`) or remove one (`W`), create sessions, and attach to running agents.
+
+The right pane cycles with `ctrl+t` across four tabs:
+
+| Tab        | Shows                                                              |
+| ---------- | ------------------------------------------------------------------ |
+| `Overview` | the session drawn from wasa's own record: where it runs, what it has changed, what has been recorded of it |
+| `Diff`     | a syntax-highlighted diff of the session against its base commit   |
+| `Screen`   | a live capture of the agent's own terminal                         |
+| `Terminal` | a companion shell in the session's directory                       |
+
+Source in the diff is colourised with [Chroma](https://github.com/alecthomas/chroma);
+set `theme.syntax` in `config.json` (or the `syntax` field in the in-cockpit
+settings panel) to any Chroma style name. The checkpoint browser renders an
+agent's intent and transcript as the markdown they were written in.
+
+The same operations are available as subcommands for scripting:
 
 | Command       | Description                                                       |
 | ------------- | ----------------------------------------------------------------- |

@@ -51,11 +51,14 @@ place so the CLI and the TUI drive the same path.
 
 - `cmd/wasa/` — `main` (`//go:build !windows`) calls `cli.Run(version, os.Args[1:])`. `main_windows.go` is the WSL stub. `version` via `-ldflags "-X main.version=…"`.
 - `cli/` — flag parsing, usage, subcommand dispatch.
-- `tui/` — the cockpit (Bubble Tea): one tab per workspace, sessions with status dots, create/attach/kill. Drives the seams; never reimplements them.
-- `tui/theme/` — resolved lipgloss styles. A leaf package (config + lipgloss only) so every layer imports `Theme` without an import cycle.
+- `tui/` — the cockpit (Bubble Tea): one tab per workspace, sessions with status dots, create/attach/kill. Drives the seams; never reimplements them. **The frame is full-bleed** — no pane borders, no boxed tabs: columns are separated by `layout.PaneGutter` and aligned by a shared rule (`paneHeader` on the left, `component.TabStrip` on the right). Overlays keep their border; body panes must not grow one.
+- `tui/theme/` — resolved lipgloss styles, all built from `Tokens`, the semantic colour layer (`Accent`, `Muted`, `Danger`, …) that config's element-named palette resolves into. A leaf package (config + lipgloss only) so every layer imports `Theme` without an import cycle. Style a new widget from a token, never from a config field.
+- `tui/layout/` — the geometry: the spacing scale (`Tight`/`Snug`/`Loose`) and `Frame`, which turns a terminal size into body height and column widths. A leaf package. Views ask for a `Frame`; they do not re-derive the arithmetic locally.
+- `tui/syntax/` — Chroma wrapper. A per-file `Highlighter` renders each token with a caller-supplied base style, so highlighted code keeps the diff band behind it.
+- `tui/markdown/` — Glamour wrapper with a width-keyed renderer cache, for the markdown agents write (checkpoint intent, transcript bodies).
 - `tui/component/` — generic building blocks (keymap, pickers, tab strip, overlay helpers). Knows nothing about registry/sessions/workspaces.
 - `tui/modal/` — full-screen modals (create form, confirm, settings editor).
-- `tui/pane/` — right-pane feature machines (live preview, git diff, companion terminal).
+- `tui/pane/` — right-pane feature machines (natively drawn session overview, git diff, live screen capture, companion terminal). `Overview` is stateless: the root projects the registry into an `OverviewSession` each frame.
 
 ## Hard rules
 

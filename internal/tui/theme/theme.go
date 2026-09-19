@@ -1,10 +1,7 @@
 package theme
 
 import (
-	"image/color"
-
 	"charm.land/lipgloss/v2"
-	"charm.land/lipgloss/v2/compat"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
 )
@@ -16,9 +13,17 @@ import (
 // accent on borders and the active tab, a green status dot for running and a dim
 // grey one for exited, and a light selection band that flips the row text dark.
 //
+// Every style is derived from Tokens, the semantic colour layer, rather than
+// from a config field directly — so two widgets that mean the same thing get
+// the same colour by construction. Tokens is kept on the Theme so a caller that
+// must compose a colour itself (a syntax highlighter, a one-off badge) draws
+// from the same vocabulary instead of reaching back into the config.
+//
 // The fields are exported so the root view code and the bespoke editors that
 // hold a Theme can read them across the package boundary.
 type Theme struct {
+	Tokens Tokens
+
 	PaneStyle      lipgloss.Style
 	PaneTitleStyle lipgloss.Style
 
@@ -70,73 +75,77 @@ type Theme struct {
 	TitleStyle        lipgloss.Style
 	FocusedLabelStyle lipgloss.Style
 	LabelStyle        lipgloss.Style
-}
 
-// themeColor converts a config.Color to a lipgloss colour. A colour whose light
-// and dark variants are equal becomes a plain lipgloss.Color (identical to a
-// fixed colour); one with distinct variants becomes a compat.AdaptiveColor that
-// lipgloss resolves against the terminal background.
-func themeColor(c config.Color) color.Color {
-	if c.Light == c.Dark {
-		return lipgloss.Color(c.Light)
-	}
-	return compat.AdaptiveColor{
-		Light: lipgloss.Color(c.Light),
-		Dark:  lipgloss.Color(c.Dark),
-	}
+	// RowNumStyle is the row's ordinal gutter and RowMetaStyle its trailing
+	// metadata column — the two weights that give a list row its hierarchy
+	// without a blank line between rows.
+	RowNumStyle     lipgloss.Style
+	RowMetaStyle    lipgloss.Style
+	SelRowNumStyle  lipgloss.Style
+	SelRowMetaStyle lipgloss.Style
+
+	// RuleStyle is the faint horizontal rule that separates sections inside a
+	// pane, and BadgeStyle the small accent-on-nothing label beside a title.
+	RuleStyle  lipgloss.Style
+	BadgeStyle lipgloss.Style
+
+	// StatusStyle is the right-aligned end of the footer, where the cockpit's
+	// own counters sit opposite the key hints.
+	StatusStyle lipgloss.Style
+
+	// HelpKeyStyle and HelpDescStyle are the help overlay's two columns, and
+	// HelpSectionStyle its group headings.
+	HelpKeyStyle     lipgloss.Style
+	HelpDescStyle    lipgloss.Style
+	HelpSectionStyle lipgloss.Style
 }
 
 // NewTheme builds the cockpit's styles from t. New calls it with the resolved
 // theme at startup and applyConfig calls it again when the config changes live.
 func NewTheme(t config.Theme) Theme {
-	accent := themeColor(t.Accent)
-	running := themeColor(t.Running)
-	waiting := themeColor(t.Waiting)
-	idle := themeColor(t.Idle)
-	exited := themeColor(t.Exited)
-	title := themeColor(t.Title)
-	desc := themeColor(t.Desc)
-	selFg := themeColor(t.SelectionFg)
-	selBg := themeColor(t.SelectionBg)
-	danger := themeColor(t.Danger)
-	onAccent := themeColor(t.OnAccent)
-	inactiveBtnBg := themeColor(t.InactiveBtnBg)
+	tok := NewTokens(t)
+
+	accent := tok.Accent
+	running := tok.Success
+	waiting := tok.Warning
+	idle := tok.Info
+	exited := tok.Neutral
+	title := tok.Text
+	desc := tok.Muted
+	selFg := tok.SelectionFg
+	selBg := tok.SelectionBg
+	danger := tok.Danger
+	onAccent := tok.OnAccent
+	inactiveBtnBg := tok.Inactive
 
 	var th Theme
+	th.Tokens = tok
 
-	th.PaneStyle = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(accent)
+	th.PaneStyle = lipgloss.NewStyle()
 
 	th.PaneTitleStyle = lipgloss.NewStyle().
 		Bold(true).
-		Foreground(accent).
-		Padding(0, 1)
+		Foreground(accent)
 
 	th.ActiveTabStyle = lipgloss.NewStyle().
 		Bold(true).
 		Foreground(onAccent).
 		Background(accent).
-		Padding(0, 2)
+		Padding(0, 1)
 
 	th.InactiveTabStyle = lipgloss.NewStyle().
 		Foreground(desc).
-		Padding(0, 2)
+		Padding(0, 1)
 
 	th.PaneTabInactiveStyle = lipgloss.NewStyle().
-		Border(tabBorderWithBottom("┴", "─", "┴"), true).
-		BorderForeground(accent).
 		Foreground(desc).
-		Align(lipgloss.Center)
+		Padding(0, 1)
 	th.PaneTabActiveStyle = lipgloss.NewStyle().
-		Border(tabBorderWithBottom("┘", " ", "└"), true).
-		BorderForeground(accent).
 		Bold(true).
 		Foreground(accent).
-		Align(lipgloss.Center)
-	th.PaneWindowStyle = lipgloss.NewStyle().
-		BorderForeground(accent).
-		Border(lipgloss.RoundedBorder(), false, true, true, true)
+		Underline(true).
+		Padding(0, 1)
+	th.PaneWindowStyle = lipgloss.NewStyle()
 
 	th.RunningDotStyle = lipgloss.NewStyle().Foreground(running)
 	th.WaitingDotStyle = lipgloss.NewStyle().Foreground(waiting)
@@ -163,8 +172,8 @@ func NewTheme(t config.Theme) Theme {
 	th.DiffHunkStyle = lipgloss.NewStyle().Foreground(accent)
 	th.DiffMetaStyle = lipgloss.NewStyle().Foreground(desc)
 
-	addBg := themeColor(t.DiffAddBg)
-	delBg := themeColor(t.DiffDelBg)
+	addBg := tok.AddBg
+	delBg := tok.DelBg
 	th.DiffAddLineStyle = lipgloss.NewStyle().
 		Foreground(title).
 		Background(addBg)
@@ -178,6 +187,8 @@ func NewTheme(t config.Theme) Theme {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(danger).
 		Padding(1, 2)
+
+	th.StatusStyle = lipgloss.NewStyle().Foreground(tok.Faint)
 
 	th.PickerStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -202,28 +213,33 @@ func NewTheme(t config.Theme) Theme {
 
 	th.MenuKeyStyle = lipgloss.NewStyle().
 		Bold(true).
-		Foreground(themeColor(t.MenuKey))
+		Foreground(tok.KeyHint)
 	th.MenuDescStyle = lipgloss.NewStyle().
-		Foreground(themeColor(t.MenuDesc))
+		Foreground(tok.KeyDesc)
 	th.MenuSepStyle = lipgloss.NewStyle().
-		Foreground(themeColor(t.MenuSep))
+		Foreground(tok.Faint)
 
 	th.TitleStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
 	th.FocusedLabelStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
 	th.LabelStyle = lipgloss.NewStyle().Foreground(desc)
 
-	return th
-}
+	th.RowNumStyle = lipgloss.NewStyle().Foreground(tok.Faint)
+	th.RowMetaStyle = lipgloss.NewStyle().Foreground(desc)
+	th.SelRowNumStyle = lipgloss.NewStyle().
+		Background(selBg).
+		Foreground(selFg)
+	th.SelRowMetaStyle = th.SelRowNumStyle
 
-// tabBorderWithBottom is a rounded border with its bottom edge overridden, used
-// for the pane tab boxes: an inactive tab closes its bottom against the window
-// rule with ┴ corners, while the active tab opens its bottom (blank middle, ┘ └
-// corners) so the box flows into the content window beneath it, the way a
-// browser tab connects to its page.
-func tabBorderWithBottom(left, middle, right string) lipgloss.Border {
-	b := lipgloss.RoundedBorder()
-	b.BottomLeft = left
-	b.Bottom = middle
-	b.BottomRight = right
-	return b
+	th.RuleStyle = lipgloss.NewStyle().Foreground(tok.Faint)
+	th.BadgeStyle = lipgloss.NewStyle().
+		Foreground(accent).
+		Bold(true)
+
+	th.HelpKeyStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
+	th.HelpDescStyle = lipgloss.NewStyle().Foreground(title)
+	th.HelpSectionStyle = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(desc)
+
+	return th
 }

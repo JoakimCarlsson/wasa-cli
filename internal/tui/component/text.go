@@ -117,3 +117,17 @@ func padLine(s string, w int) string {
 	}
 	return s
 }
+
+// Clamp keeps at most the first h lines of a block, so a pane body can never
+// grow the frame around it. A block already short enough is returned unchanged
+// — padding it out is the surrounding style's job, not the content's.
+func Clamp(s string, h int) string {
+	if h <= 0 {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) <= h {
+		return s
+	}
+	return strings.Join(lines[:h], "\n")
+}

@@ -566,9 +566,13 @@ func TestTabbedBodyMatchesListPaneHeight(t *testing.T) {
 	diffSess := DiffSession{Selected: true, ID: "s1"}
 	termSess := TermSession{Selected: true, CompanionName: "s1"}
 
-	for _, tab := range []Tab{TabPreview, TabDiff, TabTerminal} {
+	ovSess := OverviewSession{Selected: true, Title: "s1", Agent: "claude"}
+
+	for _, tab := range []Tab{TabOverview, TabPreview, TabDiff, TabTerminal} {
 		tb.active = tab
-		body := tb.Body(th, contentW, bodyH, true, diffSess, termSess)
+		body := tb.Body(
+			th, contentW, bodyH, true, ovSess, diffSess, termSess,
+		)
 		if got := lipgloss.Height(body); got != wantH {
 			t.Errorf(
 				"tab %v: Tabbed.Body height = %d, want %d (list pane height)",

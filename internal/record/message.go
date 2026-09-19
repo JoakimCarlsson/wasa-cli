@@ -397,3 +397,34 @@ func contentText(raw json.RawMessage) string {
 	}
 	return b.String()
 }
+
+// Messages decodes a stored transcript into its turns. ok is false when the
+// bytes are not in the normalized shape — a checkpoint written before
+// normalization, or an agent whose native format nothing parsed — in which case
+// the caller has only RenderTranscript's flat text to show. It exists so a
+// renderer that wants to style each turn itself (the cockpit's checkpoint
+// browser lays the role and the body out separately) does not have to re-parse
+// RenderTranscript's output.
+func Messages(stored []byte) (msgs []Message, ok bool) {
+	if !looksNormalized(stored) {
+		return nil, false
+	}
+	sc := bufio.NewScanner(bytes.NewReader(stored))
+	sc.Buffer(make([]byte, 0, 64<<10), maxTranscriptLine)
+	for sc.Scan() {
+		line := bytes.TrimSpace(sc.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var m Message
+		if json.Unmarshal(line, &m) != nil {
+			continue
+		}
+		m.Content = strings.TrimRight(m.Content, "\n")
+		if m.Role == "" || strings.TrimSpace(m.Content) == "" {
+			continue
+		}
+		msgs = append(msgs, m)
+	}
+	return msgs, true
+}
