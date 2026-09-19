@@ -40,6 +40,7 @@ const (
 	modeCheckpoints
 	modeCheckpointSearch
 	modeGlobalFilter
+	modeHelp
 )
 
 // Model is the cockpit's Bubble Tea model. It holds the registry it drives, the
@@ -544,6 +545,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateCheckpointSearch(msg)
 	case modeGlobalFilter:
 		return m.updateGlobalFilter(msg)
+	case modeHelp:
+		return m.updateHelp(msg)
 	}
 	return m.updateList(msg)
 }
@@ -610,6 +613,8 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.resume()
 	case config.ActionConfig:
 		return m.enterConfig()
+	case config.ActionHelp:
+		return m.enterHelp()
 	}
 	return m, m.afterListChange()
 }
@@ -832,12 +837,12 @@ func workspaceDeleteWarning(n int) string {
 }
 
 // workspaceDeleteCmd tears down ws and removes its tab. It captures ws's
-// companion shell names up front so the bulk teardown can kill them too — they
+// companion shell names up front — its sessions' and its own root shell's so the bulk teardown can kill them too — they
 // are a cockpit artifact the shared launch.DeleteWorkspace path does not know
 // about — then runs the cascade, kills the companions, and persists reg.
 func (m Model) workspaceDeleteCmd(ws *registry.Workspace) tea.Cmd {
 	reg, home, be := m.reg, m.home, m.tmux
-	var companions []string
+	companions := []string{companionName(registry.WorkspaceTmuxName(ws.ID))}
 	for _, s := range m.workspaceSessions() {
 		companions = append(companions, companionName(s.TmuxName))
 	}
@@ -1200,11 +1205,11 @@ func (m Model) enterCreate() (tea.Model, tea.Cmd) {
 // terminal and corrupt the display.
 func (m Model) attach() (tea.Model, tea.Cmd) {
 	s := m.selectedSession()
-	if s == nil {
-		return m, nil
-	}
 	if m.tabbed.Active() == pane.TabTerminal {
 		return m.attachTerm(s)
+	}
+	if s == nil {
+		return m, nil
 	}
 	if s.Status != registry.StatusRunning {
 		m.status = "session has exited; nothing to attach to"
@@ -1223,19 +1228,28 @@ func (m Model) attach() (tea.Model, tea.Cmd) {
 	})
 }
 
-// attachTerm hands the terminal to the selected session's companion shell,
-// spawning it first if it does not yet exist. Like the agent attach it goes
-// through tea.ExecProcess so Bubble Tea releases the terminal for the duration
-// and resumes on detach (C-b d). The companion is independent of the agent, so
-// it attaches even when the agent session itself has exited.
+// attachTerm hands the terminal to the Terminal tab's current shell — the
+// selected session's companion, or the workspace's own shell at the repository
+// root when no session is selected — spawning it first if it does not yet
+// exist. Like the agent attach it goes through tea.ExecProcess so Bubble Tea
+// releases the terminal for the duration and resumes on detach (C-b d). The
+// companion is independent of the agent, so it attaches even when the agent
+// session itself has exited.
 func (m Model) attachTerm(s *registry.Session) (tea.Model, tea.Cmd) {
-	cmd, err := m.tabbed.Terminal.AttachCmd(s.TmuxName, sessionDir(s), m.tmux)
+	base, dir := m.termTarget(s)
+	if base == "" {
+		return m, nil
+	}
+	cmd, err := m.tabbed.Terminal.AttachCmd(base, dir, m.tmux)
 	if err != nil {
 		m.err = err
 		return m, nil
 	}
 
-	sessionID := s.ID
+	sessionID := ""
+	if s != nil {
+		sessionID = s.ID
+	}
 	return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
 		return attachedMsg{sessionID: sessionID, err: err}
 	})

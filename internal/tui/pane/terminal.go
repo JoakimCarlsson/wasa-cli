@@ -22,14 +22,16 @@ type TermMsg struct {
 	err     error
 }
 
-// TermSession is the minimal set of facts the Terminal body needs about the
-// selected session to choose its render state without the pane reaching into
-// the registry: whether one is selected and its companion tmux name, so a
-// capture from a previously selected session is not shown as if it were this
-// one's.
+// TermSession is the minimal set of facts the Terminal body needs about its
+// current target to choose its render state without the pane reaching into the
+// registry: the companion tmux name the body expects — a session's companion,
+// or the workspace's own root shell when no session is selected — so a capture
+// from a previous target is not shown as if it were this one's, and whether
+// that target is the workspace root, which the body labels. An empty
+// CompanionName means there is nothing to show a shell for.
 type TermSession struct {
-	Selected      bool
 	CompanionName string
+	Root          bool
 }
 
 // Terminal owns the companion-shell state for the Terminal tab: the companion
@@ -46,21 +48,21 @@ func NewTerminal() Terminal {
 	return Terminal{terms: make(map[string]bool)}
 }
 
-// EnsureCmd returns a command that lazily spawns the selected session's
-// companion shell — a tmux session distinct from the agent's, named off
-// sessionTmux, running launch.Shell() in dir (the root passes the session's
-// worktree or working directory) — when one does not already exist, then
-// captures it for the Terminal tab body. An existing companion is reused rather
-// than respawned, so it survives cockpit restarts. An empty sessionTmux (no
-// session selected) clears the body.
+// EnsureCmd returns a command that lazily spawns the companion shell for base —
+// a tmux session distinct from any agent's, named off base, running
+// launch.Shell() in dir (the root passes the selected session's worktree, or the
+// workspace's repository path when no session is selected) — when one does not
+// already exist, then captures it for the Terminal tab body. An existing
+// companion is reused rather than respawned, so it survives cockpit restarts. An
+// empty base (no session and no workspace) clears the body.
 func (t *Terminal) EnsureCmd(
-	sessionTmux, dir string,
+	base, dir string,
 	be backend.SessionBackend,
 ) tea.Cmd {
-	if sessionTmux == "" {
+	if base == "" {
 		return func() tea.Msg { return TermMsg{} }
 	}
-	name := companionName(sessionTmux)
+	name := companionName(base)
 	return func() tea.Msg {
 		has, err := be.Has(name)
 		if err != nil {
@@ -78,9 +80,9 @@ func (t *Terminal) EnsureCmd(
 
 // Apply stores a companion capture for rendering and records the companion as
 // live so it is torn down on exit. A delivery whose companion is not expected
-// (no longer the selected session's) is dropped, so a late capture cannot
+// (no longer the current target's) is dropped, so a late capture cannot
 // overwrite the body after the selection moved; the root passes the companion
-// name of the current selection as expected. A spawn or address error is
+// name of the current target as expected. A spawn or address error is
 // returned for the root to surface on the status line.
 func (t *Terminal) Apply(msg TermMsg, expected string) (tea.Cmd, error) {
 	if msg.err != nil {
@@ -100,16 +102,17 @@ func (t *Terminal) Apply(msg TermMsg, expected string) (tea.Cmd, error) {
 	return nil, nil
 }
 
-// AttachCmd ensures the selected session's companion shell exists — spawning it
-// in dir when missing — then returns the unstarted command that attaches to it
-// and records it for teardown. The root wraps the command in tea.ExecProcess so
+// AttachCmd ensures the companion shell for base exists — spawning it in dir
+// when missing — then returns the unstarted command that attaches to it and
+// records it for teardown. The root wraps the command in tea.ExecProcess so
 // Bubble Tea releases the terminal for the attach and resumes on detach. The
 // companion is independent of the agent, so it attaches even when the agent
-// session itself has exited.
+// session itself has exited, and a workspace root shell attaches with no
+// session at all.
 func (t *Terminal) AttachCmd(
-	sessionTmux, dir string, be backend.SessionBackend,
+	base, dir string, be backend.SessionBackend,
 ) (*exec.Cmd, error) {
-	name := companionName(sessionTmux)
+	name := companionName(base)
 	switch has, err := be.Has(name); {
 	case err != nil:
 		return nil, err
@@ -139,25 +142,31 @@ func (t Terminal) Tracking(name string) bool {
 	return t.terms[name]
 }
 
-// Body renders the Terminal tab: a capture of the selected session's companion
-// shell. With no session selected it says so. Until the first capture for the
-// current selection arrives it shows a starting hint, so a stale capture from a
-// previously selected session is never shown as if it were this one's.
+// Body renders the Terminal tab: a capture of the target's companion shell —
+// the selected session's, or the workspace's own shell at the repository root
+// when none is selected, which is labelled so the working directory is never in
+// doubt. With no target at all it says so. Until the first capture for the
+// current target arrives it shows a starting hint, so a stale capture from a
+// previous target is never shown as if it were this one's.
 func (t Terminal) Body(theme theme.Theme, sess TermSession, w, h int) string {
-	if !sess.Selected {
-		return theme.DimStyle.Render("No session selected.")
+	if sess.CompanionName == "" {
+		return theme.DimStyle.Render("No session or workspace selected.")
 	}
 	if t.shown != sess.CompanionName ||
 		strings.TrimSpace(ansi.Strip(t.content)) == "" {
 		return theme.DimStyle.Render("Starting shell…")
 	}
-	return renderCapture(t.content, w, h)
+	if !sess.Root {
+		return renderCapture(t.content, w, h)
+	}
+	return theme.DimStyle.Render("repository root") + "\n" +
+		renderCapture(t.content, w, h-1)
 }
 
-// companionName is the deterministic tmux name of a session's companion shell:
-// its agent tmux name with a _term suffix. Deriving it from the stable tmux
-// name keeps it identical across cockpit restarts and distinct from the agent
-// session, so the two never collide.
-func companionName(sessionTmux string) string {
-	return sessionTmux + "_term"
+// companionName is the deterministic tmux name of a companion shell: its base
+// tmux name — an agent session's, or a workspace's root name — with a _term
+// suffix. Deriving it from the stable base keeps it identical across cockpit
+// restarts and distinct from the agent session, so the two never collide.
+func companionName(base string) string {
+	return base + "_term"
 }

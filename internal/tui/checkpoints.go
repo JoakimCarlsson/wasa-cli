@@ -13,6 +13,8 @@ import (
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
 	"github.com/joakimcarlsson/wasa-cli/internal/record"
 	"github.com/joakimcarlsson/wasa-cli/internal/tui/component"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui/layout"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui/markdown"
 )
 
 // checkpointsState backs the checkpoints view: the workspace repo it reads, the
@@ -39,11 +41,17 @@ type checkpointsState struct {
 	// scrollable body so a large transcript scrolls within the pane and can never
 	// grow the surrounding layout. intent/transcript are kept so the body can be
 	// re-wrapped on resize without re-reading git.
-	vp         viewport.Model
-	intent     string
+	vp       viewport.Model
+	intent   string
+	captured bool
+	loadErr  error
+
+	// messages is the transcript decoded into its turns, so the detail can lay
+	// each role and body out itself and render the body as the markdown agents
+	// actually write. transcript is the flat fallback for a checkpoint whose
+	// bytes record.Messages cannot decode.
+	messages   []record.Message
 	transcript string
-	captured   bool
-	loadErr    error
 }
 
 // newTranscriptViewport builds the detail viewport with the same keymap the diff
@@ -155,6 +163,7 @@ func (m *Model) loadCheckpointDetail() {
 	cs := &m.checkpoints
 	cs.intent = ""
 	cs.transcript = ""
+	cs.messages = nil
 	cs.captured = false
 	cs.loadErr = nil
 	if cs.cursor < 0 || cs.cursor >= len(cs.entries) {
@@ -170,7 +179,11 @@ func (m *Model) loadCheckpointDetail() {
 	}
 	cs.intent = strings.TrimSpace(intent)
 	if len(transcript) > 0 {
-		cs.transcript = record.RenderTranscript(transcript)
+		if msgs, ok := record.Messages(transcript); ok {
+			cs.messages = msgs
+		} else {
+			cs.transcript = record.RenderTranscript(transcript)
+		}
 		cs.captured = true
 	}
 	m.refreshCheckpointsContent()
@@ -201,51 +214,41 @@ func (m *Model) sizeCheckpoints() {
 	if m.mode != modeCheckpoints {
 		return
 	}
+	f := m.frame()
 	var w, h int
-	if m.compactLayout() {
-		w = max(m.width-4, 1)
-		h = max(m.height-6, 1)
+	if f.Compact {
+		w = max(m.width, 1)
+		h = max(m.height-layout.ChromeRows, 1)
 	} else {
-		bodyH := max(m.height-chromeRows, 3)
-		detailW := m.width - m.listColWidth() - 4
-		w = max(detailW-2, 1)
-		h = max(bodyH-2, 1)
+		w = f.Right
+		h = max(f.Body-1, 1)
 	}
 	m.checkpoints.vp.SetWidth(w)
 	m.checkpoints.vp.SetHeight(h)
 	m.refreshCheckpointsContent()
 }
 
-// compactLayout reports whether the terminal is too small for the two-column
-// layout, mirroring listView's threshold check.
-func (m Model) compactLayout() bool {
-	return m.width < m.cfg.Layout.CompactWidth ||
-		m.height < m.cfg.Layout.CompactHeight
-}
-
-// checkpointsView renders the checkpoints browser: a header, the list column and
-// the scrollable detail column, the view's key hints and the shared status line —
-// the same frame shape as listView so it reads as the same app, not a new one.
 func (m Model) checkpointsView() string {
-	if m.compactLayout() {
+	f := m.frame()
+	if f.Compact {
 		return m.checkpointsCompactView()
 	}
-	bodyH := max(m.height-chromeRows, 3)
-	listW := m.listColWidth()
-	detailW := m.width - listW - 4
 
-	list := m.theme.PaneStyle.Width(listW).Height(bodyH).Render(
-		m.paneTitle("checkpoints") + m.checkpointsCountBadge() + "\n" +
-			m.checkpointsListBody(listW),
+	list := m.theme.PaneStyle.Width(f.List).Height(f.Body).Render(
+		m.paneHeader("checkpoints", m.checkpointsCountBadge(), f.List) + "\n" +
+			m.checkpointsListBody(f.List),
 	)
-	detail := m.theme.PaneStyle.Width(detailW).Height(bodyH).Render(
-		m.checkpointsDetailPane(detailW - 2),
+	detail := m.theme.PaneStyle.Width(f.Right).Height(f.Body).Render(
+		m.checkpointsDetailPane(f.Right),
 	)
-	body := lipgloss.JoinHorizontal(lipgloss.Top, list, detail)
+	body := lipgloss.JoinHorizontal(
+		lipgloss.Top, list, m.columnGutter(f.Body), detail,
+	)
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		m.checkpointsHeader(),
+		"",
 		body,
 		m.checkpointsMenuBar(),
 		m.statusLine(),
@@ -256,12 +259,13 @@ func (m Model) checkpointsView() string {
 // for the two panes: the detail fills the width and the list is dropped, its
 // position shown in the header, so browsing still works without overflowing.
 func (m Model) checkpointsCompactView() string {
-	w := max(m.width-2, 1)
+	w := max(m.width, 1)
 	detail := m.theme.PaneStyle.Width(w).Render(
-		m.checkpointsDetailPane(w - 2),
+		m.checkpointsDetailPane(w),
 	)
 	parts := []string{
 		m.checkpointsHeader(),
+		"",
 		detail,
 		m.checkpointsMenuBar(),
 	}
@@ -349,7 +353,7 @@ func (m Model) checkpointRow(i int, e record.Entry, w int) string {
 // when there is nothing to show. w is the pane's inner width.
 func (m Model) checkpointsDetailPane(w int) string {
 	cs := m.checkpoints
-	title := m.paneTitle("detail")
+	title := m.paneHeader("detail", "", w)
 	switch {
 	case cs.listErr != nil:
 		return title + "\n" + m.theme.ErrorStyle.Render(
@@ -368,36 +372,91 @@ func (m Model) checkpointsDetailPane(w int) string {
 }
 
 // checkpointDetailBody builds the scrollable detail: the intent, a compact meta
-// block and the rendered transcript, each under its own heading, wrapped to width
-// so nothing overflows the pane. The transcript is record.RenderTranscript's
-// output — byte-for-byte what `wasa checkpoints show` renders.
+// block and the transcript, each under its own section rule, wrapped to width so
+// nothing overflows the pane. Intent and message bodies are the markdown agents
+// actually write, so they are rendered as markdown rather than shown as source.
+// A checkpoint whose transcript could not be decoded into turns falls back to
+// record.RenderTranscript's flat text — byte-for-byte what `wasa checkpoints
+// show` renders.
 func (m Model) checkpointDetailBody(width int) string {
 	cs := m.checkpoints
 	e := cs.entries[cs.cursor]
 	var b strings.Builder
 
-	b.WriteString(m.theme.PaneTitleStyle.Render("intent"))
+	b.WriteString(m.sectionRule("intent", width))
 	b.WriteByte('\n')
 	if cs.intent == "" {
 		b.WriteString(m.theme.DimStyle.Render("  (none)"))
 	} else {
-		b.WriteString(wrapTo(cs.intent, width))
+		b.WriteString(markdown.RenderIndented(cs.intent, width, layout.Snug))
 	}
 	b.WriteString("\n\n")
 
-	b.WriteString(m.theme.PaneTitleStyle.Render("meta"))
+	b.WriteString(m.sectionRule("meta", width))
 	b.WriteByte('\n')
 	b.WriteString(m.checkpointMeta(e))
 	b.WriteString("\n\n")
 
-	b.WriteString(m.theme.PaneTitleStyle.Render("transcript"))
+	b.WriteString(m.sectionRule("transcript", width))
 	b.WriteByte('\n')
-	if !cs.captured {
-		b.WriteString(m.theme.DimStyle.Render("  (not captured)"))
-	} else {
-		b.WriteString(wrapTo(cs.transcript, width))
-	}
+	b.WriteString(m.transcriptBody(width))
 	return b.String()
+}
+
+// transcriptBody renders the decoded turns — each a role header over its
+// markdown body — or the flat fallback when the transcript could not be
+// decoded, or the note that none was captured.
+func (m Model) transcriptBody(width int) string {
+	cs := m.checkpoints
+	switch {
+	case !cs.captured:
+		return m.theme.DimStyle.Render("  (not captured)")
+	case len(cs.messages) == 0:
+		return wrapTo(cs.transcript, width)
+	}
+	parts := make([]string, 0, len(cs.messages))
+	for _, msg := range cs.messages {
+		parts = append(parts, m.transcriptTurn(msg, width))
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// transcriptTurn renders one turn: a role header — the speaker weighted, the
+// time dim beside it — over the message body laid out as markdown and indented
+// under it, so a transcript reads as a conversation rather than as a log.
+func (m Model) transcriptTurn(msg record.Message, width int) string {
+	head := m.roleStyle(msg.Role).Render(msg.Role)
+	if !msg.Timestamp.IsZero() {
+		head += m.theme.DimStyle.Render(
+			strings.Repeat(" ", layout.Snug) +
+				msg.Timestamp.Local().Format("15:04:05"),
+		)
+	}
+	return head + "\n" +
+		markdown.RenderIndented(msg.Content, width, layout.Snug)
+}
+
+// roleStyle weights a turn's speaker: the user in the accent that marks
+// everything the operator authored, every other role — the agent, a system
+// note — in the quieter body weight, so a long transcript still shows at a
+// glance who said what.
+func (m Model) roleStyle(role string) lipgloss.Style {
+	if strings.EqualFold(role, "user") {
+		return m.theme.BadgeStyle
+	}
+	return m.theme.HelpSectionStyle
+}
+
+// sectionRule renders a section heading followed by a faint rule running to the
+// pane edge, the separator the detail uses between intent, meta and transcript
+// instead of a bare title and a blank line.
+func (m Model) sectionRule(label string, width int) string {
+	head := m.theme.PaneTitleStyle.Render(label) + " "
+	gap := width - ansi.StringWidth(head)
+	if gap <= 0 {
+		return head
+	}
+	return head + m.theme.RuleStyle.Render(strings.Repeat("─", gap))
 }
 
 // checkpointMeta renders the compact meta block: the fields worth reading at a

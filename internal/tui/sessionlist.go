@@ -17,21 +17,23 @@ import (
 	"github.com/joakimcarlsson/wasa-cli/internal/registry"
 	"github.com/joakimcarlsson/wasa-cli/internal/sessionstatus"
 	"github.com/joakimcarlsson/wasa-cli/internal/tui/component"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui/layout"
 	"github.com/joakimcarlsson/wasa-cli/internal/tui/pane"
 	"github.com/joakimcarlsson/wasa-cli/internal/tui/theme"
 	"github.com/joakimcarlsson/wasa-cli/internal/worktree"
 )
 
-// chromeRows is the number of rows the tab bar, menu and status line take from
-// the body height. Unlike the column sizing it is not user-configurable: it
-// tracks the fixed frame the cockpit draws, not a preference.
-const chromeRows = 6
-
 // sessionRowLines is the height of one session row as sessionRows lays it out:
-// its title and detail lines plus the blank line that separates it from the
-// next. It is what turns an available row budget into a count of sessions the
-// list pane can show at once.
-const sessionRowLines = 3
+// a title line and a detail line, with no blank between them — rows are told
+// apart by the weight and alignment inside them, not by the space around them,
+// so twice as many fit on screen. It is what turns an available row budget into
+// a count of sessions the list pane can show at once.
+const sessionRowLines = 2
+
+// rowGutter is the width of a row's ordinal column, including the space after
+// it. The detail line is indented to it so the branch sits under the title
+// rather than under the number.
+const rowGutter = 4
 
 // View implements tea.Model.
 func (m Model) View() tea.View {
@@ -61,6 +63,8 @@ func (m Model) View() tea.View {
 		content = component.Modal(m.checkpointSearchView(), m.listView())
 	case modeGlobalFilter:
 		content = component.Modal(m.globalFilterView(), m.listView())
+	case modeHelp:
+		content = component.Modal(m.helpView(), m.listView())
 	default:
 		content = m.listView()
 	}
@@ -73,63 +77,118 @@ func (m Model) View() tea.View {
 // and preview, the menu and the status line. It is also the background a modal
 // floats over, so it is built independently of which mode is active.
 func (m Model) listView() string {
-	if m.width < m.cfg.Layout.CompactWidth ||
-		m.height < m.cfg.Layout.CompactHeight {
+	f := m.frame()
+	if f.Compact {
 		return m.compactView()
 	}
 
-	tabs := m.tabBar()
-
-	bodyH := max(m.height-chromeRows, 3)
-	listW := m.listColWidth()
-	previewW := m.width - listW - 4
-
-	list := m.theme.PaneStyle.Width(listW).Height(bodyH).Render(
-		m.paneTitle("sessions") + m.recordingBadge() +
-			m.listPosition(bodyH-1) + "\n" +
-			m.sessionList(listW, bodyH-1),
+	rows := max(f.Body-layout.PaneTabRows, 1)
+	list := m.theme.PaneStyle.Width(f.List).Height(f.Body).Render(
+		m.paneHeader("sessions", m.listPosition(rows), f.List) + "\n" +
+			m.sessionList(f.List, rows),
 	)
-	right := m.tabbedRightPane(previewW, bodyH)
-	body := lipgloss.JoinHorizontal(lipgloss.Top, list, right)
+	right := m.tabbedRightPane(f.Right, f.Body)
+	body := lipgloss.JoinHorizontal(
+		lipgloss.Top, list, m.columnGutter(f.Body), right,
+	)
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
-		tabs,
+		m.tabBar(),
+		"",
 		body,
-		m.menuBar(),
+		m.footer(),
 		m.statusLine(),
 	)
+}
+
+// columnGutter is the divider between the two body panes: a faint vertical
+// rule with a space either side, running the height of the body. On the row
+// the two panes rule their headers off, it carries the horizontal rule across
+// instead, so the three lines meet rather than leaving a gap in the middle of
+// the frame.
+func (m Model) columnGutter(h int) string {
+	lines := make([]string, h)
+	for i := range lines {
+		if i == headerRuleRow {
+			lines[i] = m.theme.RuleStyle.Render(
+				strings.Repeat("─", layout.PaneGutter),
+			)
+			continue
+		}
+		lines[i] = " " + m.theme.RuleStyle.Render("│") + " "
+	}
+	return strings.Join(lines, "\n")
+}
+
+// headerRuleRow is the body row both panes draw their header rule on — the
+// line under the pane title and the tab strip. The divider matches it there.
+const headerRuleRow = 1
+
+// footer is the hint bar: the contextual key hints on the left and the
+// cockpit's own counters flush right, the way a shell prompt line carries its
+// status. Both sides are drawn on one row so the frame costs a single line.
+func (m Model) footer() string {
+	left := m.menuBar()
+	right := m.footerStatus()
+	gap := m.width - ansi.StringWidth(left) - ansi.StringWidth(right)
+	if gap < 1 {
+		return component.PadAnsi(left, m.width)
+	}
+	return left + strings.Repeat(" ", gap) + right
+}
+
+// footerStatus is the footer's right-hand end: how many sessions the active
+// workspace holds and whether its repository is being recorded. It is where
+// the recording state lives now that the sessions pane has no title bar to
+// hang a badge off.
+func (m Model) footerStatus() string {
+	if len(m.tabList()) == 0 {
+		return ""
+	}
+	parts := []string{fmt.Sprintf("%d sessions", len(m.sessions()))}
+	if m.currentWorkspace() != nil {
+		if agents := m.recording[m.activeID]; len(agents) > 0 {
+			parts = append(parts, "rec "+strings.Join(agents, ", "))
+		} else {
+			parts = append(parts, "rec off")
+		}
+	}
+	return m.theme.StatusStyle.Render(strings.Join(parts, " · ") + " ")
+}
+
+// frame is the cockpit's resolved geometry for the current terminal size: the
+// body height and the two column widths every view sizes against. One frame
+// keeps the session list, the checkpoints browser and the right pane aligned
+// with each other instead of each re-deriving the arithmetic.
+func (m Model) frame() layout.Frame {
+	return layout.New(m.cfg.Layout, m.width, m.height)
 }
 
 // listColWidth is the width of the session-list column: the configured fraction
 // of the terminal width, floored at the configured minimum so the list stays
 // usable on a narrow terminal.
 func (m Model) listColWidth() int {
-	return max(
-		int(float64(m.width)*m.cfg.Layout.ListColFrac),
-		m.cfg.Layout.MinListWidth,
-	)
+	return m.frame().List
 }
 
 func (m Model) paneTitle(name string) string {
 	return m.theme.PaneTitleStyle.Render(name)
 }
 
-// recordingBadge renders the active workspace's repo-level recording state
-// beside the sessions title: the wired agent names when on, a dim "rec off"
-// when not. It is empty on the orphan tab, which has no repository to record.
-// State is the derived m.recording map, so it tracks a `wasa record` change made
-// in another terminal on the next refresh.
-func (m Model) recordingBadge() string {
-	if m.currentWorkspace() == nil {
-		return ""
+// paneHeader is a body column's heading: the pane's name with an optional
+// trailing badge, over a faint rule spanning the column. It is the left
+// column's counterpart to the right pane's tab strip, so both columns start
+// their content on the same row and share one horizontal baseline — the thing
+// that holds a borderless two-column frame together.
+func (m Model) paneHeader(name, badge string, w int) string {
+	head := m.paneTitle(name) + badge
+	if pad := w - ansi.StringWidth(head); pad > 0 {
+		head += strings.Repeat(" ", pad)
 	}
-	agents := m.recording[m.activeID]
-	if len(agents) == 0 {
-		return m.theme.DimStyle.Render("  rec off")
-	}
-	return "  " + m.theme.RunningDotStyle.Render(recordIcon) +
-		m.theme.DimStyle.Render(" rec: "+strings.Join(agents, ", "))
+	return head + "\n" + m.theme.RuleStyle.Render(
+		strings.Repeat("─", max(w, 0)),
+	)
 }
 
 func (m Model) tabBar() string {
@@ -204,9 +263,6 @@ func (m Model) sessionRows(
 	start, end := listWindow(len(ss), m.cursor, visibleSessions(rows))
 	var b strings.Builder
 	for i := start; i < end; i++ {
-		if i > start {
-			b.WriteString("\n")
-		}
 		b.WriteString(m.sessionRow(i, ss[i], inner))
 		b.WriteString("\n")
 	}
@@ -249,80 +305,102 @@ func (m Model) listPosition(rows int) string {
 	)
 }
 
+// sessionRow renders one session as two lines with no blank between them: the
+// title line carries the ordinal, the status dot and the title against the
+// row's churn and record tokens flush right, and the detail line carries the
+// branch and profile, indented to sit under the title, against the status
+// label flush right. Hierarchy comes from that alignment and from the weight
+// difference between the two lines, so rows stay distinct while packing twice
+// as many onto the pane as a blank-separated list did.
 func (m Model) sessionRow(i int, s *registry.Session, w int) string {
 	selected := i == m.cursor
 	titleS, descS := m.theme.RowTitleStyle, m.theme.RowDescStyle
+	numS := m.theme.RowNumStyle
 	if selected {
 		titleS, descS = m.theme.SelRowTitleStyle, m.theme.SelRowDescStyle
+		numS = m.theme.SelRowNumStyle
 	}
 
 	title, ref := sessionLabel(s)
 	title, ref = m.highlightMatch(title, ref, selected)
 	rs := m.runtimeStatus(s)
-	prefix := fmt.Sprintf(" %d ", i+1)
-	head := fmt.Sprintf("%s%s %s", prefix, statusDot(m.theme, rs), title)
+
+	head := numS.Render(fmt.Sprintf("%*d ", rowGutter-1, i+1)) +
+		m.rowDot(rs, selected) + titleS.Render(" "+title)
 	if len(m.collisions[s.ID]) > 0 {
-		warn := m.theme.ErrorStyle
-		if selected {
-			warn = warn.Background(m.theme.SelRowTitleStyle.GetBackground())
-		}
-		head += " " + warn.Render(collisionIcon)
+		head += " " + m.collisionBadge(selected)
 	}
+
+	detail := descS.Render(
+		strings.Repeat(" ", rowGutter) + branchIcon + " " + ref +
+			" · " + s.ProfileName,
+	)
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
-		titleS.Render(component.PadAnsi(head, w)),
-		m.subLine(s, ref, rs, descS, selected, w),
+		rowLine(titleS, head, m.rowTokens(s, selected), w),
+		rowLine(descS, detail, descS.Render(rs.Label()+" "), w),
 	)
 }
 
-// subLine renders a row's detail line — the branch ref, an optional coloured
-// +N/−M churn token, then the profile and status — padded to w. The churn token
-// carries its own add/remove colours, so the line is composed from segments each
-// rendered with descS rather than one descS.Render over the whole string:
-// embedding the token's colour reset inside a single Render would cut the
-// selection band short for everything after it on the selected row. When the
-// churn token would not fit, the plain line is rendered instead so a row never
-// overflows its column.
-func (m Model) subLine(
-	s *registry.Session,
-	ref string,
-	rs sessionstatus.Status,
-	descS lipgloss.Style,
-	selected bool,
-	w int,
-) string {
-	plain := fmt.Sprintf(
-		"   %s %s · %s · %s", branchIcon, ref, s.ProfileName, rs.Label(),
-	)
+// rowLine composes one line of a list row: left content, right content flush
+// against the column edge, and fill-styled spaces between them so a selection
+// band runs unbroken across the whole width. The left side is truncated when
+// the two would collide, because the right side is the shorter, denser fact.
+func rowLine(fill lipgloss.Style, left, right string, w int) string {
+	if w <= 0 {
+		return left + right
+	}
+	lw, rw := ansi.StringWidth(left), ansi.StringWidth(right)
+	if lw+rw > w {
+		if rw >= w {
+			return component.PadAnsi(left, w)
+		}
+		left = ansi.Truncate(left, w-rw, "…")
+		lw = ansi.StringWidth(left)
+	}
+	return left + fill.Render(strings.Repeat(" ", max(w-lw-rw, 0))) + right
+}
+
+// rowTokens is the title line's right-hand column: the churn and record tokens
+// with a trailing space off the pane edge, or "" when the session has neither.
+func (m Model) rowTokens(s *registry.Session, selected bool) string {
 	churn := m.churnToken(s, selected)
 	rec := m.recordedToken(s, selected)
-	if churn == "" && rec == "" {
-		return descS.Render(component.PadAnsi(plain, w))
+	style := m.theme.RowMetaStyle
+	if selected {
+		style = m.theme.SelRowMetaStyle
 	}
+	switch {
+	case churn == "" && rec == "":
+		return ""
+	case churn == "":
+		return rec + style.Render(" ")
+	case rec == "":
+		return churn + style.Render(" ")
+	}
+	return churn + style.Render(" ") + rec + style.Render(" ")
+}
 
-	pre := fmt.Sprintf("   %s %s ", branchIcon, ref)
-	post := fmt.Sprintf(" · %s · %s", s.ProfileName, rs.Label())
-	base := ansi.StringWidth(pre) + ansi.StringWidth(churn) +
-		ansi.StringWidth(post)
-	if base > w {
-		return descS.Render(component.PadAnsi(plain, w))
+// rowDot is the status dot as it appears in a row: on the selected row it takes
+// the selection band's background so the glyph sits on the band rather than
+// punching a hole in it.
+func (m Model) rowDot(rs sessionstatus.Status, selected bool) string {
+	st := dotStyle(m.theme, rs)
+	if selected {
+		st = st.Background(m.theme.SelRowTitleStyle.GetBackground())
 	}
+	return st.Render(dotIcon(rs))
+}
 
-	sep := " · "
-	used, recSeg := base, ""
-	if rec != "" {
-		add := ansi.StringWidth(sep) + ansi.StringWidth(rec)
-		if base+add <= w {
-			recSeg, used = descS.Render(sep)+rec, base+add
-		}
+// collisionBadge is the warning glyph marking a row whose session shares
+// changed paths with another, on the selection band where one applies.
+func (m Model) collisionBadge(selected bool) string {
+	warn := m.theme.ErrorStyle
+	if selected {
+		warn = warn.Background(m.theme.SelRowTitleStyle.GetBackground())
 	}
-
-	line := descS.Render(pre) + churn + descS.Render(post) + recSeg
-	if tail := w - used; tail > 0 {
-		line += descS.Render(strings.Repeat(" ", tail))
-	}
-	return line
+	return warn.Render(collisionIcon)
 }
 
 // churnToken renders a worktree session's +N/−M churn in the diff add/remove
@@ -412,8 +490,66 @@ func (m Model) tabbedRightPane(contentW, bodyH int) string {
 	s := m.selectedSession()
 	running := s != nil && s.Status == registry.StatusRunning
 	return m.tabbed.Body(
-		m.theme, contentW, bodyH, running, m.diffSession(s), m.termSession(s),
+		m.theme, contentW, bodyH, running,
+		m.overviewSession(s), m.diffSession(s), m.termSession(s),
 	)
+}
+
+// overviewSession projects the selected session and everything the cockpit has
+// derived about it — runtime status, churn, recording, the newest checkpoint,
+// path collisions — into the facts the Overview tab draws. It is the one place
+// the natively drawn pane is fed, so the pane itself stays free of the
+// registry.
+func (m Model) overviewSession(s *registry.Session) pane.OverviewSession {
+	if s == nil {
+		return pane.OverviewSession{}
+	}
+	title, _ := sessionLabel(s)
+	rs := m.runtimeStatus(s)
+	ov := pane.OverviewSession{
+		Selected:     true,
+		Title:        title,
+		Agent:        orUnknown(s.Program),
+		Profile:      s.ProfileName,
+		Status:       rs.Label(),
+		StatusStyle:  dotStyle(m.theme, rs),
+		StatusIcon:   dotIcon(rs),
+		Branch:       s.Branch,
+		WorktreePath: s.WorktreePath,
+		WorkingDir:   s.WorkingDir,
+		BaseCommit:   s.BaseCommit,
+		Backend:      s.TmuxName,
+		Started:      s.CreatedAt,
+		ExitCode:     s.ExitCode,
+		Recording:    m.recording[s.WorkspaceID],
+		ResumedFrom:  s.ResumedFrom,
+	}
+	if c, ok := m.churn[s.ID]; ok {
+		ov.Added, ov.Removed = c.added, c.removed
+		ov.Churned = c.added != 0 || c.removed != 0
+	}
+	if e, ok := m.recorded[s.ID]; ok {
+		ov.Recorded = true
+		ov.Commits = len(e.Meta.Commits)
+		ov.LastRecord = e.When
+	}
+	for _, o := range m.collisions[s.ID] {
+		name := o.SessionID
+		if other, ok := m.reg.Session(o.SessionID); ok {
+			name, _ = sessionLabel(other)
+		}
+		ov.Collisions = append(ov.Collisions, name)
+	}
+	return ov
+}
+
+// orUnknown names a field the registry left empty, so the overview reads as a
+// missing fact rather than a blank line.
+func orUnknown(s string) string {
+	if s == "" {
+		return "—"
+	}
+	return s
 }
 
 // diffSession projects the selected session into the minimal facts the Diff
@@ -431,55 +567,81 @@ func (m Model) diffSession(s *registry.Session) pane.DiffSession {
 	}
 }
 
-// termSession projects the selected session into the minimal facts the Terminal
-// pane's body needs to choose its render state.
+// termSession projects the Terminal tab's current target into the minimal facts
+// its body needs to choose its render state: the selected session's companion,
+// or the active workspace's root shell when no session is selected.
 func (m Model) termSession(s *registry.Session) pane.TermSession {
-	if s == nil {
+	base, _ := m.termTarget(s)
+	if base == "" {
 		return pane.TermSession{}
 	}
 	return pane.TermSession{
-		Selected:      true,
-		CompanionName: companionName(s.TmuxName),
+		CompanionName: companionName(base),
+		Root:          s == nil,
 	}
 }
 
+// menuBar is the footer's key hints: only what applies to the cockpit's
+// current state, ending in the pointer at the help overlay. The full keymap
+// lives behind that key (see help.go) rather than across the footer, so the
+// bar stays short enough to read at a glance instead of becoming a wall of
+// glyphs the eye skips.
 func (m Model) menuBar() string {
-	items := [][2]string{
-		{m.menuKey(config.ActionNew), "new"},
-		{m.menuKey(config.ActionAttach), "attach"},
-		{m.menuKey(config.ActionKill), "kill"},
-		{m.menuKey(config.ActionDelete), "delete"},
-		{m.menuKey(config.ActionPause), "pause"},
-		{m.menuKey(config.ActionResume), "resume"},
-		{m.menuKey(config.ActionFilter), "filter"},
-		{m.menuKey(config.ActionGlobalFilter), "jump"},
-		{m.menuKey(config.ActionWorkspaceAdd), "+ws"},
-		{m.menuKey(config.ActionWorkspaceDelete), "-ws"},
-		{m.menuKey(config.ActionRecordToggle), "record"},
-		{m.menuKey(config.ActionCheckpoints), "ckpts"},
-		{m.menuKey(config.ActionCheckpointSearch), "search"},
-		{m.menuKey(config.ActionTabNext), "tabs"},
-		{m.menuKey(config.ActionPaneTab), "panes"},
-		{
-			m.menuKey(
-				config.ActionCursorUp,
-			) + m.menuKey(
-				config.ActionCursorDown,
-			),
-			"select",
-		},
-		{m.menuKey(config.ActionConfig), "config"},
-		{m.menuKey(config.ActionQuit), "quit"},
-	}
+	items := m.menuItems()
 	parts := make([]string, len(items))
 	for i, it := range items {
-		parts[i] = m.theme.MenuKeyStyle.Render(
-			it[0],
-		) + " " + m.theme.MenuDescStyle.Render(
-			it[1],
-		)
+		parts[i] = m.theme.MenuKeyStyle.Render(it[0]) + " " +
+			m.theme.MenuDescStyle.Render(it[1])
 	}
 	return " " + strings.Join(parts, m.theme.MenuSepStyle.Render(menuSep))
+}
+
+// menuItems picks the handful of hints worth showing now: what to do with the
+// selected session given its status, how to make another, the pane cycle, and
+// help. An action that cannot apply — killing an exited session, filtering a
+// list of one — is left out rather than shown dead.
+func (m Model) menuItems() [][2]string {
+	items := make([][2]string, 0, 6)
+	switch s := m.selectedSession(); {
+	case s != nil:
+		items = append(items, m.selectionItems(s)...)
+	case m.tabbed.Active() == pane.TabTerminal && m.currentWorkspace() != nil:
+		items = append(
+			items, [2]string{m.menuKey(config.ActionAttach), "shell"},
+		)
+	}
+	items = append(items, [2]string{m.menuKey(config.ActionNew), "new"})
+	if len(m.sessions()) > 1 {
+		items = append(
+			items, [2]string{m.menuKey(config.ActionFilter), "filter"},
+		)
+	}
+	items = append(
+		items, [2]string{m.menuKey(config.ActionPaneTab), "panes"},
+	)
+	return append(items, m.helpHint())
+}
+
+// selectionItems are the hints that depend on the selected session's runtime
+// status: a live session offers attach and kill, a paused one resume, an
+// exited one delete.
+func (m Model) selectionItems(s *registry.Session) [][2]string {
+	switch m.runtimeStatus(s) {
+	case sessionstatus.Paused:
+		return [][2]string{
+			{m.menuKey(config.ActionResume), "resume"},
+			{m.menuKey(config.ActionDelete), "delete"},
+		}
+	case sessionstatus.Exited:
+		return [][2]string{
+			{m.menuKey(config.ActionDelete), "delete"},
+		}
+	default:
+		return [][2]string{
+			{m.menuKey(config.ActionAttach), "attach"},
+			{m.menuKey(config.ActionKill), "kill"},
+		}
+	}
 }
 
 // menuKey is the glyph the menu bar shows for an action: the effective primary
@@ -537,9 +699,9 @@ func (m Model) compactView() string {
 		"",
 		m.sessionList(
 			max(m.width, m.cfg.Layout.CompactWidth),
-			max(m.height-4, sessionRowLines),
+			max(m.height-layout.ChromeRows, sessionRowLines),
 		),
-		m.menuBar(),
+		m.footer(),
 	}
 	if s := m.statusLine(); s != "" {
 		parts = append(parts, s)
@@ -572,18 +734,41 @@ func confirmBody(theme theme.Theme, prompt string, s *registry.Session) string {
 	)
 }
 
+// statusDot renders a session's status glyph in its status colour. It is the
+// plain form, with no selection band behind it; a list row uses rowDot, which
+// carries the band.
 func statusDot(theme theme.Theme, s sessionstatus.Status) string {
+	return dotStyle(theme, s).Render(dotIcon(s))
+}
+
+// dotStyle is the colour a status is drawn in, and dotIcon its glyph. They are
+// split from statusDot so a caller that must compose the dot onto a background
+// — a selected row — can restyle it without re-deriving the pairing.
+func dotStyle(theme theme.Theme, s sessionstatus.Status) lipgloss.Style {
 	switch s {
 	case sessionstatus.Waiting:
-		return theme.WaitingDotStyle.Render(waitingIcon)
+		return theme.WaitingDotStyle
 	case sessionstatus.Idle:
-		return theme.IdleDotStyle.Render(idleIcon)
-	case sessionstatus.Exited:
-		return theme.ExitedDotStyle.Render(exitedIcon)
-	case sessionstatus.Paused:
-		return theme.ExitedDotStyle.Render(pausedIcon)
+		return theme.IdleDotStyle
+	case sessionstatus.Exited, sessionstatus.Paused:
+		return theme.ExitedDotStyle
 	default:
-		return theme.RunningDotStyle.Render(runningIcon)
+		return theme.RunningDotStyle
+	}
+}
+
+func dotIcon(s sessionstatus.Status) string {
+	switch s {
+	case sessionstatus.Waiting:
+		return waitingIcon
+	case sessionstatus.Idle:
+		return idleIcon
+	case sessionstatus.Exited:
+		return exitedIcon
+	case sessionstatus.Paused:
+		return pausedIcon
+	default:
+		return runningIcon
 	}
 }
 
@@ -822,24 +1007,36 @@ func (m *Model) paneTick() tea.Cmd {
 	return m.tabbed.Preview.PollOrReconnect(m.previewTarget())
 }
 
-// ensureTermCmd ensures and captures the selected session's companion shell for
-// the Terminal tab. With no session selected it clears the body via an empty
-// target.
-func (m *Model) ensureTermCmd() tea.Cmd {
-	s := m.selectedSession()
-	if s == nil {
-		return m.tabbed.Terminal.EnsureCmd("", "", m.tmux)
+// termTarget is the base tmux name and working directory of the shell the
+// Terminal tab shows: the selected session's companion in its worktree, or —
+// with no session selected — the active workspace's own shell at the repository
+// root, so the tab is still a usable prompt for git and friends on an empty or
+// unselected list. Both are empty on the orphan tab, which has no repository.
+func (m Model) termTarget(s *registry.Session) (string, string) {
+	if s != nil {
+		return s.TmuxName, sessionDir(s)
 	}
-	return m.tabbed.Terminal.EnsureCmd(s.TmuxName, sessionDir(s), m.tmux)
+	ws := m.currentWorkspace()
+	if ws == nil {
+		return "", ""
+	}
+	return registry.WorkspaceTmuxName(ws.ID), ws.RepoPath
+}
+
+// ensureTermCmd ensures and captures the Terminal tab's current shell. With no
+// target at all it clears the body via an empty base.
+func (m *Model) ensureTermCmd() tea.Cmd {
+	base, dir := m.termTarget(m.selectedSession())
+	return m.tabbed.Terminal.EnsureCmd(base, dir, m.tmux)
 }
 
 // applyTerm routes a companion capture to the Terminal pane, passing the
-// expected companion of the current selection so a stale delivery is dropped,
+// expected companion of the current target so a stale delivery is dropped,
 // and surfaces a spawn or address error on the status line.
 func (m *Model) applyTerm(msg pane.TermMsg) tea.Cmd {
 	expected := ""
-	if s := m.selectedSession(); s != nil {
-		expected = companionName(s.TmuxName)
+	if base, _ := m.termTarget(m.selectedSession()); base != "" {
+		expected = companionName(base)
 	}
 	cmd, err := m.tabbed.Terminal.Apply(msg, expected)
 	if err != nil {
@@ -853,8 +1050,8 @@ func (m *Model) applyTerm(msg pane.TermMsg) tea.Cmd {
 // mirrors the sizing Tabbed.Body applies to the pane: the tab row consumes two
 // rows of the body height above the content window.
 func (m Model) rightPaneSize() (w, h int) {
-	bodyH := max(m.height-chromeRows, 3)
-	return m.width - m.listColWidth() - 4, max(bodyH-2, 1)
+	f := m.frame()
+	return f.Right, max(f.Body-layout.PaneTabRows, 1)
 }
 
 // sizeDiffViewport sizes the diff viewport to the pane body, so its paging math

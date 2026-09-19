@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/joakimcarlsson/wasa-cli/internal/tui/component"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui/syntax"
 	"github.com/joakimcarlsson/wasa-cli/internal/tui/theme"
 	"github.com/joakimcarlsson/wasa-cli/internal/worktree"
 )
@@ -261,8 +262,11 @@ const tab = "    "
 // and ---/+++ noise lines are dropped), each hunk a dim rule carrying its
 // section context, every line an old/new number gutter, and added and removed
 // lines a full-width colour band so changes scan as blocks rather than as lone
-// tinted characters. git emits the diff uncoloured, so the cockpit lays this out
-// itself to match the theme. width is the viewport width the bands fill to.
+// tinted characters. Inside the band the code itself is syntax-coloured with a
+// highlighter built per file from its path, so a diff reads like the editor it
+// came from rather than a wall of one-colour text. git emits the diff
+// uncoloured, so the cockpit lays this out itself to match the theme. width is
+// the viewport width the bands fill to.
 func renderDiff(t theme.Theme, text string, width int) string {
 	width = max(width, 1)
 	contentW := max(width-gutterWidth, 1)
@@ -271,6 +275,7 @@ func renderDiff(t theme.Theme, text string, width int) string {
 		b            strings.Builder
 		oldLn, newLn int
 		firstFile    = true
+		hl           syntax.Highlighter
 	)
 	for _, line := range strings.Split(text, "\n") {
 		switch {
@@ -279,8 +284,10 @@ func renderDiff(t theme.Theme, text string, width int) string {
 				b.WriteByte('\n')
 			}
 			firstFile = false
+			path := diffPath(line)
+			hl = syntax.New(t.Tokens.Syntax, path)
 			b.WriteString(t.DiffFileStyle.Render(
-				component.Pad("▌ "+diffPath(line), width),
+				component.Pad("▌ "+path, width),
 			))
 			b.WriteByte('\n')
 		case isDiffNoise(line):
@@ -292,14 +299,14 @@ func renderDiff(t theme.Theme, text string, width int) string {
 		case strings.HasPrefix(line, "+"):
 			b.WriteString(diffLine(
 				t.DiffAddLineStyle, t.DiffAddStyle.GetForeground(),
-				t, "", newLn, "+", line[1:], contentW,
+				t, hl, "", newLn, "+", line[1:], contentW,
 			))
 			b.WriteByte('\n')
 			newLn++
 		case strings.HasPrefix(line, "-"):
 			b.WriteString(diffLine(
 				t.DiffDelLineStyle, t.DiffDelStyle.GetForeground(),
-				t, itoa(oldLn), 0, "-", line[1:], contentW,
+				t, hl, itoa(oldLn), 0, "-", line[1:], contentW,
 			))
 			b.WriteByte('\n')
 			oldLn++
@@ -311,7 +318,7 @@ func renderDiff(t theme.Theme, text string, width int) string {
 			if strings.HasPrefix(line, " ") {
 				content = line[1:]
 			}
-			b.WriteString(contextLine(t, oldLn, newLn, content, contentW))
+			b.WriteString(contextLine(t, hl, oldLn, newLn, content, contentW))
 			b.WriteByte('\n')
 			oldLn++
 			newLn++
@@ -321,12 +328,14 @@ func renderDiff(t theme.Theme, text string, width int) string {
 }
 
 // diffLine renders one added or removed line: the gutter (only the relevant
-// side numbered) followed by the sign and content on a full-width colour band,
-// with the sign in the strong add/remove colour over the same band.
+// side numbered) followed by the sign and the syntax-coloured content on a
+// full-width colour band, with the sign in the strong add/remove colour over
+// the same band.
 func diffLine(
 	band lipgloss.Style,
 	signColor color.Color,
 	t theme.Theme,
+	hl syntax.Highlighter,
 	oldStr string, newLn int,
 	sign, content string,
 	contentW int,
@@ -335,23 +344,36 @@ func diffLine(
 	if newLn > 0 {
 		newStr = itoa(newLn)
 	}
-	body := component.Pad(sign+expandTabs(content), contentW)
 	signed := band.Foreground(signColor).Bold(true).Render(sign) +
-		band.Render(strings.TrimPrefix(body, sign))
+		fitBand(band, hl.Line(band, expandTabs(content)), max(contentW-1, 0))
 	return gutter(t, oldStr, newStr) + signed
 }
 
-// contextLine renders an unchanged line: both line numbers in the dim gutter and
-// the content aligned under the sign column in the default colour, with no band,
+// contextLine renders an unchanged line: both line numbers in the dim gutter,
+// the content syntax-coloured and aligned under the sign column, with no band,
 // so the surrounding code stays legible while the changed lines carry the tint.
 func contextLine(
 	t theme.Theme,
+	hl syntax.Highlighter,
 	oldLn, newLn int,
 	content string,
 	contentW int,
 ) string {
-	return gutter(t, itoa(oldLn), itoa(newLn)) +
-		component.Pad(" "+expandTabs(content), contentW)
+	plain := lipgloss.NewStyle()
+	return gutter(t, itoa(oldLn), itoa(newLn)) + " " +
+		fitBand(plain, hl.Line(plain, expandTabs(content)), max(contentW-1, 0))
+}
+
+// fitBand truncates or right-pads an already-styled line to exactly w visible
+// cells, padding with band-rendered spaces so a diff band runs unbroken to the
+// edge of the pane rather than stopping where the code does. It counts visible
+// width, so the highlighter's escapes are never sliced mid-sequence.
+func fitBand(band lipgloss.Style, s string, w int) string {
+	vis := ansi.StringWidth(s)
+	if vis > w {
+		return ansi.Truncate(s, w, "…")
+	}
+	return s + band.Render(strings.Repeat(" ", w-vis))
 }
 
 // gutter renders the old/new line-number columns, dimmed; an empty string leaves

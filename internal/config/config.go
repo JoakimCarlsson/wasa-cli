@@ -108,7 +108,9 @@ func (c *Color) UnmarshalJSON(b []byte) error {
 // exited colour the status dots; title and desc are the row text greys; selection
 // fg/bg are the highlighted-row colours; danger is the destructive accent; onAccent
 // is the text laid over an accent fill (tabs, buttons); inactiveBtnBg is the
-// unfocused button fill; and the menu greys colour the footer hint bar.
+// unfocused button fill; and the menu greys colour the footer hint bar. Syntax
+// is not a colour but the name of the Chroma style the diff pane colourises
+// source with; an unknown name falls back to the cockpit default.
 type Theme struct {
 	Accent        Color `json:"accent"`
 	Running       Color `json:"running"`
@@ -127,6 +129,8 @@ type Theme struct {
 	MenuKey       Color `json:"menuKey"`
 	MenuDesc      Color `json:"menuDesc"`
 	MenuSep       Color `json:"menuSep"`
+
+	Syntax string `json:"syntax"`
 }
 
 // Layout controls the cockpit's column sizing. ListColFrac is the fraction of the
@@ -185,6 +189,7 @@ const (
 	ActionCheckpoints      = "checkpoints"
 	ActionCheckpointSearch = "checkpoint-search"
 	ActionConfig           = "config"
+	ActionHelp             = "help"
 	ActionQuit             = "quit"
 )
 
@@ -222,6 +227,7 @@ var defaultBindings = []binding{
 	{ActionCheckpoints, modeList, KeyList{"c"}},
 	{ActionCheckpointSearch, modeList, KeyList{"/"}},
 	{ActionConfig, modeList, KeyList{","}},
+	{ActionHelp, modeList, KeyList{"?"}},
 	{ActionQuit, modeList, KeyList{"q", "ctrl+c"}},
 }
 
@@ -231,23 +237,24 @@ var defaultBindings = []binding{
 func Default() Config {
 	return Config{
 		Theme: Theme{
-			Accent:        Color{Light: "#874BFD", Dark: "#7D56F4"},
-			Running:       both("#51bd73"),
-			Waiting:       both("#e0af68"),
-			Idle:          both("#56b6c2"),
-			Exited:        both("#888888"),
-			Title:         Color{Light: "#1a1a1a", Dark: "#dddddd"},
-			Desc:          Color{Light: "#A49FA5", Dark: "#777777"},
-			SelectionFg:   both("#1a1a1a"),
-			SelectionBg:   both("#dde4f0"),
-			DiffAddBg:     Color{Light: "#e6ffec", Dark: "#1d2b22"},
-			DiffDelBg:     Color{Light: "#ffebe9", Dark: "#33232a"},
-			Danger:        both("#de613e"),
-			OnAccent:      both("230"),
-			InactiveBtnBg: both("236"),
-			MenuKey:       Color{Light: "#655F5F", Dark: "#cfcaca"},
-			MenuDesc:      Color{Light: "#7A7474", Dark: "#9C9494"},
-			MenuSep:       Color{Light: "#DDDADA", Dark: "#3C3C3C"},
+			Accent:        Color{Light: "#0969DA", Dark: "#4493F8"},
+			Running:       Color{Light: "#1A7F37", Dark: "#3FB950"},
+			Waiting:       Color{Light: "#9A6700", Dark: "#D29922"},
+			Idle:          Color{Light: "#1B7C83", Dark: "#39C5CF"},
+			Exited:        Color{Light: "#6E7781", Dark: "#8B949E"},
+			Title:         Color{Light: "#1F2328", Dark: "#E6EDF3"},
+			Desc:          Color{Light: "#656D76", Dark: "#8B949E"},
+			SelectionFg:   Color{Light: "#1F2328", Dark: "#E6EDF3"},
+			SelectionBg:   Color{Light: "#DDE7F5", Dark: "#1C2C44"},
+			DiffAddBg:     Color{Light: "#E6FFEC", Dark: "#12261E"},
+			DiffDelBg:     Color{Light: "#FFEBE9", Dark: "#2D1214"},
+			Danger:        Color{Light: "#CF222E", Dark: "#F85149"},
+			OnAccent:      both("#FFFFFF"),
+			InactiveBtnBg: Color{Light: "#EAEEF2", Dark: "#30363D"},
+			MenuKey:       Color{Light: "#1F2328", Dark: "#C9D1D9"},
+			MenuDesc:      Color{Light: "#656D76", Dark: "#8B949E"},
+			MenuSep:       Color{Light: "#D8DEE4", Dark: "#30363D"},
+			Syntax:        "onedark",
 		},
 		Layout: Layout{
 			ListColFrac:   0.34,

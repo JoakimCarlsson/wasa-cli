@@ -11,6 +11,7 @@ import (
 
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
 	"github.com/joakimcarlsson/wasa-cli/internal/tui/component"
+	"github.com/joakimcarlsson/wasa-cli/internal/tui/syntax"
 	"github.com/joakimcarlsson/wasa-cli/internal/tui/theme"
 )
 
@@ -157,6 +158,23 @@ func configFields() []cfgField {
 			},
 		})
 	}
+
+	fs = append(fs, cfgField{
+		section: "Theme",
+		label:   "syntax",
+		kind:    kindText,
+		get: func(cfg config.Config) string {
+			return cfg.Theme.Syntax
+		},
+		set: func(cfg *config.Config, s string) error {
+			name := strings.TrimSpace(s)
+			if name != "" && !syntax.HasStyle(name) {
+				return fmt.Errorf("unknown syntax style %q", name)
+			}
+			cfg.Theme.Syntax = name
+			return nil
+		},
+	})
 
 	for _, action := range config.Actions() {
 		a := action
