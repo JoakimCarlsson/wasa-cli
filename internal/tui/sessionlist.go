@@ -567,15 +567,17 @@ func (m Model) diffSession(s *registry.Session) pane.DiffSession {
 	}
 }
 
-// termSession projects the selected session into the minimal facts the Terminal
-// pane's body needs to choose its render state.
+// termSession projects the Terminal tab's current target into the minimal facts
+// its body needs to choose its render state: the selected session's companion,
+// or the active workspace's root shell when no session is selected.
 func (m Model) termSession(s *registry.Session) pane.TermSession {
-	if s == nil {
+	base, _ := m.termTarget(s)
+	if base == "" {
 		return pane.TermSession{}
 	}
 	return pane.TermSession{
-		Selected:      true,
-		CompanionName: companionName(s.TmuxName),
+		CompanionName: companionName(base),
+		Root:          s == nil,
 	}
 }
 
@@ -600,8 +602,13 @@ func (m Model) menuBar() string {
 // list of one — is left out rather than shown dead.
 func (m Model) menuItems() [][2]string {
 	items := make([][2]string, 0, 6)
-	if s := m.selectedSession(); s != nil {
+	switch s := m.selectedSession(); {
+	case s != nil:
 		items = append(items, m.selectionItems(s)...)
+	case m.tabbed.Active() == pane.TabTerminal && m.currentWorkspace() != nil:
+		items = append(
+			items, [2]string{m.menuKey(config.ActionAttach), "shell"},
+		)
 	}
 	items = append(items, [2]string{m.menuKey(config.ActionNew), "new"})
 	if len(m.sessions()) > 1 {
@@ -1000,24 +1007,36 @@ func (m *Model) paneTick() tea.Cmd {
 	return m.tabbed.Preview.PollOrReconnect(m.previewTarget())
 }
 
-// ensureTermCmd ensures and captures the selected session's companion shell for
-// the Terminal tab. With no session selected it clears the body via an empty
-// target.
-func (m *Model) ensureTermCmd() tea.Cmd {
-	s := m.selectedSession()
-	if s == nil {
-		return m.tabbed.Terminal.EnsureCmd("", "", m.tmux)
+// termTarget is the base tmux name and working directory of the shell the
+// Terminal tab shows: the selected session's companion in its worktree, or —
+// with no session selected — the active workspace's own shell at the repository
+// root, so the tab is still a usable prompt for git and friends on an empty or
+// unselected list. Both are empty on the orphan tab, which has no repository.
+func (m Model) termTarget(s *registry.Session) (string, string) {
+	if s != nil {
+		return s.TmuxName, sessionDir(s)
 	}
-	return m.tabbed.Terminal.EnsureCmd(s.TmuxName, sessionDir(s), m.tmux)
+	ws := m.currentWorkspace()
+	if ws == nil {
+		return "", ""
+	}
+	return registry.WorkspaceTmuxName(ws.ID), ws.RepoPath
+}
+
+// ensureTermCmd ensures and captures the Terminal tab's current shell. With no
+// target at all it clears the body via an empty base.
+func (m *Model) ensureTermCmd() tea.Cmd {
+	base, dir := m.termTarget(m.selectedSession())
+	return m.tabbed.Terminal.EnsureCmd(base, dir, m.tmux)
 }
 
 // applyTerm routes a companion capture to the Terminal pane, passing the
-// expected companion of the current selection so a stale delivery is dropped,
+// expected companion of the current target so a stale delivery is dropped,
 // and surfaces a spawn or address error on the status line.
 func (m *Model) applyTerm(msg pane.TermMsg) tea.Cmd {
 	expected := ""
-	if s := m.selectedSession(); s != nil {
-		expected = companionName(s.TmuxName)
+	if base, _ := m.termTarget(m.selectedSession()); base != "" {
+		expected = companionName(base)
 	}
 	cmd, err := m.tabbed.Terminal.Apply(msg, expected)
 	if err != nil {

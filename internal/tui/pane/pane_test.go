@@ -564,7 +564,7 @@ func TestTabbedBodyMatchesListPaneHeight(t *testing.T) {
 	)
 
 	diffSess := DiffSession{Selected: true, ID: "s1"}
-	termSess := TermSession{Selected: true, CompanionName: "s1"}
+	termSess := TermSession{CompanionName: "s1"}
 
 	ovSess := OverviewSession{Selected: true, Title: "s1", Agent: "claude"}
 

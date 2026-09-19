@@ -181,6 +181,14 @@ func TmuxName(workspaceID, sessionID string) string {
 	return fmt.Sprintf("wasa_%s_%s", short(workspaceID), short(sessionID))
 }
 
+// WorkspaceTmuxName returns the tmux session name for a workspace's own shell —
+// the one rooted at the repository itself rather than at any session's worktree.
+// The _root suffix keeps it distinct from every TmuxName, whose second segment
+// is a session id.
+func WorkspaceTmuxName(workspaceID string) string {
+	return fmt.Sprintf("wasa_%s_root", short(workspaceID))
+}
+
 // NewSessionID returns a fresh random session identifier.
 func NewSessionID() string {
 	var b [6]byte
