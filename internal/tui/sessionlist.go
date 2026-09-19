@@ -102,16 +102,28 @@ func (m Model) listView() string {
 	)
 }
 
-// columnGutter is the whitespace column between the two body panes. With no
-// borders drawn it is what separates them, so it is a rendered column rather
-// than a join argument — JoinHorizontal would otherwise only space the first
-// line.
+// columnGutter is the divider between the two body panes: a faint vertical
+// rule with a space either side, running the height of the body. On the row
+// the two panes rule their headers off, it carries the horizontal rule across
+// instead, so the three lines meet rather than leaving a gap in the middle of
+// the frame.
 func (m Model) columnGutter(h int) string {
-	return lipgloss.NewStyle().
-		Width(layout.PaneGutter).
-		Height(h).
-		Render("")
+	lines := make([]string, h)
+	for i := range lines {
+		if i == headerRuleRow {
+			lines[i] = m.theme.RuleStyle.Render(
+				strings.Repeat("─", layout.PaneGutter),
+			)
+			continue
+		}
+		lines[i] = " " + m.theme.RuleStyle.Render("│") + " "
+	}
+	return strings.Join(lines, "\n")
 }
+
+// headerRuleRow is the body row both panes draw their header rule on — the
+// line under the pane title and the tab strip. The divider matches it there.
+const headerRuleRow = 1
 
 // footer is the hint bar: the contextual key hints on the left and the
 // cockpit's own counters flush right, the way a shell prompt line carries its

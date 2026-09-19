@@ -139,12 +139,13 @@ func NewTheme(t config.Theme) Theme {
 
 	th.PaneTabInactiveStyle = lipgloss.NewStyle().
 		Foreground(desc).
-		Padding(0, 1)
+		PaddingRight(2)
 	th.PaneTabActiveStyle = lipgloss.NewStyle().
 		Bold(true).
 		Foreground(accent).
 		Underline(true).
-		Padding(0, 1)
+		UnderlineSpaces(false).
+		PaddingRight(2)
 	th.PaneWindowStyle = lipgloss.NewStyle()
 
 	th.RunningDotStyle = lipgloss.NewStyle().Foreground(running)

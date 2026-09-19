@@ -29,10 +29,9 @@ const (
 // view must subtract from the terminal height to get its body height.
 const ChromeRows = TabRow + TabGap + MenuRow + StatusRow
 
-// PaneGutter is the whitespace between the two body columns. With no borders
-// to separate them it is the only thing that does, so it is wider than a
-// single space.
-const PaneGutter = 2
+// PaneGutter is the width of the divider column between the two body panes: a
+// vertical rule with a space either side.
+const PaneGutter = 3
 
 // PaneTabRows is the height the right pane's tab strip occupies above its
 // body: the label row and the rule under it.

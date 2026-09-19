@@ -11,14 +11,14 @@ import (
 	"github.com/joakimcarlsson/wasa-cli/internal/config"
 )
 
-// TestDefaultThemeIsHistoricalPalette pins the resolved default styles to the
-// historical colours, so the zero-config cockpit keeps its exact appearance.
-func TestDefaultThemeIsHistoricalPalette(t *testing.T) {
+// TestDefaultThemeIsDefaultPalette pins the resolved default styles to the
+// shipped palette, so the zero-config cockpit keeps its exact appearance.
+func TestDefaultThemeIsDefaultPalette(t *testing.T) {
 	th := NewTheme(config.Default().Theme)
 
 	wantAccent := compat.AdaptiveColor{
-		Light: lipgloss.Color("#874BFD"),
-		Dark:  lipgloss.Color("#7D56F4"),
+		Light: lipgloss.Color("#0969DA"),
+		Dark:  lipgloss.Color("#4493F8"),
 	}
 	if got := th.TitleStyle.GetForeground(); !reflect.DeepEqual(
 		got,
@@ -26,12 +26,19 @@ func TestDefaultThemeIsHistoricalPalette(t *testing.T) {
 	) {
 		t.Errorf("accent: got %v", got)
 	}
-	if got := th.RunningDotStyle.GetForeground(); got != lipgloss.Color(
-		"#51bd73",
+	wantRunning := compat.AdaptiveColor{
+		Light: lipgloss.Color("#1A7F37"),
+		Dark:  lipgloss.Color("#3FB950"),
+	}
+	if got := th.RunningDotStyle.GetForeground(); !reflect.DeepEqual(
+		got,
+		wantRunning,
 	) {
 		t.Errorf("running dot: got %v", got)
 	}
-	if got := th.ActiveTabStyle.GetForeground(); got != lipgloss.Color("230") {
+	if got := th.ActiveTabStyle.GetForeground(); got != lipgloss.Color(
+		"#FFFFFF",
+	) {
 		t.Errorf("active tab fg: got %v", got)
 	}
 }
