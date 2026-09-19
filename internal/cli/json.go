@@ -7,6 +7,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/joakimcarlsson/wasa-cli/internal/mcp"
 	"github.com/joakimcarlsson/wasa-cli/internal/record"
 	"github.com/joakimcarlsson/wasa-cli/internal/registry"
 	"github.com/joakimcarlsson/wasa-cli/internal/sessionstatus"
@@ -130,6 +131,15 @@ func sessionsPayload(
 // workspacesJSON wraps the workspace list, for the same reason as sessionsJSON.
 type workspacesJSON struct {
 	Workspaces []*registry.Workspace `json:"workspaces"`
+}
+
+// mcpJSON is the payload of `wasa mcp list`: the profile whose declaration is
+// shown, its name-keyed MCP servers, and every agent's MCP standing, so a
+// consumer sees both what is declared and which agents can be handed it.
+type mcpJSON struct {
+	Profile string                        `json:"profile"`
+	Servers map[string]registry.MCPServer `json:"servers"`
+	Agents  []mcp.Support                 `json:"agents"`
 }
 
 // checkpointJSON is one recorded session in --json output. It embeds the

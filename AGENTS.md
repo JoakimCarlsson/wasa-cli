@@ -40,6 +40,7 @@ place so the CLI and the TUI drive the same path.
 - `bootstrap/` — copies/symlinks untracked-but-needed files (deps, `.env`) into a fresh worktree; assigns an isolated dev port.
 - `hook/` — runs a profile's post-worktree hook (deps install, `.env`, cache warm).
 - `profile/` — resolves a profile into the `KEY=VALUE` env injected at launch.
+- `mcp/` — injects a profile's declared MCP servers into a session by writing the launched agent's own MCP config into the worktree. Which file, and under which key, is declared per agent in `agent/`; an agent with no MCP mechanism is skipped, never failed.
 - `repo/` — resolves a directory to its canonical git identity → the content-addressed workspace id.
 - `record/` — session recording: checkpoints (meta + intent + redacted transcript) on `refs/wasa/checkpoints` via git plumbing, agent hook handling, `.claude/settings.json` hook install/remove, read-back. Best-effort by contract: recording never fails a session.
 - `registry/` — persistent repo-keyed data model (workspaces + sessions) as one JSON doc under `$WASA_HOME`; reconciles against tmux on startup.

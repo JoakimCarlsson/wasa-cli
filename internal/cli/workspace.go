@@ -518,6 +518,10 @@ func sessionNew(args []string) error {
 		}
 	}
 
+	if notice := mcpNotice(ws, profileName, program); notice != "" {
+		fmt.Fprintln(os.Stderr, notice)
+	}
+
 	params.InitialPrompt = prompt
 	if cfg, cerr := config.Load(wasaHome()); cerr == nil {
 		if !noHistory && cfg.History.Enabled {
@@ -544,6 +548,27 @@ func sessionNew(args []string) error {
 
 	fmt.Fprintln(os.Stdout, s.TmuxName)
 	return nil
+}
+
+// mcpNotice returns the one-line warning to print when a session's profile
+// declares MCP servers its agent cannot be handed, or "" when there is nothing
+// to say. The declaration is not an error: the session launches exactly as it
+// would with no servers declared, and the notice is what makes that visible
+// rather than silent.
+func mcpNotice(
+	ws *registry.Workspace, profileName, program string,
+) string {
+	if ws == nil || launch.MCPSupported(program) {
+		return ""
+	}
+	prof, err := ws.SelectProfile(profileName)
+	if err != nil || len(prof.MCPServers) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"wasa: %s has no MCP support; %d declared MCP server(s) not injected",
+		program, len(prof.MCPServers),
+	)
 }
 
 // resolvePlainSessionDir resolves the working directory for a plain (no-branch)

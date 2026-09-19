@@ -92,6 +92,8 @@ type recordingOps struct {
 	worktree     string
 	baseCommit   string
 	recordTree   string
+	mcpTree      string
+	mcpServers   map[string]registry.MCPServer
 }
 
 func (o *recordingOps) ops() ops {
@@ -128,6 +130,12 @@ func (o *recordingOps) ops() ops {
 		},
 		prepareHooks: func(_, _, _ string, env []string) []string {
 			return env
+		},
+		installMCP: func(
+			worktreePath, _ string, prof registry.Profile,
+		) {
+			o.mcpTree = worktreePath
+			o.mcpServers = prof.MCPServers
 		},
 		installRecordHooks: func(worktreePath, _ string) {
 			o.recordTree = worktreePath
